@@ -10,7 +10,7 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 
 | 阶段 | 名称 | 状态 | 一句话说明 |
 |------|------|------|-----------|
-| Phase 1 | 骨架 + 协议透传（含 Streaming） | 📋 待开始 | Node/TS 单进程服务、Anthropic Messages 端点、SSE 流式透传、SQLite、Vite 前端骨架 |
+| Phase 1 | 骨架 + 协议透传（含 Streaming） | ✅ 已完成 | Node/TS 单进程服务、Anthropic Messages 端点、SSE 流式透传、SQLite、Vite 前端骨架 |
 | Phase 2 | Advisor 视图 + Fan-out + Concat 拼接 | 📋 待开始 | MoM 核心流程，always 触发、无缓存 |
 | Phase 3 | 触发粒度 + Fanout 缓存 + Cache 装饰 + 成本分账 | 📋 待开始 | user_turn / per_iteration 双模式、advisor 缓存、system_and_3 marker、Trace 落盘 |
 | Phase 4 | Dashboard 后端 API | 📝 略写 | traces / metrics / settings / comparison 四组 API |

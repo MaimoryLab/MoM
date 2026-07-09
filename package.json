@@ -1,0 +1,31 @@
+{
+  "name": "mom",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MoM (Mixture of Models) — Anthropic Messages API gateway that fans out to multiple advisor models and aggregates their references",
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').copyFileSync('src/storage/schema.sql','dist/storage/schema.sql')\"",
+    "build:web": "npm run build --workspace=web",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/static": "^7.0.4",
+    "better-sqlite3": "^11.3.0",
+    "fastify": "^4.28.1",
+    "undici": "^6.19.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.14.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
