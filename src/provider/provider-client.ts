@@ -3,7 +3,7 @@ import type {
   AnthropicMessagesRequest,
   AnthropicMessagesResponse,
 } from '../types/anthropic.js';
-import type { MoMSettings } from '../types/mom.js';
+import type { ProviderConfig } from '../types/mom.js';
 
 export class ProviderError extends Error {
   statusCode: number;
@@ -18,9 +18,9 @@ export class ProviderError extends Error {
   }
 }
 
-export function buildAuthHeaders(settings: MoMSettings): Record<string, string> {
-  const key = settings.provider.api_key;
-  if (settings.provider.auth_style === 'x-api-key') {
+export function buildAuthHeaders(provider: ProviderConfig): Record<string, string> {
+  const key = provider.api_key;
+  if (provider.auth_style === 'x-api-key') {
     return {
       'x-api-key': key,
       'anthropic-version': '2023-06-01',
@@ -38,13 +38,13 @@ export function buildProviderURL(baseURL: string): string {
 
 export async function passthroughCall(
   req: AnthropicMessagesRequest,
-  settings: MoMSettings,
+  provider: ProviderConfig,
 ): Promise<AnthropicMessagesResponse> {
-  const url = buildProviderURL(settings.provider.base_url);
+  const url = buildProviderURL(provider.base_url);
   const headers = {
     'content-type': 'application/json',
     accept: 'application/json',
-    ...buildAuthHeaders(settings),
+    ...buildAuthHeaders(provider),
   };
   const res = await request(url, {
     method: 'POST',

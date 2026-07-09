@@ -6,6 +6,91 @@
 
 ---
 
+## [2026-07-09-2] 配置分层：.env（provider 秘钥）+ mom.config.json（业务配置）+ SQLite（运行时数据）
+
+### 环境要求
+
+| 依赖 | 版本要求 | 备注 |
+|------|---------|------|
+| Node.js | >= 22.13.0 | 与前一记录相同；额外用到 v22 原生 `--env-file` |
+| npm | 随 Node 22 自带 | 支持 workspaces |
+| SQLite | 无需单独安装 | 通过 Node 内置 `node:sqlite` 模块 |
+
+### 安装与首次启动
+
+```bash
+# 1) 装依赖
+npm install
+
+# 2) 建立 .env（部署配置：秘钥与端口）
+cp .env.example .env
+# 编辑 .env，至少填 PROVIDER_BASE_URL 与 PROVIDER_API_KEY
+
+# 3) 构建前端 dashboard 骨架（可选）
+npm run build:web
+
+# 4) 启动网关（内部走 --env-file=.env）
+npm run dev
+# 期望："MoM gateway listening on 3000"；同时 data/mom.config.json 会被自动写入 DEFAULT_MOM_CONFIG
+```
+
+### 配置读者对照表
+
+| 需要改的东西 | 改哪里 | 如何生效 |
+|---|---|---|
+| provider base_url / api_key / auth_style | `.env`（`PROVIDER_*`） | 重启进程 |
+| MoM 触发模式 / advisor.slots / aggregator.model | `data/mom.config.json` | 重启进程（Phase 4+ Dashboard 编辑后会 hot-reload/重启，具体机制到时再定） |
+| trace 与 metrics 查询 | `mom.db`（node:sqlite） | 运行时读写 |
+
+### 手动验证（对应 PLAN.md Phase 1 验证清单）
+
+```bash
+# V1. Dashboard 骨架
+curl http://localhost:3000/dashboard/
+
+# V2. 默认业务配置已生成
+cat data/mom.config.json
+# 期望：DEFAULT_MOM_CONFIG 的 JSON，不含任何 provider.* 字段
+
+# V3. 非流式透传（需要 .env 中的 PROVIDER_* 已填正确值）
+curl -X POST http://localhost:3000/v1/messages \
+  -H 'content-type: application/json' \
+  -d '{"model":"<provider 的某模型>","messages":[{"role":"user","content":[{"type":"text","text":"Hello"}]}],"max_tokens":100}'
+
+# V4. 流式透传
+curl -N -X POST http://localhost:3000/v1/messages \
+  -H 'content-type: application/json' \
+  -d '{"model":"<provider 的某模型>","messages":[{"role":"user","content":[{"type":"text","text":"Hi"}]}],"max_tokens":50,"stream":true}'
+
+# V5. Claude Code 联调
+ANTHROPIC_BASE_URL=http://localhost:3000 claude
+
+# V6. 递归护栏（编辑 mom.config.json 让 aggregator 落到 advisor.slots）
+node -e "
+const {readFileSync,writeFileSync} = require('node:fs');
+const c = JSON.parse(readFileSync('data/mom.config.json','utf8'));
+c.advisor.slots = ['A']; c.aggregator.model = 'A';
+writeFileSync('data/mom.config.json', JSON.stringify(c, null, 2) + '\n');
+"
+npm run dev
+# 期望：进程报错退出，输出 [MoM] config error: aggregator.model "A" also appears in advisor.slots — recursion guard tripped
+
+# V7. 秘钥缺失护栏（临时清空 PROVIDER_API_KEY）
+PROVIDER_API_KEY= npx tsx --env-file=.env src/index.ts
+# 期望：进程报错退出，输出 [MoM] config error: missing required environment variable PROVIDER_API_KEY ...
+```
+
+### 差异说明
+
+- `package.json` 的 `dev` / `start` 加 `--env-file=.env`（Node 22 原生）
+- SQLite `settings` 表被移除；`src/storage/settings.ts` 删除
+- 新增 `src/config/provider-env.ts` 与 `src/config/mom-config-file.ts` 两个加载器
+- `MoMSettings` → `ProviderConfig` + `MoMConfig` + `RuntimeConfig`；`DEFAULT_SETTINGS` → `DEFAULT_MOM_CONFIG`
+- `provider.pricing_table` 迁到 `MoMConfig.pricing_table`（业务配置，非秘钥）
+- Dashboard SettingsPage（Phase 5）**不显示、不编辑 provider 秘钥**
+
+---
+
 ## [2026-07-09] 存储层切换到 node:sqlite（Node 内置）
 
 ### 环境要求
@@ -20,7 +105,7 @@
 
 - `package.json` 移除 `better-sqlite3` 与 `@types/better-sqlite3`；`engines.node` 从 `>=20` 提升到 `>=22.13.0`
 - `src/storage/db.ts` 用 `DatabaseSync` 打开数据库，DDL 直接以模板字符串常量 `SCHEMA` 内联在同文件；不再需要独立 `schema.sql` 与 build 期拷贝
-- `src/storage/settings.ts` 由于 `StatementSync` 不支持泛型，`.get()` 结果改用 `as SettingsRow | undefined` cast
+- `src/storage/settings.ts` 由于 `StatementSync` 不支持泛型，`.get()` 结果改用 `as SettingsRow | undefined` cast（**此文件已于本次改动删除**）
 
 ---
 

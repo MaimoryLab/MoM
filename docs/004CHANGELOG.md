@@ -1,3 +1,48 @@
+## [2026-07-09-2] refactor(config): split settings into env (provider secrets) + mom.config.json (business) + SQLite (runtime data)
+
+### 改动
+- 拆 `MoMSettings` 为 `ProviderConfig`（L1，只从 env 加载）+ `MoMConfig`（L2，业务配置）+ `RuntimeConfig = { provider, mom }`
+- 新增 `src/config/provider-env.ts`：`loadProviderConfig()` 从 `process.env` 读 `PROVIDER_BASE_URL` / `PROVIDER_API_KEY` / `PROVIDER_AUTH_STYLE`，缺失或非法值抛 `ProviderConfigError`
+- 新增 `src/config/mom-config-file.ts`：`loadMoMConfig(path)` / `saveMoMConfig(path, config)`，ENOENT 时写入 `DEFAULT_MOM_CONFIG`；写入走 tmp + `renameSync` 原子替换
+- `src/config.ts` 改为组合装配：`getConfig(momConfigPath)` 返回 `RuntimeConfig`，跑 `assertRecursionGuard(mom)`
+- `src/index.ts` 读三个 env 路径（`MOM_DB_PATH` / `MOM_CONFIG_PATH` / `MOM_PORT`），启动期把 `ConfigError` / `ProviderConfigError` / `MoMConfigFileError` 统一转为 exit 1
+- `src/provider/provider-client.ts` / `src/provider/stream-forward.ts` 的签名从 `settings: MoMSettings` 改为 `provider: ProviderConfig`——provider 层不再感知业务配置
+- `src/gateway/messages-handler.ts` 改为工厂 `createMessagesHandler(provider)`；`src/gateway/server.ts` 由 `startServer(port, provider)` 装配；`server.ts` 中 `fileURLToPath(import.meta.url)` 顺手改为 `process.cwd()`，修掉 Phase 1 骨架的 `TS1470` 既存错
+- 删除 `src/storage/settings.ts` 与 SQLite `settings` 表（`src/storage/db.ts` 的 `SCHEMA` 常量只保留 `traces` / `metrics_cache`）
+- `MoMConfig.pricing_table` 从原 `MoMSettings.provider.pricing_table` 迁出，与 provider 名空间解耦
+- `.env.example` 新增；`.gitignore` 增加 `data/`
+- `package.json` 的 `dev` / `start` 加 `--env-file=.env`（Node 22 原生，无 dotenv 依赖）
+- PLAN.md / README.md / README.en.md / docs/001ARCHITECTURE.md / docs/002STRUCTURE.md / docs/005DEVELOPMENT.md 全面同步：技术栈、目录结构、Phase 1 组件与验证、Phase 2 provider-client 签名、Phase 3 pricing 路径、Phase 5 SettingsPage 明确不编辑秘钥
+
+### 涉及文件
+- `src/types/mom.ts`：拆类型 + 迁 `pricing_table`
+- `src/config.ts`：改为组合装配
+- `src/config/provider-env.ts`：新建
+- `src/config/mom-config-file.ts`：新建
+- `src/index.ts`：新增两个 env 路径、扩展启动异常捕获
+- `src/gateway/server.ts`：`startServer(port, provider)`；`import.meta.url` → `process.cwd()`
+- `src/gateway/messages-handler.ts`：`createMessagesHandler(provider)` 工厂
+- `src/provider/provider-client.ts`：签名 `ProviderConfig`
+- `src/provider/stream-forward.ts`：签名 `ProviderConfig`
+- `src/storage/db.ts`：SCHEMA 删 settings 表
+- `src/storage/settings.ts`：删除
+- `.env.example`：新建
+- `.gitignore`：新增 `data/`
+- `package.json`：scripts 加 `--env-file=.env`
+- `PLAN.md`：技术栈 / 关键约定 / 目录结构 / Phase 1-3-5 全面同步
+- `README.md` / `README.en.md`：配置流程重写
+- `docs/001ARCHITECTURE.md`：拓扑图 / 分层 / 状态分类 / 关键约定重写
+- `docs/002STRUCTURE.md`：目录树 + storage 只保留 db.ts、新增 config/
+- `docs/003ISSUES.md`：ISS-002 状态改为 [已解决]
+- `docs/005DEVELOPMENT.md`：追加 [2026-07-09-2] 记录，含验证命令与配置读者对照表
+- `docs/decisions/002-config-layering.md`：新建
+
+### 关联
+-> ISS-002
+-> decisions/002-config-layering.md
+
+---
+
 ## [2026-07-09-1] refactor(storage): switch from better-sqlite3 to Node built-in node:sqlite
 
 ### 改动

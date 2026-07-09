@@ -35,20 +35,20 @@ npm install
 
 ## Configure
 
-Phase 1 has no settings UI yet — edit the `settings` row directly using Node's built-in SQLite (no need to install `sqlite3` CLI):
+Configuration lives in two clearly-separated places:
+
+- **`.env`** (deployment / secrets): provider credentials, listening port, data file paths
+- **`data/mom.config.json`** (business config): MoM trigger mode, advisor slots, aggregator model, pricing table, etc. Never holds secrets.
+
+Set up `.env` first:
 
 ```bash
-node -e "
-const {DatabaseSync} = require('node:sqlite');
-const db = new DatabaseSync('mom.db');
-db.prepare('UPDATE settings SET data = json_set(data, ?, ?, ?, ?, ?, ?) WHERE id = 1')
-  .run('\$.provider.base_url', 'https://your-provider/anthropic',
-       '\$.provider.api_key',  '<your-key>',
-       '\$.provider.auth_style', 'bearer');
-"
+cp .env.example .env
+# Edit .env — at minimum set PROVIDER_BASE_URL and PROVIDER_API_KEY.
+# PROVIDER_AUTH_STYLE defaults to "bearer"; use "x-api-key" for the official Anthropic API.
 ```
 
-`auth_style` is either `bearer` (`Authorization: Bearer <key>`, works with OpenRouter / DeepSeek / Kimi / ...) or `x-api-key` (official Anthropic).
+`data/mom.config.json` is generated on first startup with `DEFAULT_MOM_CONFIG`. Edit it directly with `vi`, or through the Dashboard form once Phase 5 ships. The Dashboard never edits secrets — secrets live in `.env` only.
 
 ---
 

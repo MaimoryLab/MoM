@@ -24,10 +24,13 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 ## 架构概览
 
 ### 技术栈
-- 运行时：Node.js ≥ 22.13 + TypeScript 5.x（node:sqlite 从 v22.13.0 起脱离 experimental，无需 `--experimental-sqlite` flag）
+- 运行时：Node.js ≥ 22.13 + TypeScript 5.x（node:sqlite 从 v22.13.0 起脱离 experimental，无需 `--experimental-sqlite` flag；Node 22 原生 `--env-file` 加载 .env，无需 dotenv）
 - 网关框架：Fastify（原生 SSE 支持优于 Express）
 - 前端：Vite + React 18 + TypeScript（独立子工程 `web/`，构建产物由 Fastify 静态挂载）
-- 数据库：node:sqlite（Node 内置模块，同步 API、embedded，零第三方依赖、零 native 编译）
+- 配置分层：
+  - L1 部署配置（`provider.base_url` / `api_key` / `auth_style` / `MOM_PORT` / `MOM_DB_PATH` / `MOM_CONFIG_PATH`）→ `.env`（`--env-file` 加载）
+  - L2 业务配置（`mom_mode` / `fanout_mode` / `advisor` / `aggregator` / `judge` / `cache` / `comparison` / `pricing_table` / `cost_tradeoff` 等）→ `data/mom.config.json`（Dashboard 或手工编辑）
+  - L3 运行时数据（`traces` / `metrics_cache`）→ `mom.db`（node:sqlite）
 - HTTP 客户端：undici（原生流式支持，避免 axios stream 的坑）
 - 包管理：npm workspaces
 
@@ -35,12 +38,13 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 
 - **入口协议**：完整 Anthropic Messages API（`POST /v1/messages`，支持 `stream: true` SSE）
 - **出口协议**：Anthropic Messages（provider 侧兼容，网关不做协议转换）
-- **Provider 认证**：支持两种 auth style —— `bearer`（`Authorization: Bearer <key>`，兼容 OpenRouter/DeepSeek/Kimi 等）和 `x-api-key`（`x-api-key: <key>`，Anthropic 官方）；通过 `settings.provider.auth_style` 配置，默认 `bearer`
+- **Provider 认证**：支持两种 auth style —— `bearer`（`Authorization: Bearer <key>`，兼容 OpenRouter/DeepSeek/Kimi 等）和 `x-api-key`（`x-api-key: <key>`，Anthropic 官方）；通过 `.env` 中的 `PROVIDER_AUTH_STYLE` 配置，默认 `bearer`
+- **配置边界**：秘钥 / 部署环境（provider.* 与 MOM_*）只来自 `.env`，永不写入业务配置文件与 SQLite；业务配置只来自 `data/mom.config.json`；Dashboard SettingsPage 编辑的对象是 `MoMConfig`，**不显示、不编辑秘钥**（只读展示 provider 状态摘要）
 - **Aggregator 侧字节级透传原则**：aggregator 请求的 messages 数组，除了最后一条 user message 之外的所有 message 一律**逐字节**保持原样，Claude Code 自己打的 `cache_control` marker 全部保留；references guidance 只追加到最后一条 user message 的最后一个 text block 尾部，可接受"最后一条 message 的 cache 失效、前面所有 message cache 依然命中"这个 trade-off
 - **Advisor 视图不透传 cache marker**：advisor 视图是网关重构产物，Claude Code 的 marker 已经不在，由网关按 system_and_3 布局（system + 倒数 3 条非合成 marker）自主装饰 4 个 `cache_control` breakpoints
 - **失败容忍**：单个 advisor 失败以 `[Advisor {slot} failed: {reason}]` 占位继续，不打断 turn
 - **递归护栏**：`aggregator.model` 与 `advisor.slots` 中任一条相同 → 启动时报错
-- **定价表**：不硬编码，作为 `settings.provider.pricing_table` 存储，Dashboard 可编辑
+- **定价表**：不硬编码，作为 `MoMConfig.pricing_table` 存储在 `data/mom.config.json`，Dashboard 可编辑（与 provider 秘钥完全解耦）
 - **AdvisorResult 语义**：`usage` 是本次真实调用产生的 token 数；命中缓存时 `usage` 所有字段为 0 且 `cache_hit = true`、`latency_ms ≈ 0`
 - **成本汇总语义**：`trace.total_cost_usd` = advisor 成本 + aggregator 成本 + judge 成本（Phase 6 后引入）；`baseline_cost_usd` 独立字段（对比参考，不算进 total_cost_usd）
 
@@ -48,9 +52,15 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 
 ```
 mom/
+├── .env.example                  # 部署配置模板（含 PROVIDER_* 与 MOM_*，仓库提交；.env 本身 gitignore）
+├── data/                         # 业务配置与本地状态（gitignore）
+│   └── mom.config.json           # MoMConfig 持久化文件；首次启动自动写入 DEFAULT_MOM_CONFIG
 ├── src/                          # 网关服务
 │   ├── index.ts                  # 主入口
-│   ├── config.ts                 # 配置加载 + 递归护栏检查
+│   ├── config.ts                 # 组装 RuntimeConfig（provider + mom）+ 递归护栏检查
+│   ├── config/
+│   │   ├── provider-env.ts       # loadProviderConfig — 从 process.env 读三个 PROVIDER_* 字段 + 校验
+│   │   └── mom-config-file.ts    # loadMoMConfig / saveMoMConfig — mom.config.json 读写（原子 rename）
 │   ├── gateway/
 │   │   ├── server.ts             # Fastify 实例 + 路由挂载
 │   │   ├── messages-handler.ts   # POST /v1/messages 主入口
@@ -79,20 +89,19 @@ mom/
 │   │   ├── fanout-cache.ts       # LRU + TTL
 │   │   └── cache-decorator.ts    # system_and_3 marker 装饰
 │   ├── storage/
-│   │   ├── db.ts                 # node:sqlite 初始化（DatabaseSync 单例、内联 SCHEMA 常量）
+│   │   ├── db.ts                 # node:sqlite 初始化（DatabaseSync 单例、内联 SCHEMA 常量 — 仅 traces / metrics_cache）
 │   │   ├── traces.ts             # trace CRUD
-│   │   ├── metrics.ts            # metrics 计算
-│   │   └── settings.ts           # settings CRUD
+│   │   └── metrics.ts            # metrics 计算
 │   ├── dashboard-api/            # Phase 4
 │   │   ├── traces-api.ts
 │   │   ├── metrics-api.ts
 │   │   ├── settings-api.ts
 │   │   └── comparison-api.ts
 │   ├── cost/
-│   │   └── pricing.ts            # 基于 settings.pricing_table 的成本计算
+│   │   └── pricing.ts            # 基于 momConfig.pricing_table 的成本计算
 │   └── types/
 │       ├── anthropic.ts          # Anthropic Messages API 类型
-│       ├── mom.ts                # MoMSettings / Trace / Metrics / AdvisorResult 等
+│       ├── mom.ts                # ProviderConfig / MoMConfig / RuntimeConfig / Trace / Metrics / AdvisorResult 等
 │       └── index.ts
 ├── web/                          # Dashboard 前端（Vite 独立子工程）
 │   ├── src/
@@ -116,7 +125,7 @@ mom/
 ## Phase 1: 骨架 + 协议透传（含 Streaming）
 
 ### 目标
-Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: true` SSE）和 `/dashboard/*` 静态资源；不做任何 MoM 逻辑，来什么请求原样转发到 provider，返回响应原样透出。SQLite（node:sqlite）初始化并可持久化 settings。前端 Vite 骨架跑通、访问 `/dashboard` 能看到"Hello MoM"。
+Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: true` SSE）和 `/dashboard/*` 静态资源；不做任何 MoM 逻辑，来什么请求原样转发到 provider，返回响应原样透出。三层配置各就各位：`.env` 提供 provider 秘钥，`data/mom.config.json` 提供业务配置默认值，SQLite（node:sqlite）初始化 `traces` / `metrics_cache` 表。前端 Vite 骨架跑通、访问 `/dashboard` 能看到"Hello MoM"。
 
 ### 组件改动
 
@@ -128,13 +137,15 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
   - `AnthropicMessagesResponse` / `Usage`
   - SSE 事件类型：`MessageStartEvent` / `ContentBlockStartEvent` / `ContentBlockDeltaEvent` / `ContentBlockStopEvent` / `MessageDeltaEvent` / `MessageStopEvent` / `PingEvent` / `ErrorEvent`
 - **新增** `src/types/mom.ts`：MoM 内部类型
-  - `MoMSettings`（含 `mom_mode` / `fanout_mode` / `aggregation_mode` / `reference_max_tokens` / `advisor` / `aggregator` / `judge` / `cache` / `comparison` / `provider`（含 `auth_style` / `pricing_table`） / `cost_tradeoff`（保留字段））
+  - `ProviderConfig`（`base_url` / `api_key` / `auth_style`）— L1 部署配置，只从 env 加载
+  - `MoMConfig`（`mom_mode` / `fanout_mode` / `aggregation_mode` / `reference_max_tokens` / `advisor` / `aggregator` / `judge` / `cache` / `comparison` / `pricing_table` / `cost_tradeoff`）— L2 业务配置，从 `mom.config.json` 加载
     - `pricing_table: Record<string, ModelPricing>`，其中 `ModelPricing = {input: number, output: number, cache_write: number, cache_read: number}`，单位 USD per million tokens
+  - `RuntimeConfig = { provider: ProviderConfig; mom: MoMConfig }` — 网关内部统一运行时视图
   - `AdvisorResult` / `JudgeResult` / `AggregatorResult` / `BaselineResult`
-  - `Trace`（一次请求一条，字段：`id` / `timestamp` / `request` / `response` / `mom_triggered` / `trigger_reason` / `advisor_results` / `aggregator_result` / `judge_result?` / `baseline_result?` / `total_cost_usd` / `baseline_cost_usd?` / `total_latency_ms` / `settings_snapshot`）
+  - `Trace`（一次请求一条，字段：`id` / `timestamp` / `request` / `response` / `mom_triggered` / `trigger_reason` / `advisor_results` / `aggregator_result` / `judge_result?` / `baseline_result?` / `total_cost_usd` / `baseline_cost_usd?` / `total_latency_ms` / `settings_snapshot: RuntimeConfig`）
   - `Metrics`（聚合，含 `total_usage`（含 advisor + judge + aggregator 汇总，非仅 aggregator）等）
   - `FanoutCacheKey` / `FanoutCacheValue`
-  - `DEFAULT_SETTINGS` 常量
+  - `DEFAULT_MOM_CONFIG` 常量（provider 字段永不会有默认值——空 env 即启动失败）
 
 **网关骨架**
 
@@ -149,30 +160,37 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 - **新增** `src/gateway/messages-handler.ts`
   - `handleMessages(req, reply)` — 入口。Phase 1 只做透传：读 `stream` 字段，non-streaming 直接 `passthroughCall()`，streaming 走 `passthroughStream()` 把 provider 的 SSE 逐块 pipe 到 reply。异常统一转成 Anthropic error JSON
 
-**Provider 客户端**
+**Provider 客户端**（只依赖 `ProviderConfig`，不感知业务配置与 SQLite）
 
 - **新增** `src/provider/provider-client.ts`
-  - `buildAuthHeaders(settings): Record<string, string>` — 根据 `settings.provider.auth_style` 构造：`bearer` → `{Authorization: "Bearer <key>"}`；`x-api-key` → `{"x-api-key": "<key>", "anthropic-version": "2023-06-01"}`
-  - `passthroughCall(req): Promise<AnthropicMessagesResponse>` — undici `request()` POST 到 `provider.base_url + /v1/messages`；**非 2xx 状态码**读取 body 后抛出 `ProviderError`（含 statusCode / body / model 供上层构造 Anthropic error JSON）；成功返回解析后的 response
+  - `buildAuthHeaders(provider: ProviderConfig): Record<string, string>` — 根据 `provider.auth_style` 构造：`bearer` → `{Authorization: "Bearer <key>"}`；`x-api-key` → `{"x-api-key": "<key>", "anthropic-version": "2023-06-01"}`
+  - `passthroughCall(req, provider): Promise<AnthropicMessagesResponse>` — undici `request()` POST 到 `provider.base_url + /v1/messages`；**非 2xx 状态码**读取 body 后抛出 `ProviderError`（含 statusCode / body / model 供上层构造 Anthropic error JSON）；成功返回解析后的 response
   - `ProviderError extends Error` — 带 `statusCode` / `providerBody` / `model` 字段
 - **新增** `src/provider/stream-forward.ts`
-  - `passthroughStream(req, reply)` — undici stream 模式：非 2xx 先读 body 转成 `error` SSE 事件写入 reply 后 close；2xx 时 `response.body.pipe(reply.raw)` 原样转发；网络异常 catch 后同样发 `error` SSE 事件
+  - `passthroughStream(req, reply, provider)` — undici stream 模式：非 2xx 先读 body 转成 `error` SSE 事件写入 reply 后 close；2xx 时 `response.body.pipe(reply.raw)` 原样转发；网络异常 catch 后同样发 `error` SSE 事件
 
-**存储**
+**存储（仅 L3 运行时数据）**
 
 - **新增** `src/storage/db.ts`
-  - 内联 `const SCHEMA = \`...\`` 常量，覆盖 `settings` / `traces` / `metrics_cache` 三张表的 DDL（DDL 短小、Phase 1 无演进负担，不再拆独立 `schema.sql` 文件——避免运行时 `readFileSync` + `import.meta.url` 依赖）
+  - 内联 `const SCHEMA = \`...\`` 常量，仅含 `traces` / `metrics_cache` 两张表的 DDL（settings 表被移除；配置改由 env + config.json 承担）
   - `initDB(path)` — `new DatabaseSync(path, { enableForeignKeyConstraints: true })` 打开数据库，`db.exec('PRAGMA journal_mode = WAL')` 启用 WAL，随后 `db.exec(SCHEMA)` 建表
   - `getDB()` — 单例
-- **新增** `src/storage/settings.ts`
-  - `loadSettings(): MoMSettings` — 无记录时插入 `DEFAULT_SETTINGS`
-  - `saveSettings(settings)`
+
+**配置加载器**
+
+- **新增** `src/config/provider-env.ts`
+  - `loadProviderConfig(): ProviderConfig` — 从 `process.env` 读 `PROVIDER_BASE_URL` / `PROVIDER_API_KEY` / `PROVIDER_AUTH_STYLE`；缺失或非法值抛 `ProviderConfigError`（启动即失败，不静默使用默认值）
+- **新增** `src/config/mom-config-file.ts`
+  - `loadMoMConfig(path): MoMConfig` — 读 `data/mom.config.json`；ENOENT → 写入 `DEFAULT_MOM_CONFIG` 并返回；JSON 非法 → 抛 `MoMConfigFileError`
+  - `saveMoMConfig(path, config): void` — 原子写：`writeFile tmp + renameSync`，保证 Dashboard 编辑期间读者不见到半截 JSON
 - **新增** `src/config.ts`
-  - `getConfig(): MoMSettings` — 包 `loadSettings()`，启动时校验递归护栏（aggregator model ∉ advisor.slots）
+  - `assertRecursionGuard(mom: MoMConfig)` — aggregator model ∉ advisor.slots
+  - `getConfig(momConfigPath): RuntimeConfig` — 组合 `loadProviderConfig()` 与 `loadMoMConfig()`，跑护栏后返回
 
 **主入口**
 
-- **新增** `src/index.ts` — `initDB()` → `getConfig()`（校验失败即退出）→ `startServer(port)`
+- **新增** `src/index.ts` — 读 `MOM_DB_PATH` / `MOM_CONFIG_PATH` / `MOM_PORT` env → `initDB()` → `getConfig(MOM_CONFIG_PATH)`（`ConfigError` / `ProviderConfigError` / `MoMConfigFileError` 三类都触发 exit 1）→ `startServer(port, runtime.provider)`
+- npm scripts：`dev` / `start` 使用 `--env-file=.env`（Node 22 原生），无 dotenv 依赖
 
 **前端骨架**
 
@@ -184,10 +202,10 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 
 ### 验证方式
 
-1. `npm install && npm run build --workspace=web && npm run dev` → 期望终端输出 `MoM gateway listening on 3000`
-2. `curl http://localhost:3000/dashboard/` → 期望返回 HTML，浏览器看到 "Hello MoM"
-3. `node -e "const {DatabaseSync}=require('node:sqlite');console.log(new DatabaseSync('mom.db').prepare('SELECT data FROM settings WHERE id = 1').get())"` → 期望打印 `DEFAULT_SETTINGS` 的 JSON（或改用 `sqlite3 mom.db` CLI 若已安装）
-4. 配置 provider（用上面同款 `node -e` 脚本执行 `UPDATE settings SET data = json_set(data, '$.provider.base_url', 'https://...', '$.provider.api_key', 'sk-...', '$.provider.auth_style', 'bearer') WHERE id = 1`）
+1. `cp .env.example .env` → 编辑 `.env` 填 `PROVIDER_BASE_URL` / `PROVIDER_API_KEY`（`PROVIDER_AUTH_STYLE` 默认 `bearer`）
+2. `npm install && npm run build --workspace=web && npm run dev` → 期望终端输出 `MoM gateway listening on 3000`；`data/mom.config.json` 自动生成并含 `DEFAULT_MOM_CONFIG` JSON
+3. `curl http://localhost:3000/dashboard/` → 期望返回 HTML，浏览器看到 "Hello MoM"
+4. `cat data/mom.config.json` → 期望是 `DEFAULT_MOM_CONFIG` 的 JSON（不含任何 provider.* 字段）
 5. Non-streaming 请求：
    ```
    curl -X POST http://localhost:3000/v1/messages -H 'content-type: application/json' \
@@ -196,7 +214,8 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
    → 期望返回 provider 的响应，字段结构符合 `AnthropicMessagesResponse`
 6. Streaming 请求（加 `"stream":true`）→ 期望 `Content-Type: text/event-stream`，可看到 `event: message_start` / `event: content_block_delta` / `event: message_stop` 依次输出
 7. Claude Code 端把 `ANTHROPIC_BASE_URL` 指向 `http://localhost:3000`，发一句对话 → 期望正常收到回复（此时 MoM 尚无 MoM 逻辑，等于直连 provider）
-8. 递归护栏：手动把 `settings.data.aggregator.model` 改成 `advisor.slots[0]`，重启 → 期望进程报错退出
+8. 递归护栏：编辑 `data/mom.config.json` 把 `aggregator.model` 设为 `advisor.slots[0]` 的同名值，重启 → 期望进程报错退出：`[MoM] config error: aggregator.model "..." also appears in advisor.slots — recursion guard tripped`
+9. 秘钥缺失护栏：临时删除 `.env` 中的 `PROVIDER_API_KEY` 行，重启 → 期望进程报错退出：`[MoM] config error: missing required environment variable PROVIDER_API_KEY ...`
 
 ---
 
@@ -228,22 +247,22 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 **Advisor 调用**
 
 - **新增** `src/advisor/advisor-runtime.ts`
-  - `runAdvisor(slot: string, messages: AnthropicMessage[], settings: MoMSettings): Promise<AdvisorResult>`
-    - 视图转换 → 构造请求（`model=slot`、`system=ADVISOR_SYSTEM_PROMPT`、不传 `tools`、`max_tokens=settings.reference_max_tokens ?? 4096`、`stream=false`）→ 调 `passthroughCall`
+  - `runAdvisor(slot, messages, momConfig, provider): Promise<AdvisorResult>`
+    - 视图转换 → 构造请求（`model=slot`、`system=ADVISOR_SYSTEM_PROMPT`、不传 `tools`、`max_tokens=momConfig.reference_max_tokens ?? 4096`、`stream=false`）→ 调 `passthroughCall(req, provider)`
     - 抽取 response 里所有 `type:"text"` block 的 text 拼接为 `reference`
     - 记录 `usage` / `latency_ms`；异常场景 catch 后返回 `{success:false, error, latency_ms}`，绝不抛
 
 **并发 fan-out**
 
 - **新增** `src/orchestrator/fanout.ts`
-  - `fanoutAdvisors(messages: AnthropicMessage[], settings: MoMSettings): Promise<AdvisorResult[]>` — `p-limit(8)` 并发，保持 slots 顺序返回
+  - `fanoutAdvisors(messages, momConfig, provider): Promise<AdvisorResult[]>` — `p-limit(8)` 并发，保持 slots 顺序返回
 
 **References 拼接**
 
 - **新增** `src/aggregator/reference-builder.ts`
-  - `buildConcatReferences(results: AdvisorResult[], settings: MoMSettings): string`
+  - `buildConcatReferences(results: AdvisorResult[], momConfig: MoMConfig): string`
     - 每个 result：成功 → `[Reference {i} — {slot}]\n{truncated_reference}`；失败 → `[Reference {i} — {slot} failed: {error}]`
-    - 每个 reference 按 `settings.reference_max_tokens * 4` 字符截断（简单估算 1 token ≈ 4 chars）
+    - 每个 reference 按 `momConfig.reference_max_tokens * 4` 字符截断（简单估算 1 token ≈ 4 chars）
     - 用 `\n\n` 连接
   - `appendReferencesToLastUser(messages: AnthropicMessage[], references: string): AnthropicMessage[]`
     - 深拷贝 messages 数组的最后一条，其余保持同引用
@@ -256,7 +275,7 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 
 - **新增** `src/aggregator/aggregator-runtime.ts`
   - `runAggregatorNonStreaming(original: AnthropicMessagesRequest, results: AdvisorResult[], settings): Promise<AggregatorResult>`
-    - `buildConcatReferences` → `appendReferencesToLastUser` → 用 `settings.aggregator.model` 替换 `model` 字段 → `passthroughCall`
+    - `buildConcatReferences` → `appendReferencesToLastUser` → 用 `momConfig.aggregator.model` 替换 `model` 字段 → `passthroughCall(req, provider)`
     - 返回含 `response` / `usage` / `latency_ms` / `references_appended`
   - `runAggregatorStreaming(original, results, settings, reply, onComplete): Promise<void>`
     - 同上构造 request 但 `stream=true`，向 provider 发起 undici 流式请求
@@ -269,19 +288,19 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 
 - **新增** `src/orchestrator/orchestrator.ts`
   - `orchestrate(req, reply)`
-    - `loadSettings()` → 若 `mom_mode !== "always"` 走透传（Phase 1 已有逻辑）
+    - 读入进程启动时装配好的 `RuntimeConfig`（不再动态从磁盘 `loadSettings()`；Dashboard 编辑后由 `saveMoMConfig` 触发 hot-reload 或重启，具体机制在 Phase 4 定）→ 若 `momConfig.mom_mode !== "always"` 走透传（Phase 1 已有逻辑）
     - `fanoutAdvisors(req.messages, settings)` 拿到 advisorResults
     - `stream` → `runAggregatorStreaming` 直接 pipe；否则 `runAggregatorNonStreaming` 返回 JSON
 - **修改** `src/gateway/messages-handler.ts`：把透传逻辑替换成 `orchestrate(req, reply)`
 
 ### 验证方式
 
-1. 在 provider 侧至少配 3 个可用模型（写到 `settings.advisor.slots` 和 `settings.aggregator.model`）
+1. 在 `data/mom.config.json` 里至少配 3 个 provider 侧可用模型到 `advisor.slots`，`aggregator.model` 也填一个不冲突的
 2. Non-streaming 请求 → 期望在日志里看到 3 条 advisor 调用（并发）、1 条 aggregator 调用，返回符合 `AnthropicMessagesResponse`
 3. 在 `runAggregatorNonStreaming` 里 dump 最终发给 provider 的 messages → 验证：
    - `messages` 除最后一条外，与原始 `req.messages` **逐对象引用相等**（即前缀字节稳定）
    - 最后一条 user message 尾部含 `Expert Panel References:` 段落
-   - 所有 references 顺序与 `settings.advisor.slots` 顺序一致
+   - 所有 references 顺序与 `momConfig.advisor.slots` 顺序一致
 4. Streaming 请求 + Claude Code 实测 → 期望正常流式渲染回复
 5. 视图转换单测：构造一条含 `tool_use` + 后续 `tool_result` 的 messages → `convertToAdvisorView` 输出：
    - assistant text 尾部有 `[called tool: bash({"cmd":"ls"})]`
@@ -298,7 +317,7 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 
 ### 前置条件
 - Phase 2 的 `orchestrate` 骨架、`fanoutAdvisors` 已实现
-- `settings.cache.ttl` / `settings.fanout_mode` / `settings.provider.pricing_table` 字段已在 Phase 1 定义
+- `momConfig.cache.ttl` / `momConfig.fanout_mode` / `momConfig.pricing_table` 字段已在 Phase 1 定义
 
 ### 组件改动
 
@@ -318,7 +337,7 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
     - 最终 key = JSON({settingsHash, sig, sortedSlots})
     - `settingsHash` 只哈希影响 advisor 视图/输出的字段（`advisor.system_prompt` / `advisor.tools_enabled` / `reference_max_tokens`），不哈希全部 settings（避免无关字段变动破坏缓存）
 - **新增** `src/cache/fanout-cache.ts`
-  - 基于 `lru-cache`，`max: 1000`，TTL 从 `settings.cache.ttl` 读（5m/1h）
+  - 基于 `lru-cache`，`max: 1000`，TTL 从 `momConfig.cache.ttl` 读（5m/1h）
   - `get(key): FanoutCacheValue | null` / `set(key, results, ttlMs)`
 - **修改** `src/orchestrator/fanout.ts`：进入前查缓存、命中直接返回并给每条 result 打 `cache_hit: true`；MISS 时正常跑再 set；HIT 时不把 usage/cost 二次记账（返回时把 usage 置 0、latency 保留 0）
 
@@ -364,7 +383,7 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 5. 验证 cache 装饰生效：在 `advisor-runtime` 请求发出前 dump messages，观察前 3 条非合成 marker 的 message 最后 content block 是否含 `cache_control: {type:"ephemeral"}`；system 是否已转成 `SystemBlock[]` 形式带 `cache_control`
 6. 观察 provider 返回的 `usage.cache_read_input_tokens` 逐渐变大（第二次相同前缀的 advisor 调用命中）
 7. `node -e "const {DatabaseSync}=require('node:sqlite');console.table(new DatabaseSync('mom.db').prepare('SELECT id, total_cost_usd FROM traces ORDER BY timestamp DESC LIMIT 5').all())"` → 期望 `total_cost_usd` 是 advisor 各自 slot 单价 + aggregator 单价 的总和，非零
-8. 修改 `settings.provider.pricing_table` 里某个 slot 的价格 → 新请求的成本按新价格计算
+8. 修改 `data/mom.config.json` 里 `pricing_table.<slot>` 的价格 → 新请求的成本按新价格计算
 
 ---
 
@@ -392,7 +411,7 @@ Dashboard 前端所需 REST API 全部就位。
 Vite + React + TS，实现设置层、日志调试层、用户展示层三个页面；对比展示层（Phase 6）留位。
 
 ### 初步构想
-- **设置层** `web/src/pages/SettingsPage.tsx` — 表单绑定 `MoMSettings` 所有字段（含 `pricing_table` 编辑器、`advisor.slots` 列表增删、`aggregator.model` / `judge.model` / `comparison.baseline_model` 下拉选择）；保存调 `POST /api/settings`；`cost_tradeoff` 字段占位 + "coming soon" disabled
+- **设置层** `web/src/pages/SettingsPage.tsx` — 表单绑定 `MoMConfig` 所有字段（含 `pricing_table` 编辑器、`advisor.slots` 列表增删、`aggregator.model` / `judge.model` / `comparison.baseline_model` 下拉选择）；保存调 `POST /api/config`；`cost_tradeoff` 字段占位 + "coming soon" disabled；**不显示、不编辑 provider 秘钥字段**，页面顶部只只读展示 provider 状态摘要（`base_url` 与 `auth_style` 遮罩后的值，如 `bearer / dee****`），秘钥编辑请去 `.env`
 - **日志调试层** `web/src/pages/TracesPage.tsx` — 列表 + 详情视图。详情视图分四栏展示：
   - 左：advisor 输出（每 slot 一列，含全文、usage、latency、cache_hit 标记）
   - 中：references guidance 拼接后全文（判断字段 `mom_triggered` / `trigger_reason` 显式展示）
@@ -440,7 +459,7 @@ Vite + React + TS，实现设置层、日志调试层、用户展示层三个页
 4. **触发不做 auto 模式**：MVP 只做 `always`；`auto` 模式（网关自动判断问题值不值得触发）留字段远期，因为间歇性触发会破坏缓存前缀连续性，实现代价高
 5. **advisor 工具权限 MVP 不开**：`advisor.tools_enabled` 字段保留默认 false；远期开启也只考虑 web_search/web_fetch 类幂等工具
 6. **不实现 Hermes 的一次性 `/moa <prompt>` 路径**：产品定位是网关，Claude Code 无感触发，不需要单次 shortcut
-7. **成本计算不硬编码定价表**：定价通过 `settings.provider.pricing_table` 配置，Dashboard 可编辑
+7. **成本计算不硬编码定价表**：定价通过 `MoMConfig.pricing_table`（存于 `data/mom.config.json`）配置，Dashboard 可编辑
 8. **前端不用 CDN + inline Babel**：一律 Vite + React + TS 正规工程，`web/` 作为独立 workspace
 9. **Streaming 不推到后期**：Phase 1 就实现 SSE passthrough；Phase 2 的 aggregator 一并支持 streaming（advisor 侧非流式）
 10. **CLI / NPM 包 / Claude Code 插件形态属远期**：MVP 直接 `npm run dev` 启动

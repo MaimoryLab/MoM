@@ -1,20 +1,20 @@
 import { request } from 'undici';
 import type { FastifyReply } from 'fastify';
 import type { AnthropicMessagesRequest } from '../types/anthropic.js';
-import type { MoMSettings } from '../types/mom.js';
+import type { ProviderConfig } from '../types/mom.js';
 import { buildAuthHeaders, buildProviderURL } from './provider-client.js';
 import { formatSSEEvent } from '../gateway/sse.js';
 
 export async function passthroughStream(
   req: AnthropicMessagesRequest,
   reply: FastifyReply,
-  settings: MoMSettings,
+  provider: ProviderConfig,
 ): Promise<void> {
-  const url = buildProviderURL(settings.provider.base_url);
+  const url = buildProviderURL(provider.base_url);
   const headers = {
     'content-type': 'application/json',
     accept: 'text/event-stream',
-    ...buildAuthHeaders(settings),
+    ...buildAuthHeaders(provider),
   };
 
   reply.raw.setHeader('content-type', 'text/event-stream');
