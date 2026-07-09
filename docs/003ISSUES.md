@@ -80,6 +80,35 @@ Phase 1 现状下，`provider.base_url` / `provider.api_key` / `provider.auth_st
 -> decisions/002-config-layering.md
 -> 004CHANGELOG.md [2026-07-09-2]
 
+---
+
+## [ISS-003] AI 协作流程止步于"交付清单"，Git 环节未闭环
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[技术债]
+**发现日期**：2026-07-09
+**解决日期**：2026-07-09
+**解决方案**：改写 `docs/000README.md`——删除"不得跑测试/不得跑 git"两条禁令；新增「自检自测约定」节（typecheck + build + build:web，外加本次改动新引入的验证脚本必须自跑）；将「交付清单约定」重写为「交付流程约定」，Claude 在自检通过后自动 commit + push feature 分支 + `gh pr create --draft`，回执给出 PR URL 与用户合并后需执行的 `git pull --ff-only`。同时补一条 "commit / PR title ≤ 72 字符" 的硬约束，避免 Claude Code 自动截断成 `...`。
+
+**现象**：
+`docs/000README.md` 原有 `### 禁止行为` 明写"不得在实现或核查过程中自行运行任何测试命令 / 不得自行执行任何 git 操作"；`## 交付清单约定` 要求 Claude 输出待执行命令列表后停下等人工执行。实际协作里，Claude 在 `.claude/worktrees/<name>` 独立工作目录改代码，不 commit + push 出去，worktree 一旦被清理改动就丢失；用户主目录停留在 push 前的 main 分支，看不到任何变化，误以为"push 没生效"。
+
+**后果**：
+1. 每次 issue 完成后必须人工介入去跑 typecheck/build 与 git 步骤，协作节奏被割裂
+2. worktree 内的改动没有及时 commit + push，存在丢失风险
+3. 用户在主目录 `git status` / `git log` 看不到 Claude 的改动，容易误判 push 未生效
+4. 原文档模板列举的 `npm run test:unit` / `pytest tests/` 命令在本 repo 根本不存在，是空口白话
+
+**初步判断**：
+已确认。根因是文档一次性把"环境硬约束（不能 push main / 不能 merge PR）"和"临时约定（不跑测试、不跑 git）"混为一谈——前者由 Claude Code 后台任务 system prompt 强制，无法跨越；后者是项目自定，可以并且应该放开，让 Claude 完成 typecheck + build + commit + push feature 分支 + draft PR 的机器闭环，把 review + merge + 本地 pull 留给人。
+
+**关联**：
+-> docs/000README.md（工作流生命周期、禁止行为、二次核查、新增自检自测、交付流程）
+-> 004CHANGELOG.md [2026-07-09-3]
+
+---
+
 <!--
 新增条目模板：
 
