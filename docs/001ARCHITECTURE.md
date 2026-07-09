@@ -26,7 +26,7 @@
                          └────────────────┘
 ```
 
-MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协议与出口协议均为 Anthropic Messages API。Phase 1 只做请求透传，SQLite 用于持久化 settings。
+MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协议与出口协议均为 Anthropic Messages API。Phase 1 只做请求透传，SQLite（通过 Node 内置 `node:sqlite`）用于持久化 settings。
 
 ---
 
@@ -44,7 +44,7 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协�
 └────────────────────────────────────────────┘
                     ↓
 ┌────────────────────────────────────────────┐
-│  Storage 层（better-sqlite3 / settings CRUD） │
+│  Storage 层（node:sqlite / settings CRUD）  │
 │  src/storage/*                              │
 └────────────────────────────────────────────┘
 ```

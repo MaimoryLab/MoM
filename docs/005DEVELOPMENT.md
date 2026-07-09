@@ -6,6 +6,24 @@
 
 ---
 
+## [2026-07-09] 存储层切换到 node:sqlite（Node 内置）
+
+### 环境要求
+
+| 依赖 | 版本要求 | 备注 |
+|------|---------|------|
+| Node.js | >= 22.13.0 | `node:sqlite` 从 v22.13.0 起脱离 experimental，无需 flag |
+| npm | 随 Node 22 自带 | 支持 workspaces |
+| SQLite | 无需单独安装 | 通过 Node 内置 `node:sqlite` 模块，零第三方依赖、零 native 编译 |
+
+### 差异说明
+
+- `package.json` 移除 `better-sqlite3` 与 `@types/better-sqlite3`；`engines.node` 从 `>=20` 提升到 `>=22.13.0`
+- `src/storage/db.ts` 用 `DatabaseSync` 打开数据库，DDL 直接以模板字符串常量 `SCHEMA` 内联在同文件；不再需要独立 `schema.sql` 与 build 期拷贝
+- `src/storage/settings.ts` 由于 `StatementSync` 不支持泛型，`.get()` 结果改用 `as SettingsRow | undefined` cast
+
+---
+
 ## [2026-07-08] Phase 1 骨架 — 透传网关 + Dashboard "Hello MoM"
 
 ### 环境要求
@@ -33,16 +51,27 @@ npm run dev
 
 ### 配置 provider
 
-Phase 1 尚无 Dashboard 表单，通过 sqlite3 CLI 直接改：
+Phase 1 尚无 Dashboard 表单，通过 Node 内置 SQLite 直接改（无需另装 sqlite3 CLI）：
 
 ```bash
-sqlite3 mom.db
-sqlite> UPDATE settings
-        SET data = json_set(data,
-          '$.provider.base_url', 'https://api.deepseek.com/anthropic',
-          '$.provider.api_key',  'sk-xxx',
-          '$.provider.auth_style', 'bearer')
-        WHERE id = 1;
+node -e "
+const {DatabaseSync} = require('node:sqlite');
+const db = new DatabaseSync('mom.db');
+db.prepare('UPDATE settings SET data = json_set(data, ?, ?, ?, ?, ?, ?) WHERE id = 1')
+  .run('\$.provider.base_url', 'https://api.deepseek.com/anthropic',
+       '\$.provider.api_key',  'sk-xxx',
+       '\$.provider.auth_style', 'bearer');
+console.log(db.prepare('SELECT data FROM settings WHERE id = 1').get());
+"
+```
+
+若本机已装 `sqlite3` CLI，也可以：
+
+```bash
+sqlite3 mom.db "UPDATE settings SET data = json_set(data,
+  '\$.provider.base_url', 'https://api.deepseek.com/anthropic',
+  '\$.provider.api_key',  'sk-xxx',
+  '\$.provider.auth_style', 'bearer') WHERE id = 1"
 ```
 
 ### 手动验证（对应 PLAN.md Phase 1 验证清单）
@@ -53,7 +82,7 @@ curl http://localhost:3000/dashboard/
 # 期望：HTML；浏览器打开可见 "Hello MoM"
 
 # 2. Settings 默认值已落库
-sqlite3 mom.db 'SELECT data FROM settings WHERE id = 1'
+node -e "const {DatabaseSync}=require('node:sqlite');console.log(new DatabaseSync('mom.db').prepare('SELECT data FROM settings WHERE id = 1').get())"
 # 期望：DEFAULT_SETTINGS 的 JSON
 
 # 3. 非流式透传
@@ -73,9 +102,11 @@ ANTHROPIC_BASE_URL=http://localhost:3000 claude
 # 期望：正常收到回复（此时等价于直连 provider）
 
 # 6. 递归护栏
-sqlite3 mom.db "UPDATE settings SET data = json_set(data,
-  '$.aggregator.model', 'A',
-  '$.advisor.slots',    json('[\"A\"]')) WHERE id = 1"
+node -e "
+const {DatabaseSync} = require('node:sqlite');
+const db = new DatabaseSync('mom.db');
+db.prepare(\"UPDATE settings SET data = json_set(data, '\$.aggregator.model', 'A', '\$.advisor.slots', json('[\\\"A\\\"]')) WHERE id = 1\").run();
+"
 npm run dev
 # 期望：进程报错退出，输出 [MoM] config error: aggregator.model "A" also appears in advisor.slots
 ```

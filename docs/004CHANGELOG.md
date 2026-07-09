@@ -1,3 +1,31 @@
+## [2026-07-09-1] refactor(storage): switch from better-sqlite3 to Node built-in node:sqlite
+
+### 改动
+- 将 storage 层驱动从 `better-sqlite3` 切换到 Node 内置 `node:sqlite`（`DatabaseSync`），去除 native 编译依赖
+- 将 DDL 从独立 `schema.sql` 文件内联为 `db.ts` 内的 `SCHEMA` 常量，去除运行时 `readFileSync` + `import.meta.url` 依赖以及 build 期拷贝步骤
+- `settings.ts` 因 `StatementSync` 无泛型，`.get()` 结果改为 `as SettingsRow | undefined` cast
+- `package.json` 移除 `better-sqlite3` 与 `@types/better-sqlite3`；`@types/node` 顶到 ^22；`engines.node` 从 `>=20` 提升到 `>=22.13.0`；`build` 脚本删除 schema.sql 拷贝步骤
+- PLAN.md / README.md / README.en.md / docs/001ARCHITECTURE.md / docs/002STRUCTURE.md / docs/005DEVELOPMENT.md 同步技术栈描述，验证命令改用 `node -e` + `node:sqlite` 免装 CLI
+
+### 涉及文件
+- `package.json`：删依赖、提升 engines、简化 build 脚本
+- `src/storage/db.ts`：换 `DatabaseSync`、内联 SCHEMA
+- `src/storage/settings.ts`：移除 `prepare` 泛型、显式 cast
+- `src/storage/schema.sql`：删除（DDL 已内联）
+- `PLAN.md`：技术栈行 / Phase 1 目标 / Phase 1 存储改动 / Phase 3 存储改动 / 目录结构 / 验证命令
+- `README.md` / `README.en.md`：环境要求 / 配置命令
+- `docs/001ARCHITECTURE.md`：分层图 storage 一行
+- `docs/002STRUCTURE.md`：storage 子树 + 删 schema.sql
+- `docs/005DEVELOPMENT.md`：追加 2026-07-09 记录，说明环境要求变化与免 CLI 命令
+- `docs/003ISSUES.md`：ISS-001 状态改为 [已解决]，关联本条 CHANGELOG
+- `docs/decisions/001-storage-node-sqlite.md`：新建 — 记录方案 B/C/D/E 的否定原因与已知代价
+
+### 关联
+-> ISS-001
+-> decisions/001-storage-node-sqlite.md
+
+---
+
 ## [2026-07-08-1] feat(gateway): bootstrap Phase 1 skeleton with Anthropic Messages passthrough
 
 ### 改动

@@ -7,7 +7,9 @@ interface SettingsRow {
 
 export function loadSettings(): MoMSettings {
   const db = getDB();
-  const row = db.prepare<[], SettingsRow>('SELECT data FROM settings WHERE id = 1').get();
+  const row = db.prepare('SELECT data FROM settings WHERE id = 1').get() as
+    | SettingsRow
+    | undefined;
   if (!row) {
     saveSettings(DEFAULT_SETTINGS);
     return structuredClone(DEFAULT_SETTINGS);

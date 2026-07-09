@@ -1,22 +1,43 @@
-import Database from 'better-sqlite3';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
-let db: Database.Database | null = null;
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  data TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 
-export function initDB(path: string): Database.Database {
-  const instance = new Database(path);
-  instance.pragma('journal_mode = WAL');
-  instance.pragma('foreign_keys = ON');
-  const schemaPath = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
-  const schema = readFileSync(schemaPath, 'utf8');
-  instance.exec(schema);
+CREATE TABLE IF NOT EXISTS traces (
+  id TEXT PRIMARY KEY,
+  timestamp INTEGER NOT NULL,
+  mom_triggered INTEGER NOT NULL,
+  trigger_reason TEXT NOT NULL,
+  total_cost_usd REAL NOT NULL,
+  baseline_cost_usd REAL,
+  total_latency_ms INTEGER NOT NULL,
+  data TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_traces_timestamp ON traces (timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS metrics_cache (
+  window TEXT PRIMARY KEY,
+  computed_at INTEGER NOT NULL,
+  data TEXT NOT NULL
+);
+`;
+
+let db: DatabaseSync | null = null;
+
+export function initDB(path: string): DatabaseSync {
+  const instance = new DatabaseSync(path, { enableForeignKeyConstraints: true });
+  instance.exec('PRAGMA journal_mode = WAL');
+  instance.exec(SCHEMA);
   db = instance;
   return instance;
 }
 
-export function getDB(): Database.Database {
+export function getDB(): DatabaseSync {
   if (!db) {
     throw new Error('Database not initialized — call initDB() first');
   }

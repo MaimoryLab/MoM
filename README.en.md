@@ -16,10 +16,10 @@ The project is currently in Phase 1 (skeleton + passthrough). The gateway forwar
 
 | Dependency | Version |
 |------------|---------|
-| Node.js | >= 20 |
-| npm | ships with Node 20 (used for workspaces) |
+| Node.js | >= 22.13.0 |
+| npm | ships with Node 22 (used for workspaces) |
 
-SQLite is embedded via `better-sqlite3`; no separate install is needed.
+SQLite is provided by the built-in `node:sqlite` module — no separate install, no native build step.
 
 ---
 
@@ -35,16 +35,17 @@ npm install
 
 ## Configure
 
-Phase 1 has no settings UI yet — edit the `settings` row directly:
+Phase 1 has no settings UI yet — edit the `settings` row directly using Node's built-in SQLite (no need to install `sqlite3` CLI):
 
 ```bash
-sqlite3 mom.db
-sqlite> UPDATE settings
-        SET data = json_set(data,
-          '$.provider.base_url', 'https://your-provider/anthropic',
-          '$.provider.api_key',  '<your-key>',
-          '$.provider.auth_style', 'bearer')
-        WHERE id = 1;
+node -e "
+const {DatabaseSync} = require('node:sqlite');
+const db = new DatabaseSync('mom.db');
+db.prepare('UPDATE settings SET data = json_set(data, ?, ?, ?, ?, ?, ?) WHERE id = 1')
+  .run('\$.provider.base_url', 'https://your-provider/anthropic',
+       '\$.provider.api_key',  '<your-key>',
+       '\$.provider.auth_style', 'bearer');
+"
 ```
 
 `auth_style` is either `bearer` (`Authorization: Bearer <key>`, works with OpenRouter / DeepSeek / Kimi / ...) or `x-api-key` (official Anthropic).

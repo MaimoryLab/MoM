@@ -7,7 +7,7 @@
     "web"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').copyFileSync('src/storage/schema.sql','dist/storage/schema.sql')\"",
+    "build": "tsc -p tsconfig.json",
     "build:web": "npm run build --workspace=web",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
@@ -15,17 +15,15 @@
   },
   "dependencies": {
     "@fastify/static": "^7.0.4",
-    "better-sqlite3": "^11.3.0",
     "fastify": "^4.28.1",
     "undici": "^6.19.8"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11",
-    "@types/node": "^20.14.10",
+    "@types/node": "^22.10.0",
     "tsx": "^4.19.0",
     "typescript": "^5.5.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   }
 }
