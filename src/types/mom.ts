@@ -17,11 +17,10 @@ export interface ModelPricing {
   cache_read: number;
 }
 
-export interface ProviderSettings {
+export interface ProviderConfig {
   base_url: string;
   api_key: string;
   auth_style: AuthStyle;
-  pricing_table: Record<string, ModelPricing>;
 }
 
 export interface AdvisorSettings {
@@ -53,7 +52,7 @@ export interface CostTradeoffSettings {
   enabled: boolean;
 }
 
-export interface MoMSettings {
+export interface MoMConfig {
   mom_mode: MoMMode;
   fanout_mode: FanoutMode;
   aggregation_mode: AggregationMode;
@@ -63,8 +62,13 @@ export interface MoMSettings {
   judge: JudgeSettings;
   cache: CacheSettings;
   comparison: ComparisonSettings;
-  provider: ProviderSettings;
+  pricing_table: Record<string, ModelPricing>;
   cost_tradeoff: CostTradeoffSettings;
+}
+
+export interface RuntimeConfig {
+  provider: ProviderConfig;
+  mom: MoMConfig;
 }
 
 export interface AdvisorResult {
@@ -122,7 +126,7 @@ export interface Trace {
   total_cost_usd: number;
   baseline_cost_usd: number | null;
   total_latency_ms: number;
-  settings_snapshot: MoMSettings;
+  settings_snapshot: RuntimeConfig;
 }
 
 export interface UsageBreakdown {
@@ -151,7 +155,7 @@ export interface FanoutCacheValue {
   created_at: number;
 }
 
-export const DEFAULT_SETTINGS: MoMSettings = {
+export const DEFAULT_MOM_CONFIG: MoMConfig = {
   mom_mode: 'off',
   fanout_mode: 'user_turn',
   aggregation_mode: 'concat',
@@ -174,12 +178,7 @@ export const DEFAULT_SETTINGS: MoMSettings = {
     enabled: false,
     baseline_model: '',
   },
-  provider: {
-    base_url: '',
-    api_key: '',
-    auth_style: 'bearer',
-    pricing_table: {},
-  },
+  pricing_table: {},
   cost_tradeoff: {
     enabled: false,
   },

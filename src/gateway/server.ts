@@ -1,23 +1,22 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-import { handleMessages } from './messages-handler.js';
+import { resolve } from 'node:path';
+import { createMessagesHandler } from './messages-handler.js';
+import type { ProviderConfig } from '../types/mom.js';
 
 const BODY_LIMIT_BYTES = 10 * 1024 * 1024;
 
-export function createServer(): FastifyInstance {
+export function createServer(provider: ProviderConfig): FastifyInstance {
   const app = Fastify({
     logger: { level: 'info' },
     bodyLimit: BODY_LIMIT_BYTES,
     disableRequestLogging: false,
   });
 
-  app.post('/v1/messages', handleMessages);
+  app.post('/v1/messages', createMessagesHandler(provider));
 
-  const here = dirname(fileURLToPath(import.meta.url));
-  const webDist = resolve(here, '../../web/dist');
+  const webDist = resolve(process.cwd(), 'web/dist');
   if (existsSync(webDist)) {
     app.register(fastifyStatic, {
       root: webDist,
@@ -41,8 +40,11 @@ export function createServer(): FastifyInstance {
   return app;
 }
 
-export async function startServer(port: number): Promise<FastifyInstance> {
-  const app = createServer();
+export async function startServer(
+  port: number,
+  provider: ProviderConfig,
+): Promise<FastifyInstance> {
+  const app = createServer(provider);
   await app.listen({ port, host: '0.0.0.0' });
   return app;
 }

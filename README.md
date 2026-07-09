@@ -35,20 +35,20 @@ npm install
 
 ## 配置
 
-Phase 1 尚无 Dashboard 设置表单，用 Node 内置 SQLite 修改 `settings` 单行（无需另装 sqlite3 CLI）：
+配置分两层，分工明确：
+
+- **`.env`**（部署配置 / 秘钥）：provider 秘钥、监听端口、数据文件路径
+- **`data/mom.config.json`**（业务配置）：MoM 触发模式、advisor slots、aggregator 模型、定价表 等；不含任何秘钥
+
+先建 `.env`：
 
 ```bash
-node -e "
-const {DatabaseSync} = require('node:sqlite');
-const db = new DatabaseSync('mom.db');
-db.prepare('UPDATE settings SET data = json_set(data, ?, ?, ?, ?, ?, ?) WHERE id = 1')
-  .run('\$.provider.base_url', 'https://your-provider/anthropic',
-       '\$.provider.api_key',  '<your-key>',
-       '\$.provider.auth_style', 'bearer');
-"
+cp .env.example .env
+# 编辑 .env，至少填 PROVIDER_BASE_URL 与 PROVIDER_API_KEY
+# PROVIDER_AUTH_STYLE 默认 bearer；官方 Anthropic 用 x-api-key
 ```
 
-`auth_style` 可选 `bearer`（`Authorization: Bearer <key>`，兼容 OpenRouter / DeepSeek / Kimi 等）或 `x-api-key`（Anthropic 官方）。
+`data/mom.config.json` 首次启动时自动生成 `DEFAULT_MOM_CONFIG`，之后可以直接手工 `vi` 编辑，或者通过 Phase 5 上线的 Dashboard 表单编辑。Dashboard 不编辑秘钥——秘钥永远只改 `.env`。
 
 ---
 

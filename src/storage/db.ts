@@ -1,12 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 
 const SCHEMA = `
-CREATE TABLE IF NOT EXISTS settings (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  data TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS traces (
   id TEXT PRIMARY KEY,
   timestamp INTEGER NOT NULL,

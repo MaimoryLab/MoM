@@ -8,24 +8,29 @@ MoM/
 ├── README.en.md                   # 英文项目说明
 ├── package.json                   # npm workspaces 根（含 "workspaces": ["web"]）
 ├── tsconfig.json                  # 后端 TS 配置
+├── .env.example                   # 部署配置模板（PROVIDER_* + MOM_*）；仓库提交
 ├── .gitignore
+├── data/                          # gitignore；业务配置与本地状态存放目录
+│   └── mom.config.json            # MoMConfig 持久化（首次启动自动写入 DEFAULT_MOM_CONFIG）
 ├── src/                           # 网关服务（后端）
 │   ├── index.ts                   # 进程入口：initDB → getConfig → startServer
-│   ├── config.ts                  # 配置加载 + 递归护栏（assertRecursionGuard）
+│   ├── config.ts                  # 组装 RuntimeConfig（provider + mom）+ 递归护栏（assertRecursionGuard）
+│   ├── config/
+│   │   ├── provider-env.ts        # loadProviderConfig — 从 process.env 读 PROVIDER_* + 校验
+│   │   └── mom-config-file.ts     # loadMoMConfig / saveMoMConfig — mom.config.json 读写（原子 rename）
 │   ├── gateway/
 │   │   ├── server.ts              # Fastify 实例、路由挂载、静态挂载 web/dist
-│   │   ├── messages-handler.ts    # POST /v1/messages 主入口（Phase 1 只透传）
+│   │   ├── messages-handler.ts    # createMessagesHandler(provider) 返回 Phase 1 透传 handler
 │   │   ├── validator.ts           # 请求体最小校验（model / messages / max_tokens）
 │   │   └── sse.ts                 # SSE 单行解析 / 事件编码工具
 │   ├── provider/
-│   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders
+│   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders(provider)
 │   │   └── stream-forward.ts      # 流式 SSE 转发；错误编码为 SSE error 帧
 │   ├── storage/
-│   │   ├── db.ts                  # node:sqlite 单例；DDL 常量内联在本文件
-│   │   └── settings.ts            # loadSettings / saveSettings（settings 表 upsert）
+│   │   └── db.ts                  # node:sqlite 单例；DDL 常量内联（仅 traces / metrics_cache）
 │   └── types/
 │       ├── anthropic.ts           # Anthropic Messages API 请求/响应/SSE 事件类型
-│       ├── mom.ts                 # MoMSettings / Trace / AdvisorResult 等内部类型 + DEFAULT_SETTINGS
+│       ├── mom.ts                 # ProviderConfig / MoMConfig / RuntimeConfig / Trace / AdvisorResult + DEFAULT_MOM_CONFIG
 │       └── index.ts               # 汇出 anthropic.ts / mom.ts
 ├── web/                           # Dashboard 前端（Vite 子工程）
 │   ├── package.json               # workspace 成员
