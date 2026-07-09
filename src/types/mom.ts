@@ -126,7 +126,7 @@ export interface Trace {
   total_cost_usd: number;
   baseline_cost_usd: number | null;
   total_latency_ms: number;
-  settings_snapshot: RuntimeConfig;
+  settings_snapshot: MoMConfig;
 }
 
 export interface UsageBreakdown {

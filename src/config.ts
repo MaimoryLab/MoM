@@ -13,9 +13,24 @@ export function assertRecursionGuard(mom: MoMConfig): void {
   }
 }
 
+export function assertModeRequirements(mom: MoMConfig): void {
+  if (mom.mom_mode !== 'always') return;
+  if (mom.advisor.slots.length === 0) {
+    throw new ConfigError(
+      'mom_mode="always" requires advisor.slots to be non-empty — configure at least one advisor slot in data/mom.config.json',
+    );
+  }
+  if (mom.aggregator.model.trim() === '') {
+    throw new ConfigError(
+      'mom_mode="always" requires aggregator.model to be non-empty — configure it in data/mom.config.json',
+    );
+  }
+}
+
 export function getConfig(momConfigPath: string): RuntimeConfig {
   const provider = loadProviderConfig();
   const mom = loadMoMConfig(momConfigPath);
   assertRecursionGuard(mom);
+  assertModeRequirements(mom);
   return { provider, mom };
 }

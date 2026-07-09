@@ -1,3 +1,51 @@
+## [2026-07-09-3] feat(orchestrator): implement Phase 2 advisor fanout + concat aggregator; narrow Trace snapshot to MoMConfig
+
+### 改动
+- 新增 `src/advisor/`（`prompts.ts` / `view-transformer.ts` / `advisor-runtime.ts`）：`convertToAdvisorView` 展平 tool_use、截断 tool_result、丢弃 image、末尾 assistant 追加 `ADVISORY_INSTRUCTION` 合成 user marker；`runAdvisor` 单 slot 调用非流式 provider，失败以占位符返回不抛
+- 新增 `src/orchestrator/fanout.ts`：自写 `promisePool<T,R>(items, limit, worker)`（不引入 p-limit 依赖），`fanoutAdvisors` 并发上限 8、保 slots 顺序
+- 新增 `src/aggregator/reference-builder.ts`：`buildConcatReferences` 拼接标号 references 并按 `reference_max_tokens * 4` 字符截断；`appendReferencesToLastUser` 只克隆最后一条 message、前缀所有 message 保持原对象引用不变（Aggregator 字节级透传原则）；末条为 assistant 时合成尾部 user
+- 新增 `src/aggregator/aggregator-runtime.ts`：`runAggregatorNonStreaming` 返回 `AggregatorResult`；`runAggregatorStreaming` Phase 2 直接复用 Phase 1 `passthroughStream` 直 pipe（不 tee/SSEParser/onComplete，Phase 3 引入 trace 落盘时再加）
+- 新增 `src/orchestrator/orchestrator.ts`：`orchestrate(body, reply, runtime, log)` 主链路——`mom_mode !== 'always'` 走透传（复用 Phase 1 行为）；`mom_mode === 'always'` 走 fanout → concat → aggregator；Phase 2 只 log 事件，不组装 Trace
+- `src/config.ts`：新增 `assertModeRequirements`——`mom_mode==='always'` 时 `advisor.slots` 非空、`aggregator.model` 非空，否则 `ConfigError` 退出
+- `src/gateway/messages-handler.ts`：`createMessagesHandler(provider)` → `createMessagesHandler(runtime: RuntimeConfig)`，把透传替换为 `orchestrate(body, reply, runtime, req.log)`；错误映射逻辑保持原样
+- `src/gateway/server.ts`：`startServer(port, provider)` → `startServer(port, runtime: RuntimeConfig)`；provider 层的 `passthroughCall`/`passthroughStream` 签名不动，分层约束不破
+- `src/index.ts`：`startServer(PORT, runtime.provider)` → `startServer(PORT, runtime)`
+- `src/types/mom.ts`：`Trace.settings_snapshot: RuntimeConfig` → `MoMConfig`——避免 Phase 3 落盘时把 `provider.api_key` 写进 SQLite（ISS-003 修复）
+- 新增 `test/view-transformer.test.ts` / `test/reference-builder.test.ts`：Node 22 内置 `node:test` 覆盖三处纯逻辑，重点验证「append 只改最后一条 message、前缀 message 引用不变」不变量
+- `package.json` 新增 `test` script（`node --test --import tsx test/*.test.ts`）
+- PLAN.md Phase 2 新增"与本节初稿的偏离"块，逐条列出实际实现相对初稿的偏离
+- docs/001ARCHITECTURE.md 新增 Orchestrator 分层、链路 D/E（MoM 主链路 non-streaming/streaming）、`assertModeRequirements` / Aggregator 字节级透传 / Advisor 失败容忍 / Trace 快照范围 四条约定
+- docs/002STRUCTURE.md 目录树新增 `src/orchestrator/` / `src/advisor/` / `src/aggregator/` / `test/`
+
+### 涉及文件
+- `src/types/mom.ts`：`Trace.settings_snapshot` 类型缩窄
+- `src/config.ts`：新增 `assertModeRequirements`
+- `src/gateway/messages-handler.ts`：签名升 RuntimeConfig，委托 orchestrate
+- `src/gateway/server.ts`：签名升 RuntimeConfig
+- `src/index.ts`：调 `startServer(PORT, runtime)`
+- `src/advisor/prompts.ts`：新建
+- `src/advisor/view-transformer.ts`：新建
+- `src/advisor/advisor-runtime.ts`：新建
+- `src/orchestrator/orchestrator.ts`：新建
+- `src/orchestrator/fanout.ts`：新建
+- `src/aggregator/reference-builder.ts`：新建
+- `src/aggregator/aggregator-runtime.ts`：新建
+- `test/view-transformer.test.ts`：新建
+- `test/reference-builder.test.ts`：新建
+- `package.json`：新增 `test` script
+- `PLAN.md`：Phase 2 组件改动 + 偏离块
+- `docs/001ARCHITECTURE.md`：分层图 + 链路 + 关键约定
+- `docs/002STRUCTURE.md`：目录树 + 新增 `test/`；未创建目录清单删除 orchestrator/advisor/aggregator
+- `docs/003ISSUES.md`：新增 ISS-003（已解决）+ ISS-004（已解决）
+- `docs/decisions/003-trace-snapshot-scope.md`：新建
+
+### 关联
+-> ISS-003
+-> ISS-004
+-> decisions/003-trace-snapshot-scope.md
+
+---
+
 ## [2026-07-09-2] refactor(config): split settings into env (provider secrets) + mom.config.json (business) + SQLite (runtime data)
 
 ### 改动

@@ -11,7 +11,8 @@
     "build:web": "npm run build --workspace=web",
     "dev": "tsx watch --env-file=.env src/index.ts",
     "start": "node --env-file=.env dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --import tsx test/*.test.ts"
   },
   "dependencies": {
     "@fastify/static": "^7.0.4",

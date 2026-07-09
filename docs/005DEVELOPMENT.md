@@ -6,6 +6,99 @@
 
 ---
 
+## [2026-07-09-3] Phase 2：advisor fan-out + concat aggregator（`mom_mode: always`）
+
+### 环境要求
+
+沿用 [2026-07-09-2]。额外：`npm test` 用 Node 22 内置 `node:test`，转译走 `tsx`（devDependency 已装）。
+
+### 配置示例（启用 MoM 主链路）
+
+编辑 `data/mom.config.json`：
+```json
+{
+  "mom_mode": "always",
+  "fanout_mode": "user_turn",
+  "aggregation_mode": "concat",
+  "reference_max_tokens": 4096,
+  "advisor": {
+    "slots": ["model-a", "model-b", "model-c"],
+    "tools_enabled": false
+  },
+  "aggregator": { "model": "model-agg" },
+  ...
+}
+```
+(`aggregator.model` 不得出现在 `advisor.slots` 中；`always` 模式下两者非空——启动时护栏会拦。)
+
+### 单元测试（纯逻辑）
+
+```bash
+npm test
+# 17 个用例，覆盖 convertToAdvisorView / truncateToolResult / buildConcatReferences / appendReferencesToLastUser
+# 关键断言：append 只改最后一条 message，前缀 message 对象引用不变
+```
+
+### 手动验证（对应 PLAN.md Phase 2 验证清单）
+
+```bash
+# V1. mom_mode==='always' 启动护栏（advisor.slots 为空）
+node -e "
+const {readFileSync,writeFileSync} = require('node:fs');
+const c = JSON.parse(readFileSync('data/mom.config.json','utf8'));
+c.mom_mode = 'always'; c.advisor.slots = []; c.aggregator.model = 'x';
+writeFileSync('data/mom.config.json', JSON.stringify(c, null, 2) + '\n');
+"
+npm run dev
+# 期望：进程报错退出，输出 [MoM] config error: mom_mode="always" requires advisor.slots to be non-empty ...
+
+# V2. mom_mode==='always' 启动护栏（aggregator.model 为空）
+node -e "
+const {readFileSync,writeFileSync} = require('node:fs');
+const c = JSON.parse(readFileSync('data/mom.config.json','utf8'));
+c.mom_mode = 'always'; c.advisor.slots = ['x']; c.aggregator.model = '';
+writeFileSync('data/mom.config.json', JSON.stringify(c, null, 2) + '\n');
+"
+npm run dev
+# 期望：进程报错退出，输出 [MoM] config error: mom_mode="always" requires aggregator.model to be non-empty ...
+
+# V3. mom_mode==='off' 保持透传行为（Phase 1 行为回归）
+# 编辑 data/mom.config.json 恢复 mom_mode: 'off'，重启后重跑 [2026-07-09-2] 的 V3/V4/V5 应全部通过
+
+# V4. mom_mode==='always' 非流式主链路
+# 编辑 data/mom.config.json 填正常 slots + aggregator.model + PROVIDER_* 已就位，重启后：
+curl -X POST http://localhost:3000/v1/messages \
+  -H 'content-type: application/json' \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"3+5=?"}]}],"max_tokens":200}'
+# 期望：终端 fastify 日志出现 3 条 event=advisor_fanout_complete / 1 条 event=aggregator_complete
+# 期望：response 是 aggregator 模型的输出（Anthropic Messages 响应结构）
+
+# V5. mom_mode==='always' 流式主链路
+curl -N -X POST http://localhost:3000/v1/messages \
+  -H 'content-type: application/json' \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"简述冒泡排序"}]}],"max_tokens":300,"stream":true}'
+# 期望：event: message_start / content_block_delta / message_stop 依次输出
+
+# V6. 单个 advisor 失败不打断（把 advisor.slots[0] 改成不存在的模型名）
+# 重启后重跑 V4，期望 fanout log 中 failures 数组含被打断的 slot；aggregator 请求正常返回，
+# 且用 debug 断点 / 增加临时 log 观察 aggregator request 的 messages 最后一条 user 含 [Reference 1 — bogus failed: ...]
+
+# V7. Claude Code 联调（联通 mom_mode: always 全链路）
+ANTHROPIC_BASE_URL=http://localhost:3000 claude
+# 发一句"帮我读 README"——期望正常收到回复；服务端日志可见每个 turn 一次 fanout + aggregator
+```
+
+### 差异说明
+
+- 新增 `src/orchestrator/` `src/advisor/` `src/aggregator/` 三个目录
+- handler / server 签名从 `ProviderConfig` 升到 `RuntimeConfig`；provider 层签名保持 `ProviderConfig`
+- `assertModeRequirements` 与 `assertRecursionGuard` 同级在启动装配跑
+- `Trace.settings_snapshot` 类型缩窄为 `MoMConfig`（Phase 3 落盘时不会带 api_key）
+- `runAggregatorStreaming` Phase 2 只做直 pipe，不 tee 也不 parse——Phase 3 引入 trace 落盘时再加 SSE observer
+- Phase 2 不组装 Trace、不 `saveTrace`，只用 fastify logger 打 fanout / aggregator 事件
+
+---
+
 ## [2026-07-09-2] 配置分层：.env（provider 秘钥）+ mom.config.json（业务配置）+ SQLite（运行时数据）
 
 ### 环境要求

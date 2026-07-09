@@ -3,18 +3,18 @@ import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createMessagesHandler } from './messages-handler.js';
-import type { ProviderConfig } from '../types/mom.js';
+import type { RuntimeConfig } from '../types/mom.js';
 
 const BODY_LIMIT_BYTES = 10 * 1024 * 1024;
 
-export function createServer(provider: ProviderConfig): FastifyInstance {
+export function createServer(runtime: RuntimeConfig): FastifyInstance {
   const app = Fastify({
     logger: { level: 'info' },
     bodyLimit: BODY_LIMIT_BYTES,
     disableRequestLogging: false,
   });
 
-  app.post('/v1/messages', createMessagesHandler(provider));
+  app.post('/v1/messages', createMessagesHandler(runtime));
 
   const webDist = resolve(process.cwd(), 'web/dist');
   if (existsSync(webDist)) {
@@ -42,9 +42,9 @@ export function createServer(provider: ProviderConfig): FastifyInstance {
 
 export async function startServer(
   port: number,
-  provider: ProviderConfig,
+  runtime: RuntimeConfig,
 ): Promise<FastifyInstance> {
-  const app = createServer(provider);
+  const app = createServer(runtime);
   await app.listen({ port, host: '0.0.0.0' });
   return app;
 }

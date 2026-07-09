@@ -1,10 +1,10 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { validateMessagesRequest, ValidationError } from './validator.js';
-import { passthroughCall, ProviderError } from '../provider/provider-client.js';
-import { passthroughStream } from '../provider/stream-forward.js';
-import type { ProviderConfig } from '../types/mom.js';
+import { ProviderError } from '../provider/provider-client.js';
+import type { RuntimeConfig } from '../types/mom.js';
+import { orchestrate } from '../orchestrator/orchestrator.js';
 
-export function createMessagesHandler(provider: ProviderConfig) {
+export function createMessagesHandler(runtime: RuntimeConfig) {
   return async function handleMessages(
     req: FastifyRequest,
     reply: FastifyReply,
@@ -22,12 +22,7 @@ export function createMessagesHandler(provider: ProviderConfig) {
     }
 
     try {
-      if (body.stream === true) {
-        await passthroughStream(body, reply, provider);
-        return;
-      }
-      const response = await passthroughCall(body, provider);
-      reply.send(response);
+      await orchestrate(body, reply, runtime, req.log);
     } catch (err) {
       if (err instanceof ProviderError) {
         let parsed: unknown;

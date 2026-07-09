@@ -24,7 +24,7 @@ async function main(): Promise<void> {
     }
     throw err;
   }
-  const app = await startServer(PORT, runtime.provider);
+  const app = await startServer(PORT, runtime);
   app.log.info(`MoM gateway listening on ${PORT}`);
 }
 
