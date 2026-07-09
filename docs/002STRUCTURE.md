@@ -21,8 +21,7 @@ MoM/
 │   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders
 │   │   └── stream-forward.ts      # 流式 SSE 转发；错误编码为 SSE error 帧
 │   ├── storage/
-│   │   ├── db.ts                  # better-sqlite3 单例、初始化时执行 schema.sql
-│   │   ├── schema.sql             # settings / traces / metrics_cache 三张表
+│   │   ├── db.ts                  # node:sqlite 单例；DDL 常量内联在本文件
 │   │   └── settings.ts            # loadSettings / saveSettings（settings 表 upsert）
 │   └── types/
 │       ├── anthropic.ts           # Anthropic Messages API 请求/响应/SSE 事件类型

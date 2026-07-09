@@ -16,10 +16,10 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关。它把每�
 
 | 依赖 | 版本 |
 |------|------|
-| Node.js | >= 20 |
-| npm | 随 Node 20 自带（用于 workspaces） |
+| Node.js | >= 22.13.0 |
+| npm | 随 Node 22 自带（用于 workspaces） |
 
-SQLite 通过 `better-sqlite3` 内嵌，无需另装。
+SQLite 通过 Node 内置模块 `node:sqlite` 使用，无需另装、无 native 编译。
 
 ---
 
@@ -35,16 +35,17 @@ npm install
 
 ## 配置
 
-Phase 1 尚无 Dashboard 设置表单，通过 sqlite3 CLI 修改 `settings` 单行：
+Phase 1 尚无 Dashboard 设置表单，用 Node 内置 SQLite 修改 `settings` 单行（无需另装 sqlite3 CLI）：
 
 ```bash
-sqlite3 mom.db
-sqlite> UPDATE settings
-        SET data = json_set(data,
-          '$.provider.base_url', 'https://your-provider/anthropic',
-          '$.provider.api_key',  '<your-key>',
-          '$.provider.auth_style', 'bearer')
-        WHERE id = 1;
+node -e "
+const {DatabaseSync} = require('node:sqlite');
+const db = new DatabaseSync('mom.db');
+db.prepare('UPDATE settings SET data = json_set(data, ?, ?, ?, ?, ?, ?) WHERE id = 1')
+  .run('\$.provider.base_url', 'https://your-provider/anthropic',
+       '\$.provider.api_key',  '<your-key>',
+       '\$.provider.auth_style', 'bearer');
+"
 ```
 
 `auth_style` 可选 `bearer`（`Authorization: Bearer <key>`，兼容 OpenRouter / DeepSeek / Kimi 等）或 `x-api-key`（Anthropic 官方）。

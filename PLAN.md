@@ -10,7 +10,7 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 
 | 阶段 | 名称 | 状态 | 一句话说明 |
 |------|------|------|-----------|
-| Phase 1 | 骨架 + 协议透传（含 Streaming） | ✅ 已完成 | Node/TS 单进程服务、Anthropic Messages 端点、SSE 流式透传、SQLite、Vite 前端骨架 |
+| Phase 1 | 骨架 + 协议透传（含 Streaming） | ✅ 已完成 | Node/TS 单进程服务、Anthropic Messages 端点、SSE 流式透传、node:sqlite、Vite 前端骨架 |
 | Phase 2 | Advisor 视图 + Fan-out + Concat 拼接 | 📋 待开始 | MoM 核心流程，always 触发、无缓存 |
 | Phase 3 | 触发粒度 + Fanout 缓存 + Cache 装饰 + 成本分账 | 📋 待开始 | user_turn / per_iteration 双模式、advisor 缓存、system_and_3 marker、Trace 落盘 |
 | Phase 4 | Dashboard 后端 API | 📝 略写 | traces / metrics / settings / comparison 四组 API |
@@ -24,10 +24,10 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 ## 架构概览
 
 ### 技术栈
-- 运行时：Node.js ≥ 20 + TypeScript 5.x
+- 运行时：Node.js ≥ 22.13 + TypeScript 5.x（node:sqlite 从 v22.13.0 起脱离 experimental，无需 `--experimental-sqlite` flag）
 - 网关框架：Fastify（原生 SSE 支持优于 Express）
 - 前端：Vite + React 18 + TypeScript（独立子工程 `web/`，构建产物由 Fastify 静态挂载）
-- 数据库：better-sqlite3（同步 API、embedded）
+- 数据库：node:sqlite（Node 内置模块，同步 API、embedded，零第三方依赖、零 native 编译）
 - HTTP 客户端：undici（原生流式支持，避免 axios stream 的坑）
 - 包管理：npm workspaces
 
@@ -79,8 +79,7 @@ mom/
 │   │   ├── fanout-cache.ts       # LRU + TTL
 │   │   └── cache-decorator.ts    # system_and_3 marker 装饰
 │   ├── storage/
-│   │   ├── db.ts                 # better-sqlite3 初始化
-│   │   ├── schema.sql            # 表定义
+│   │   ├── db.ts                 # node:sqlite 初始化（DatabaseSync 单例、内联 SCHEMA 常量）
 │   │   ├── traces.ts             # trace CRUD
 │   │   ├── metrics.ts            # metrics 计算
 │   │   └── settings.ts           # settings CRUD
@@ -117,7 +116,7 @@ mom/
 ## Phase 1: 骨架 + 协议透传（含 Streaming）
 
 ### 目标
-Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: true` SSE）和 `/dashboard/*` 静态资源；不做任何 MoM 逻辑，来什么请求原样转发到 provider，返回响应原样透出。SQLite 初始化并可持久化 settings。前端 Vite 骨架跑通、访问 `/dashboard` 能看到"Hello MoM"。
+Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: true` SSE）和 `/dashboard/*` 静态资源；不做任何 MoM 逻辑，来什么请求原样转发到 provider，返回响应原样透出。SQLite（node:sqlite）初始化并可持久化 settings。前端 Vite 骨架跑通、访问 `/dashboard` 能看到"Hello MoM"。
 
 ### 组件改动
 
@@ -161,9 +160,9 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 
 **存储**
 
-- **新增** `src/storage/schema.sql`：定义 `traces` / `settings` / `metrics_cache` 三张表
 - **新增** `src/storage/db.ts`
-  - `initDB(path)` — 打开 better-sqlite3、`exec(SCHEMA)`
+  - 内联 `const SCHEMA = \`...\`` 常量，覆盖 `settings` / `traces` / `metrics_cache` 三张表的 DDL（DDL 短小、Phase 1 无演进负担，不再拆独立 `schema.sql` 文件——避免运行时 `readFileSync` + `import.meta.url` 依赖）
+  - `initDB(path)` — `new DatabaseSync(path, { enableForeignKeyConstraints: true })` 打开数据库，`db.exec('PRAGMA journal_mode = WAL')` 启用 WAL，随后 `db.exec(SCHEMA)` 建表
   - `getDB()` — 单例
 - **新增** `src/storage/settings.ts`
   - `loadSettings(): MoMSettings` — 无记录时插入 `DEFAULT_SETTINGS`
@@ -187,8 +186,8 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 
 1. `npm install && npm run build --workspace=web && npm run dev` → 期望终端输出 `MoM gateway listening on 3000`
 2. `curl http://localhost:3000/dashboard/` → 期望返回 HTML，浏览器看到 "Hello MoM"
-3. `sqlite3 mom.db 'SELECT data FROM settings WHERE id = 1'` → 期望返回 `DEFAULT_SETTINGS` 的 JSON
-4. 配置 provider（`sqlite3` 直接 UPDATE `settings.data.provider.base_url` 和 `.api_key`）
+3. `node -e "const {DatabaseSync}=require('node:sqlite');console.log(new DatabaseSync('mom.db').prepare('SELECT data FROM settings WHERE id = 1').get())"` → 期望打印 `DEFAULT_SETTINGS` 的 JSON（或改用 `sqlite3 mom.db` CLI 若已安装）
+4. 配置 provider（用上面同款 `node -e` 脚本执行 `UPDATE settings SET data = json_set(data, '$.provider.base_url', 'https://...', '$.provider.api_key', 'sk-...', '$.provider.auth_style', 'bearer') WHERE id = 1`）
 5. Non-streaming 请求：
    ```
    curl -X POST http://localhost:3000/v1/messages -H 'content-type: application/json' \
@@ -295,7 +294,7 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 ## Phase 3: 触发粒度 + Fanout 缓存 + Cache 装饰 + 成本分账
 
 ### 目标
-支持 `fanout_mode: user_turn | per_iteration` 双模式。`user_turn` 模式下同一 turn 内的多次 tool iteration 复用同一批 references（不重跑 advisor）。Advisor 请求侧按 system_and_3 布局装 4 个 `cache_control` marker。每次请求写一条 `Trace` 到 SQLite，含 advisor + aggregator + judge（predefined 0） 三层 usage 汇总和成本分账（advisor 各自 slot 单价、aggregator 单价）。
+支持 `fanout_mode: user_turn | per_iteration` 双模式。`user_turn` 模式下同一 turn 内的多次 tool iteration 复用同一批 references（不重跑 advisor）。Advisor 请求侧按 system_and_3 布局装 4 个 `cache_control` marker。每次请求写一条 `Trace` 到 SQLite（node:sqlite），含 advisor + aggregator + judge（predefined 0） 三层 usage 汇总和成本分账（advisor 各自 slot 单价、aggregator 单价）。
 
 ### 前置条件
 - Phase 2 的 `orchestrate` 骨架、`fanoutAdvisors` 已实现
@@ -357,11 +356,14 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 
 1. 打开 `fanout_mode: user_turn`，用 Claude Code 发一条会引发 tool 调用的请求（比如"读一下 README"）
 2. 观察日志：第 1 个请求（纯 user）→ advisor MISS + 跑 3 个 slot；第 2 个请求（含 tool_result）→ advisor HIT + 0 次 provider 调用
-3. `sqlite3 mom.db 'SELECT id, trigger_reason FROM traces ORDER BY timestamp DESC LIMIT 3'` → 期望：新 turn 那条 `trigger_reason = "user_turn"`，tool iteration 那条 `trigger_reason = "skipped_tool_iteration"`
+3. 查询 traces（任选其一）：
+   - `node -e "const {DatabaseSync}=require('node:sqlite');console.table(new DatabaseSync('mom.db').prepare('SELECT id, trigger_reason FROM traces ORDER BY timestamp DESC LIMIT 3').all())"`
+   - 或 `sqlite3 mom.db 'SELECT id, trigger_reason FROM traces ORDER BY timestamp DESC LIMIT 3'`
+   期望：新 turn 那条 `trigger_reason = "user_turn"`，tool iteration 那条 `trigger_reason = "skipped_tool_iteration"`
 4. 切到 `fanout_mode: per_iteration`，同样场景 → 期望每次请求都 MISS + 每次都跑 3 个 slot
 5. 验证 cache 装饰生效：在 `advisor-runtime` 请求发出前 dump messages，观察前 3 条非合成 marker 的 message 最后 content block 是否含 `cache_control: {type:"ephemeral"}`；system 是否已转成 `SystemBlock[]` 形式带 `cache_control`
 6. 观察 provider 返回的 `usage.cache_read_input_tokens` 逐渐变大（第二次相同前缀的 advisor 调用命中）
-7. `sqlite3 mom.db "SELECT id, total_cost_usd FROM traces ORDER BY timestamp DESC LIMIT 5"` → 期望 `total_cost_usd` 是 advisor 各自 slot 单价 + aggregator 单价 的总和，非零
+7. `node -e "const {DatabaseSync}=require('node:sqlite');console.table(new DatabaseSync('mom.db').prepare('SELECT id, total_cost_usd FROM traces ORDER BY timestamp DESC LIMIT 5').all())"` → 期望 `total_cost_usd` 是 advisor 各自 slot 单价 + aggregator 单价 的总和，非零
 8. 修改 `settings.provider.pricing_table` 里某个 slot 的价格 → 新请求的成本按新价格计算
 
 ---
