@@ -3,8 +3,7 @@
 > **AI 协作约定**：每次新对话开始时，请先完整阅读本文件和 `001ARCHITECTURE.md`，
 > 再读任务相关的具体文件。未读完本文件前不要对任何文档做修改或给出修改建议。
 >
-> 项目早期还存在根目录的 `PLAN.md`（当前执行路径）和 `README-PLAN.md`（Plan 写作规范），
-> 项目启动阶段应优先阅读 `PLAN.md`。
+> 项目早期还存在根目录的 `PLAN.md`（当前执行路径），项目启动阶段应优先阅读 `PLAN.md`。
 >
 > 根目录的 `README.md`（中文）和 `README.en.md`（英文）是面向使用者的项目说明，
 > 不属于 AI 协作的核心阅读路径，但在项目初始配置阶段会被修改。
@@ -23,7 +22,6 @@
 | `decisions/` | 当时为什么这么决定？否定了哪些方案？ | 每次拍板重要决策后新增 | 持续增长 |
 | `future-plans/` | 有哪些想法现在不做但将来可能做？ | Plan 接近完成时，或提前识别出来时新增 | 持续增长 |
 | `../PLAN.md` | 接下来按什么路径执行？ | 讨论收敛后写，执行完毕后内容迁出 | 永远 1 个 |
-| `../README-PLAN.md` | PLAN.md 应该怎么写？ | 规范本身变动时 | 永远 1 个 |
 | `../README-TEMPLATE.md` | 新项目的 README 应该长什么样？（中英文各一份） | 规范本身变动时 | 永远 1 个 |
 
 ---
@@ -48,10 +46,12 @@
 
 实现完成
   -> 二次核查（见下方「二次核查约定」，强制执行，不可跳过）
+  -> 自检自测（见下方「自检自测约定」，通过后代码才算稳定）
   -> 004CHANGELOG.md 追加一条，关联 ISS 编号和 decisions/ 文件（如有）
   -> 003ISSUES.md 状态改 [已解决]，补填解决日期，关联 CHANGELOG 日期
   -> 001ARCHITECTURE.md / 002STRUCTURE.md 按需更新
-  -> 输出「交付清单」，等待人工操作
+  -> 执行「交付流程」（见下方章节），输出 PR URL 与本地同步命令
+  -> 人工在 GitHub 上 review + merge PR，本地执行 `git pull --ff-only` 拉回 main
 ```
 
 **简单 bug fix**：`[发现]` -> `[进行中]` -> `[已解决]`，跳过 decisions/
@@ -286,8 +286,8 @@ type 沿用 git 惯例：`feat` / `fix` / `refactor` / `chore` / `docs`
 
 ### 核查时机
 
-代码实现完成后，**写 CHANGELOG 之前**执行。核查通过后代码才算稳定，
-稳定后再写 CHANGELOG，再输出交付清单。
+代码实现完成后，**自检自测之前**执行。核查通过后再跑自检自测，
+自检自测通过后代码才算稳定，稳定后再写 CHANGELOG，再走交付流程。
 
 ### 核查内容（按顺序执行）
 
@@ -309,7 +309,7 @@ type 沿用 git 惯例：`feat` / `fix` / `refactor` / `chore` / `docs`
      安全默认值），而不是逐一枚举已知情况？
    - 是否存在只针对当前已知 case 打补丁的防御逻辑——
      如果是，必须替换为覆盖范围更广的通用机制。
-   - 如果发现新的边界情况，在交付清单的「测试命令」中补充对应的测试用例
+   - 如果发现新的边界情况，在自检自测的「增量项」中补充对应的验证脚本
 
 5. **决策衍生项追踪**（仅当本次改动新增或修订 `decisions/` 文件时执行）
    - 扫一遍新决策的 `## 已知代价` 与 `## 不在本期范围`（如有）段落
@@ -322,40 +322,132 @@ type 沿用 git 惯例：`feat` / `fix` / `refactor` / `chore` / `docs`
 
 逐项给出结论（通过 / 发现问题）。
 发现问题的项，直接修复，不要只描述问题。
-全部通过后，继续写 CHANGELOG 并输出交付清单。
+全部通过后，进入「自检自测」；自检自测通过后再写 CHANGELOG 并走交付流程。
 
 ### 禁止行为
 
-- 不得在实现或核查过程中自行运行任何测试命令
-- 不得自行执行任何 git 操作
+以下红线由 Claude Code 后台任务硬性约束或本项目明确约定，无论何时都不得跨越：
+
+- 严禁直接 push 到 `main` / `master`；严禁 `--force` 推送。
+- 严禁合并 PR；PR 必须以 `--draft` 状态开出，由人 review 后合并。
+- 严禁改动 git 配置（`git config`）与跳过钩子（`--no-verify`）。
+- 除自建 feature 分支外，不得对他人分支执行 `reset --hard` / `branch -D` /
+  `restore .` / `clean -f` 等破坏性操作。
+- 自检自测中命令输出的失败信号（非零退出码 / 断言失败 / 编译错误）不得吞掉、
+  不得用 `|| true` 或修改断言等方式绕过；失败必须回到「二次核查 - 正确性」
+  重新修复，或走「失败终止」分支。
 
 ---
 
-## 交付清单约定
+## 自检自测约定
 
-核查通过、文档更新完成后，输出以下交付清单，等待人工操作。
+### 执行时机
 
-**📋 测试命令**
-根据本次改动范围，列出需要手动执行的命令：
-  # 前端
-  npm run test:unit
-  npm run test:e2e
-  # 后端
-  pytest tests/
+二次核查全部通过、CHANGELOG 尚未写入前执行。自检失败 → 回到「二次核查」重修；
+连续两次失败 → 触发「失败终止」分支，输出失败摘要，不进入交付流程。
 
-若本次改动为纯 bug fix 且无对应测试用例，测试命令可留空，直接跳过此项。
+### 强制项（每次改动必跑）
 
+- `npm run typecheck`
+- `npm run build`
+- `npm run build:web`（若本次改动涉及 `web/` 子工作区）
 
-**📦 Git Commit Message**
-必须输出以下格式的可执行命令，不得替换为文件改动列表或其他形式：
+三条命令的退出码必须为 0，任何 warning-as-error 或 tsc 报错都视为失败。
+
+### 增量项（按本次改动追加）
+
+- 本次改动**新引入**的任何验证脚本 / curl 断言 / node -e 断言 / 数据库
+  DDL 校验，Claude 必须自己跑一遍并粘贴关键输出；**禁止把新写的验证脚本
+  只列在 CHANGELOG 里让用户手跑**。
+- 涉及运行时行为的改动（新增路由、修改 provider passthrough、修改
+  aggregator 递归护栏等），至少启动一次 `npm run dev`，用 `curl` 或
+  `node -e` 打关键路径，进程用完关闭。默认端口冲突时用 `MOM_PORT=<空闲端口>`。
+- **不主动打真实 provider 接口**——避免消耗 token 与真实 API key。需要
+  provider 侧路径覆盖的验证由用户在 review PR 时手动执行，Claude 在 PR
+  body 里显式列出「待用户手动验证」的项。
+
+### 输出
+
+在会话里贴出：每条命令的退出码，以及最能证明本次改动生效的 3-10 行输出片段。
+不重复贴完整 build log。
+
+---
+
+## 交付流程约定
+
+自检自测通过、004CHANGELOG.md 追加完成后，Claude 按下列顺序自动执行 Git
+提交推送流程。每一步的实际命令与输出（成功或失败）都要贴回会话。
+
+### 1. 提交（worktree 内）
+
+```
+git add <明确列出的文件路径，避免 git add . / git add -A>
 git commit -m "type(scope): description in English [ISS-NNN]"
-commit message 直接复用本次 CHANGELOG 条目标题（已为英文），格式：
+```
 
-若前后端均有改动，每个仓库分别输出一条 commit message：
-  git commit -m "type(scope): description [ISS-NNN]"
+- commit message 直接复用本次 CHANGELOG 条目标题（已为英文）。
+- **subject ≤ 72 字符**（含 type/scope 与末尾 `[ISS-NNN]`）；超长的描述
+  塞进 CHANGELOG 的 `### 改动` 或 PR body，不写进 subject。
+  长 subject 会被 Claude Code 在 `gh pr create` 时截成 `...`，破坏合并 commit。
+- 结尾必须关联 ISS 号：`[ISS-NNN]`。
+- 若前后端均有代码改动，两条 commit 分别用各自的 scope。
+- 若本次只同步 docs、无代码改动，使用 `git commit -m "docs: sync [ISS-NNN]"`。
 
-若前端无代码改动、只有 docs 同步更新，输出：
-  git commit -m "docs: sync [ISS-NNN]"
+### 2. 推送 feature 分支
 
-commit message 只反映原始任务的改动意图，结尾必须关联对应的ISS号。
-二次核查中发现并修复的问题属于本次实现的组成部分，不单独体现在 commit message 里。
+```
+git push -u origin <当前 worktree 的 feature 分支名>
+```
+
+- 严禁 push 到 main / master（见「禁止行为」）。
+- 分支名沿用 Claude Code worktree 自动生成的名称，不改名、不 rebase。
+
+### 3. 开草稿 PR
+
+```
+gh pr create --draft \
+  --title "<CHANGELOG 标题，≤ 72 字符>" \
+  --body  "<按下方模板填写>"
+```
+
+PR body 模板（三段，按顺序）：
+
+```
+## Summary
+- 一句话说明本次改动意图（与 CHANGELOG 首段一致）。
+- 关联 ISS 编号：Closes ISS-NNN（若适用）。
+
+## Self-check Results
+- npm run typecheck: <退出码> / 关键输出
+- npm run build:     <退出码> / 关键输出
+- npm run build:web: <退出码> / 关键输出（若涉及）
+- 增量项：<每条命令 + 关键输出>
+- 待人工验证：<例如打真实 provider 的验证步骤，列在此供 reviewer 手跑>
+
+## Manual Follow-up
+合并后请在主目录执行：
+    git checkout main
+    git pull --ff-only
+若本次改动新增了 .env / mom.config.json 字段，请补齐：
+    - PROVIDER_XXX=...
+    - mom.config.json 的 xxx 字段
+```
+
+### 4. 交付回执
+
+在会话最后输出一段结构化回执：
+
+```
+- feature 分支：<branch>
+- PR URL：<gh pr create 返回的 URL>
+- 自检结论：全部通过 | 部分待人工验证（列项）
+- 用户合并后需执行：
+    git checkout main
+    git pull --ff-only
+```
+
+### 失败终止
+
+自检自测未通过、或 Git 步骤任一步报错时使用。不进入后续步骤，
+输出失败位置、命令、退出码、错误尾部片段（≤ 20 行）。
+不得为了让流程走通而修改断言、跳过测试、改 commit message 掩盖失败。
