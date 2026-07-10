@@ -1,3 +1,29 @@
+## [2026-07-10-1] docs(plan): revise Phase 3 — decouple trigger from cache reuse
+
+### 改动
+- PLAN.md Phase 3 章节全面重写（原 320-399 行）：
+  - "目标"段明确"触发判断与缓存复用解耦"，控制流永远"先查 cache、命中即复用、未命中就跑 fanout"，无"跳过 advisor"分支
+  - `trigger_reason` 枚举定稿为六种：`mom_off` / `user_turn` / `skipped_tool_iteration` / `tool_iteration_cache_miss` / `per_iteration` / `fanout_cache_hit`
+  - 组件改动：`shouldFanout` 删除，改为纯标签函数 `computeTriggerReason(fanoutMode, isNewTurn, cacheHit)`；cache key 用原顺序 `slotsHash`（不 sort）；`fanout-cache.ts` 明确 Map-based TTL + LRU（零第三方依赖）；`passthroughStream` 加可选 `onEvent` 参数（单一实现 + 观察者）；透传路径也写 trace
+  - `src/cost/` 目录职责边界明确：只放"计价 / usage 纯函数"，metrics 聚合归 storage / dashboard-api
+  - 新增"与 Phase 3 初稿的关键偏离"块（6 条），逐条列出偏离理由
+  - "验证方式"清单从 8 条扩为 9 条，新增 miss 降级路径与 streaming trace 校验
+  - 新增"单元测试"清单：trigger / cache-key / fanout-cache / cache-decorator / pricing
+- 新增 docs/decisions/005-trigger-cache-decoupling.md：记录"cache miss 无条件补跑而非跳过"的决策链，否定"严格跳过"/"只 warn 不补跑"/"sortedSlots"/"复制两套 stream 实现"四个方案；已知代价 4 项 + 不在本期范围 2 项，全部带 Followup 标注
+- 新增 docs/003ISSUES.md ISS-006（状态 [已解决]），关联 decisions/005 与本 CHANGELOG
+
+### 涉及文件
+- PLAN.md：Phase 3 章节重写（目标 / 前置条件 / 组件改动 / 偏离块 / 验证方式 / 单元测试）
+- docs/decisions/005-trigger-cache-decoupling.md：新建
+- docs/003ISSUES.md：新增 ISS-006
+- docs/004CHANGELOG.md：新增本条
+
+### 关联
+-> ISS-006
+-> decisions/005-trigger-cache-decoupling.md
+
+---
+
 ## [2026-07-09-4] feat(orchestrator): implement Phase 2 advisor fanout + concat aggregator; narrow Trace snapshot to MoMConfig
 
 ### 改动

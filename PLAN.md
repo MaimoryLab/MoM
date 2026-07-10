@@ -323,77 +323,112 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 ## Phase 3: 触发粒度 + Fanout 缓存 + Cache 装饰 + 成本分账
 
 ### 目标
-支持 `fanout_mode: user_turn | per_iteration` 双模式。`user_turn` 模式下同一 turn 内的多次 tool iteration 复用同一批 references（不重跑 advisor）。Advisor 请求侧按 system_and_3 布局装 4 个 `cache_control` marker。每次请求写一条 `Trace` 到 SQLite（node:sqlite），含 advisor + aggregator + judge（predefined 0） 三层 usage 汇总和成本分账（advisor 各自 slot 单价、aggregator 单价）。
+支持 `fanout_mode: user_turn | per_iteration` 双模式。**触发判断与缓存复用解耦**：`fanout_mode` 只影响 cache key 的取样范围（`user_turn` 只对最后一次真实 user turn 之前的前缀做签名；`per_iteration` 对完整 messages 做签名），控制流永远是"先查 cache，命中即复用、未命中就跑 fanout"——没有"跳过 advisor"这条分支。`trigger_reason` 变成描述性标签（`user_turn` / `skipped_tool_iteration` / `tool_iteration_cache_miss` / `per_iteration` / `fanout_cache_hit` / `mom_off`），只用于 trace/metrics，不控制主链路走向。
+
+Advisor 请求侧按 system_and_3 布局装 4 个 `cache_control` marker。每次请求写一条 `Trace` 到 SQLite（node:sqlite），含 advisor + aggregator 两层 usage 汇总和成本分账（advisor 各自 slot 单价、aggregator 单价；judge 在 Phase 6 引入）。`mom_mode !== 'always'` 的透传请求也写 trace（`mom_triggered=false` / `trigger_reason="mom_off"`），给 Phase 4 metrics `mom_trigger_rate` 一个分母。
 
 ### 前置条件
 - Phase 2 的 `orchestrate` 骨架、`fanoutAdvisors` 已实现
-- `momConfig.cache.ttl` / `momConfig.fanout_mode` / `momConfig.pricing_table` 字段已在 Phase 1 定义
+- `momConfig.cache.ttl` / `momConfig.cache.max_entries` / `momConfig.fanout_mode` / `momConfig.pricing_table` 字段已在 Phase 1 定义
 
 ### 组件改动
 
-**触发判断**
+**触发判断（描述性标签，不控制流程）**
 
 - **新增** `src/orchestrator/trigger.ts`
   - `isNewUserTurn(messages: AnthropicMessage[]): boolean` — **严格规则**：最后一条 user message 的 content blocks 里只要存在**任何一个** `type:"tool_result"` block（不管是否同时含 text）就返回 false；否则 true
-  - `shouldFanout(messages, fanoutMode): {trigger: boolean, reason: string}` — user_turn 时委托 `isNewUserTurn`；per_iteration 时永远 true；返回值供 trace 记录 `trigger_reason`
+  - `computeTriggerReason(fanoutMode, isNewTurn, cacheHit): TriggerReason` — 纯函数，输出六种枚举值之一：
+    - `mom_off`：`mom_mode !== 'always'`，透传路径（在 orchestrator 层判定，不进 trigger.ts）
+    - `user_turn`：user_turn 模式 + 新 turn + cache MISS → 跑 fanout
+    - `skipped_tool_iteration`：user_turn 模式 + tool iteration + cache HIT → 复用
+    - `tool_iteration_cache_miss`：user_turn 模式 + tool iteration + cache MISS → **补跑 fanout 并写缓存**（覆盖进程重启、TTL 过期、首请求即 tool_result 三种真实场景）
+    - `per_iteration`：per_iteration 模式 + cache MISS → 跑 fanout
+    - `fanout_cache_hit`：per_iteration 模式 + cache HIT → 复用
+- **删除** PLAN 初稿的 `shouldFanout({trigger, reason})` 返回值——不再把"是否跑 fanout"作为决策；`mom_mode==='always'` 时永远 fanout（除非 cache 命中）
 
 **Fanout 缓存**
 
 - **新增** `src/cache/cache-key.ts`
-  - `computeFanoutCacheKey(messages, settings): string` — 组成：
-    - `sig` = sha256 of stable JSON stringify（下面的 signatureMessages）
-    - user_turn 模式：signatureMessages = messages 截到最后一个 `isRealUserMessage` 为止（`isRealUserMessage` = user role 且 content 无 tool_result）
+  - `computeFanoutCacheKey(messages, momConfig): string` — 组成：
+    - `sig` = sha256(canonical JSON stringify(signatureMessages))
+    - user_turn 模式：signatureMessages = messages 截到并**包含**最后一个"真实 user message"（`isRealUserMessage` = role==='user' 且 content 里**没有** `tool_result` block）为止；同一 turn 内后续 tool iteration 的 messages 只是在其后追加 tool_use/tool_result，签名前缀不变
     - per_iteration 模式：signatureMessages = 完整 messages
-    - 最终 key = JSON({settingsHash, sig, sortedSlots})
-    - `settingsHash` 只哈希影响 advisor 视图/输出的字段（`advisor.system_prompt` / `advisor.tools_enabled` / `reference_max_tokens`），不哈希全部 settings（避免无关字段变动破坏缓存）
+    - `settingsHash` = sha256 of stable JSON of `{system_prompt, tools_enabled, reference_max_tokens}`（只哈希影响 advisor 视图/输出的字段；无关字段变动不失效缓存）
+    - `slotsHash` = sha256 of `slots.join('\x00')`（**保留原顺序、不排序**——顺序调整会 miss 一次，但避免"复用旧顺序结果导致 aggregator 引用编号语义漂移"）
+    - 最终 key = `settingsHash|slotsHash|sig`（三段用 `|` 拼接的字符串，可读、易调试）
 - **新增** `src/cache/fanout-cache.ts`
-  - 基于 `lru-cache`，`max: 1000`，TTL 从 `momConfig.cache.ttl` 读（5m/1h）
-  - `get(key): FanoutCacheValue | null` / `set(key, results, ttlMs)`
-- **修改** `src/orchestrator/fanout.ts`：进入前查缓存、命中直接返回并给每条 result 打 `cache_hit: true`；MISS 时正常跑再 set；HIT 时不把 usage/cost 二次记账（返回时把 usage 置 0、latency 保留 0）
+  - **Map-based TTL + LRU，零第三方依赖**（延续 Phase 2 拒绝 p-limit 的项目风格）
+  - 结构：`Map<string, {value: FanoutCacheValue, expires_at: number}>`；LRU 靠"get/set 时先 delete 再 set"利用 Map 插入顺序特性；过期检查在 get 时懒执行
+  - `createFanoutCache({max_entries, ttl_ms})` → `{get(key), set(key, value), size(), clear()}`
+  - TTL preset 转换：`'5m' → 5*60*1000`、`'1h' → 60*60*1000`
+- **修改** `src/orchestrator/fanout.ts`：`fanoutAdvisors` 签名扩展为接收 `cache` 与预算好的 `key`；命中直接返回原 `AdvisorResult[]` 的深拷贝，每条打 `cache_hit=true` / `usage` 归零 / `latency_ms=0` / `reference` **保留原文**（不清空——否则 aggregator 无 references 拼接，等于白命中）；MISS 时正常跑再 `set(key, results)`
 
-**Cache 装饰**
+**Cache 装饰（Anthropic 侧 prompt caching）**
 
 - **新增** `src/cache/cache-decorator.ts`
   - `applyAdvisorCacheControl(system: string, messages: AnthropicMessage[]): {system: SystemBlock[], messages: AnthropicMessage[]}` — **system_and_3 布局**：
     - `system` 转成 `[{type:"text", text: system, cache_control:{type:"ephemeral"}}]`（第 1 个 marker）
     - 遍历 messages 找**最后 3 条非 ADVISORY_INSTRUCTION 合成 marker** 的 message，在各自最后一个 content block 上加 `cache_control`（第 2/3/4 个 marker）
     - 不足 3 条时能加几个加几个
-    - 合成 marker（内容 === `ADVISORY_INSTRUCTION`）跳过，因为每次可能位置漂移
-- **修改** `src/advisor/advisor-runtime.ts`：在调 `passthroughCall` 前先过 `applyAdvisorCacheControl`；request 的 `system` 字段类型从 `string` 升级为 `SystemBlock[]`（Anthropic Messages API 的 `system` 字段本就是 `string | SystemBlock[]` union，切到数组形式才能承载 `cache_control`）
+    - 合成 marker（单 text block 且 text === `ADVISORY_INSTRUCTION`）跳过，因为它每次位置可能漂移
+- **修改** `src/advisor/advisor-runtime.ts`：在调 `passthroughCall` 前先过 `applyAdvisorCacheControl`；request 的 `system` 字段从 `string` 换成 `SystemBlock[]`（Anthropic Messages API 的 `system` 字段本就是 `string | SystemBlock[]` union，切到数组形式才能承载 `cache_control`）
 
 **成本分账**
 
-- **新增** `src/cost/pricing.ts`
-  - `calculateCost(model: string, usage: Usage, pricingTable): number` — 从 settings 里的 `pricing_table[model]` 读四段单价（input / output / cache_write / cache_read），缺项 → warn + 返回 0
+- **新增** `src/cost/pricing.ts`（**目录职责边界**：`src/cost/` 只放"计价 / usage 纯函数"，metrics 聚合永远归 `src/storage/metrics.ts` 或 `src/dashboard-api/metrics-api.ts`）
+  - `calculateCost(model: string, usage: Usage, pricingTable): number` — 从 `pricingTable[model]` 读四段单价（input / output / cache_write / cache_read），缺项时 log warn + 返回 0；单位 USD per million tokens
   - `sumUsage(usages: Usage[]): Usage` — 汇总多次调用的 usage（供 metrics 用）
+
+**Streaming trace observer（provider 层内部实现细节）**
+
+- **修改** `src/provider/stream-forward.ts`：给 `passthroughStream` 增加可选参数 `onEvent?: (evt: SSEEvent) => void`
+  - 字节仍 `res.body.pipe(reply.raw)` 原样转发（透传路径行为完全不变）
+  - `onEvent` 非空时，用 `res.body.pipe(new PassThrough())` 分叉一路，用行级 SSE parser 增量组装事件后回调；observer 内部异常一律 `log.warn` 后吞掉，不影响主转发
+  - Phase 2 的透传路径**不传 `onEvent`**，行为完全等价；Phase 3 的 MoM streaming 路径传 `onEvent`
+- **扩展** `src/gateway/sse.ts` 补 `createSSEParser()`（增量分帧器，按 `event:` / `data:` / 空行三种前缀累积，收到空行时 emit 一个 `SSEEvent`）
 
 **Trace 持久化**
 
 - **新增** `src/storage/traces.ts`
-  - `saveTrace(trace: Trace): void`
+  - `saveTrace(trace: Trace): void` — 序列化整条 `Trace` 到 `data` 列，同时把常用字段（`mom_triggered` / `trigger_reason` / `total_cost_usd` / `baseline_cost_usd` / `total_latency_ms`）冗余到独立列，方便 Phase 4 metrics 聚合直接走 SQL
   - `getTraceById(id): Trace | null`
   - `getRecentTraces(limit): Trace[]`
   - `deserializeTraceRow(row): Trace` — 内部工具
-- **修改** `src/storage/schema.sql`：确保 `traces` 表列齐（对应 `Trace` 类型每个字段）
+- **`src/storage/db.ts`**：现有 SCHEMA 已含所有列（`id / timestamp / mom_triggered / trigger_reason / total_cost_usd / baseline_cost_usd / total_latency_ms / data`），无需改动
 - **修改** `src/orchestrator/orchestrator.ts`：
-  - 组装 `Trace` 记录（含 `mom_triggered` / `trigger_reason` / 全量 advisor_results / aggregator_result 全量 usage / `total_cost_usd` = advisor 各自成本 + aggregator 成本 / `total_latency_ms`）
-  - Non-streaming 场景：返回 response 前同步调 `saveTrace(trace)`
-  - Streaming 场景：把 `onComplete` 回调传给 `runAggregatorStreaming` —— 回调在 SSE parser 收到 `message_stop` 事件时触发，回调内组装 `Trace` 并 `saveTrace`（此时 reply 可能已 end，落盘异步不阻塞客户端）
-  - `saveTrace` 内部异常 catch 后 log，不打断请求或响应
+  - **主链路一律先算 cache key + trigger_reason**，然后决定 fanout 走 cache 复用还是真跑
+  - 非流式：组装 `Trace`（`settings_snapshot: MoMConfig` 深拷贝、`total_cost_usd` = Σ advisor 成本 + aggregator 成本、`total_latency_ms` = 请求进入到 response 生成完毕），reply 前同步 `saveTrace()`；`saveTrace` 抛错只 `log.error`，不打断响应
+  - 流式：把 `onEvent` observer 传给 `runAggregatorStreaming`；observer 累积成 `AnthropicMessagesResponse` + `Usage`，`message_stop` 后 orchestrator 组装 `Trace` 并 `saveTrace`；此时 reply 可能已 end，落盘完全异步
+  - 透传路径（`mom_mode !== 'always'`）：透传完成后写一条 `mom_triggered=false / trigger_reason="mom_off" / advisor_results=[] / aggregator_result=null / total_cost_usd=0` 的 trace
+
+### 与 Phase 3 初稿的关键偏离（含理由）
+
+1. **`shouldFanout` 从"决策函数"退化成"标签函数"**：初稿隐含"user_turn tool iteration 直接跳过 advisor"，无法处理进程重启 / TTL 过期 / 首请求即 tool_result 三个真实场景（aggregator 会拿到空 references，严重降级到 baseline）。新语义：控制流永远"cache 查询 + miss 补跑"，`trigger_reason` 只做叙述。详见 `decisions/005-trigger-cache-decoupling.md`。
+2. **cache key 用 ordered `slotsHash` 而非 `sortedSlots`**：`AdvisorResult[]` 是按 `advisor.slots` 顺序拼接的，缓存复用旧顺序结果 + 新配置读顺序 = "Reference 1 — A" 内容实际是旧 slot A 的分析、但当前配置的引用 1 语义应该是 slot C——缓存必须承担"输入即输出"的强不变量，slot 顺序变更即输入变更。
+3. **不引入 `lru-cache` 依赖**：Map-based TTL + LRU 手写 30-40 行（延续 Phase 2 拒绝 p-limit 的选择）。
+4. **`passthroughStream` 单一实现 + 可选 observer**，不复制出两套转发逻辑：透传模式不传 `onEvent`、行为等价；MoM streaming 传 `onEvent`、旁路解析。stream 层解析归 provider 层内部实现，不上升到 aggregator。
+5. **透传路径也写 trace**（`mom_triggered=false`）：给 Phase 4 `mom_trigger_rate` 一个正确的分母；每请求多一次 SQLite 同步写入，MVP 可接受，若 Phase 4 性能压力大再引入批量写。
+6. **`src/cost/` 目录职责收敛**：只放"计价 / usage 纯函数"；metrics 聚合永远归 storage / dashboard-api，避免目录膨胀。
 
 ### 验证方式
 
-1. 打开 `fanout_mode: user_turn`，用 Claude Code 发一条会引发 tool 调用的请求（比如"读一下 README"）
-2. 观察日志：第 1 个请求（纯 user）→ advisor MISS + 跑 3 个 slot；第 2 个请求（含 tool_result）→ advisor HIT + 0 次 provider 调用
-3. 查询 traces（任选其一）：
-   - `node -e "const {DatabaseSync}=require('node:sqlite');console.table(new DatabaseSync('mom.db').prepare('SELECT id, trigger_reason FROM traces ORDER BY timestamp DESC LIMIT 3').all())"`
-   - 或 `sqlite3 mom.db 'SELECT id, trigger_reason FROM traces ORDER BY timestamp DESC LIMIT 3'`
-   期望：新 turn 那条 `trigger_reason = "user_turn"`，tool iteration 那条 `trigger_reason = "skipped_tool_iteration"`
-4. 切到 `fanout_mode: per_iteration`，同样场景 → 期望每次请求都 MISS + 每次都跑 3 个 slot
-5. 验证 cache 装饰生效：在 `advisor-runtime` 请求发出前 dump messages，观察前 3 条非合成 marker 的 message 最后 content block 是否含 `cache_control: {type:"ephemeral"}`；system 是否已转成 `SystemBlock[]` 形式带 `cache_control`
-6. 观察 provider 返回的 `usage.cache_read_input_tokens` 逐渐变大（第二次相同前缀的 advisor 调用命中）
-7. `node -e "const {DatabaseSync}=require('node:sqlite');console.table(new DatabaseSync('mom.db').prepare('SELECT id, total_cost_usd FROM traces ORDER BY timestamp DESC LIMIT 5').all())"` → 期望 `total_cost_usd` 是 advisor 各自 slot 单价 + aggregator 单价 的总和，非零
-8. 修改 `data/mom.config.json` 里 `pricing_table.<slot>` 的价格 → 新请求的成本按新价格计算
+1. **`fanout_mode: user_turn` — 命中路径**：清空 mom.db → 用 Claude Code 发一条会引发 tool 调用的请求（"读一下 README"）→ 观察 fastify 日志：第 1 个请求（纯 user）出现 `event=fanout_miss` + N 个 slot 调用完成；第 2 个请求（含 tool_result）出现 `event=fanout_hit` + 0 次 provider 调用
+2. **`fanout_mode: user_turn` — miss 降级路径**：`.env` 里临时把 `MOM_DB_PATH` 换到新文件重启（模拟"首请求就是 tool_result"）；或缓存刚建好就等 TTL 过期；发一条 `messages` 末尾是 tool_result 的请求 → 期望日志出现 `event=fanout_miss` + `trigger_reason="tool_iteration_cache_miss"`，aggregator 依然拿到完整 references（非空数组）
+3. **trace `trigger_reason` 校验**：`sqlite3 mom.db 'SELECT trigger_reason, mom_triggered FROM traces ORDER BY timestamp DESC LIMIT 10'` → 期望能看到六种枚举值中出现的对应组合（`mom_off` 透传路径 / `user_turn` 首 turn / `skipped_tool_iteration` 后续 tool iteration / `tool_iteration_cache_miss` 冷启 tool 场景 / `per_iteration` 或 `fanout_cache_hit`）
+4. **`fanout_mode: per_iteration`**：切模式重启 → 期望每次请求都 MISS（除非 messages 完全等价）+ 每次都跑 N 个 slot；`trigger_reason` 在 `per_iteration` 与 `fanout_cache_hit` 之间切换
+5. **cache 装饰生效**：在 `advisor-runtime` 请求发出前 dump messages 与 system，观察 3-4 个 `cache_control: {type:"ephemeral"}` marker 落在预期位置（system 第 1 个 + 最后 3 条非合成 marker message 各 1 个）
+6. **provider prompt caching 命中**：观察连续两次同前缀 advisor 请求的 provider 响应，`usage.cache_read_input_tokens` 第二次显著大于 0
+7. **成本分账**：`sqlite3 mom.db 'SELECT id, trigger_reason, total_cost_usd FROM traces ORDER BY timestamp DESC LIMIT 5'` → 非命中 trace `total_cost_usd > 0`（= Σ advisor slot 成本 + aggregator 成本）；命中 trace `total_cost_usd` = aggregator 成本（advisor usage 归零，成本 0）；`mom_off` trace `total_cost_usd = 0`（透传路径不知道 provider 内 usage）
+8. **pricing 热更**：修改 `data/mom.config.json` 里 `pricing_table.<slot>` 的价格 → 重启后新请求按新价格计算
+9. **streaming trace**：`stream:true` 请求 → 客户端正常收流；response 结束后 `sqlite3` 查该 trace，`aggregator_result.usage` / `aggregator_result.response.id` 应正确填充（说明 observer 解析 SSE 成功）
+
+### 单元测试
+
+- `test/trigger.test.ts`：`isNewUserTurn` 正/负例（纯 user / user+tool_result / assistant / 空 messages）、`computeTriggerReason` 六种组合
+- `test/cache-key.test.ts`：user_turn 模式下 tool iteration 与前一次真实 user 命中同 key；slot 顺序不同不命中；`settingsHash` 影响字段变化不命中
+- `test/fanout-cache.test.ts`：TTL 过期、LRU 淘汰、`max_entries` 边界
+- `test/cache-decorator.test.ts`：4 个 marker 落位、合成 marker 被跳过、不足 3 条时不越界
+- `test/pricing.test.ts`：`calculateCost` 四段单价加总、缺项返回 0、`sumUsage` 聚合正确
 
 ---
 

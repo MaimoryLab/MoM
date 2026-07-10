@@ -175,6 +175,47 @@ MoM 的核心能力（多模型 fan-out + reference 拼接）不可用。
 -> PLAN.md Phase 2
 -> 004CHANGELOG.md [2026-07-09-4]
 
+---
+
+## [ISS-006] Phase 3 触发判断与缓存复用被折叠成同一决策，tool iteration cache miss 会降级为空 references
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[技术债]
+**发现日期**：2026-07-10
+**解决日期**：2026-07-10
+**解决方案**：Phase 3 主链路控制流规范化为"先查 cache，命中即复用、未命中就跑 fanout"，`trigger_reason` 从"决策函数返回值"退化为"叙述性标签"（六种枚举：`mom_off` / `user_turn` / `skipped_tool_iteration` / `tool_iteration_cache_miss` / `per_iteration` / `fanout_cache_hit`）。cache key 用原顺序的 `slotsHash` 而非 `sortedSlots`；`passthroughStream` 单一实现 + 可选 `onEvent` 观察者；透传路径也写 trace。PLAN.md Phase 3 章节全面重写；decisions/005 记录决策链。
+
+**现象**：
+PLAN Phase 3 初稿把 `fanout_mode: user_turn` 描述为"tool iteration 复用 references（不重跑 advisor）"，并给出 `shouldFanout` 决策函数。字面语义在三类真实场景下会退化：
+1. 进程重启后内存 cache 全空，第一条 tool iteration 请求跳过 advisor → aggregator 拿到空 references
+2. TTL 过期后同 tool loop 内下一次 iteration 命中失效 → 同上
+3. 用户开新 Claude Code session 直接粘贴含 tool_result 的历史 → 首请求即 tool iteration，cache 空 → 同上
+
+**后果**：
+1. **aggregator 严重降级为 baseline 单模型**（空 references 拼接，用户无感知）
+2. **`trigger_reason=skipped_tool_iteration` 与真正的缓存命中在 metrics/dashboard 上无法区分**，用户看不到质量崩塌
+3. 与 Phase 2 已经稳定下来的"advisor/aggregator 语义"承诺冲突：Phase 2 保证"MoM 主链路 = 多模型 fan-out + reference 拼接"，Phase 3 却在部分场景下退化为单模型
+4. **越晚改越贵**：Phase 3 一旦按初稿实现，cache miss 降级路径没有留位，Phase 4 metrics 也没有分维度显示的字段
+
+**初步判断**：
+已确认。根因是"触发判断"（是否新 turn，一个描述性判断）与"缓存复用"（cache 是否命中，一个存储层查询结果）在初稿被折叠成同一个 `shouldFanout` 二值决策。两者正交，在 cache 不可用时的正确答案是分歧的：即使不是新 turn，如果 cache miss，仍然应该跑 fanout 以保证 aggregator 拿到真实 references。
+
+**方案讨论**：（已收敛，详见 decisions/005）
+方案 A：严格按初稿实现——否定：三类真实场景下 aggregator 拿到空 references，严重降级
+方案 B：cache miss 只 warn 不补跑——否定：把架构问题降级成告警问题，无自愈
+方案 C（**采纳**）：cache miss 无条件补跑 advisor，`trigger_reason` 退化为标签
+
+**关联**：
+-> PLAN.md Phase 3（章节全面重写）
+-> src/orchestrator/orchestrator.ts（待改，Phase 3 实施时）
+-> src/orchestrator/trigger.ts（待新增）
+-> src/cache/cache-key.ts（待新增）
+-> src/cache/fanout-cache.ts（待新增）
+-> src/provider/stream-forward.ts（待改，加可选 onEvent 参数）
+-> decisions/005-trigger-cache-decoupling.md
+-> 004CHANGELOG.md [2026-07-10-1]
+
 <!--
 新增条目模板：
 
