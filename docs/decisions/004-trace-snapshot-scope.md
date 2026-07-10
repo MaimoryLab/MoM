@@ -1,8 +1,8 @@
-# 003. Trace.settings_snapshot 只快照 MoMConfig，不快照 provider 秘钥/端点
+# 004. Trace.settings_snapshot 只快照 MoMConfig，不快照 provider 秘钥/端点
 
 **日期**：2026-07-09
 **状态**：已决策
-**关联 Issue**：ISS-003
+**关联 Issue**：ISS-004
 
 ## 背景
 

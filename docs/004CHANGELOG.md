@@ -1,4 +1,4 @@
-## [2026-07-09-3] feat(orchestrator): implement Phase 2 advisor fanout + concat aggregator; narrow Trace snapshot to MoMConfig
+## [2026-07-09-4] feat(orchestrator): implement Phase 2 advisor fanout + concat aggregator; narrow Trace snapshot to MoMConfig
 
 ### 改动
 - 新增 `src/advisor/`（`prompts.ts` / `view-transformer.ts` / `advisor-runtime.ts`）：`convertToAdvisorView` 展平 tool_use、截断 tool_result、丢弃 image、末尾 assistant 追加 `ADVISORY_INSTRUCTION` 合成 user marker；`runAdvisor` 单 slot 调用非流式 provider，失败以占位符返回不抛
@@ -10,7 +10,7 @@
 - `src/gateway/messages-handler.ts`：`createMessagesHandler(provider)` → `createMessagesHandler(runtime: RuntimeConfig)`，把透传替换为 `orchestrate(body, reply, runtime, req.log)`；错误映射逻辑保持原样
 - `src/gateway/server.ts`：`startServer(port, provider)` → `startServer(port, runtime: RuntimeConfig)`；provider 层的 `passthroughCall`/`passthroughStream` 签名不动，分层约束不破
 - `src/index.ts`：`startServer(PORT, runtime.provider)` → `startServer(PORT, runtime)`
-- `src/types/mom.ts`：`Trace.settings_snapshot: RuntimeConfig` → `MoMConfig`——避免 Phase 3 落盘时把 `provider.api_key` 写进 SQLite（ISS-003 修复）
+- `src/types/mom.ts`：`Trace.settings_snapshot: RuntimeConfig` → `MoMConfig`——避免 Phase 3 落盘时把 `provider.api_key` 写进 SQLite（ISS-004 修复）
 - 新增 `test/view-transformer.test.ts` / `test/reference-builder.test.ts`：Node 22 内置 `node:test` 覆盖三处纯逻辑，重点验证「append 只改最后一条 message、前缀 message 引用不变」不变量
 - `package.json` 新增 `test` script（`node --test --import tsx test/*.test.ts`）
 - PLAN.md Phase 2 新增"与本节初稿的偏离"块，逐条列出实际实现相对初稿的偏离
@@ -36,13 +36,34 @@
 - `PLAN.md`：Phase 2 组件改动 + 偏离块
 - `docs/001ARCHITECTURE.md`：分层图 + 链路 + 关键约定
 - `docs/002STRUCTURE.md`：目录树 + 新增 `test/`；未创建目录清单删除 orchestrator/advisor/aggregator
-- `docs/003ISSUES.md`：新增 ISS-003（已解决）+ ISS-004（已解决）
-- `docs/decisions/003-trace-snapshot-scope.md`：新建
+- `docs/003ISSUES.md`：新增 ISS-004（已解决）+ ISS-005（已解决）
+- `docs/decisions/004-trace-snapshot-scope.md`：新建
+
+### 关联
+-> ISS-004
+-> ISS-005
+-> decisions/004-trace-snapshot-scope.md
+
+---
+
+## [2026-07-09-3] docs(workflow): AI runs self-check then opens draft PR [ISS-003]
+
+### 改动
+- 删除 `docs/000README.md` 中"不得在实现或核查过程中自行运行任何测试命令 / 不得自行执行任何 git 操作"两条禁令
+- `### 禁止行为` 重写为 Claude Code 环境硬红线：禁 push main、禁 --force、禁合并 PR、禁改 git config、禁 --no-verify、禁破坏他人分支、禁吞掉自检失败信号
+- 新增 `## 自检自测约定` 节：强制项 `npm run typecheck` + `npm run build` + `npm run build:web`，退出码必须为 0；增量项要求本次改动新引入的验证脚本 Claude 自跑并粘贴关键输出；明确不打真实 provider 接口
+- `## 交付清单约定` 重写为 `## 交付流程约定`：commit → push feature 分支 → `gh pr create --draft` → 输出结构化交付回执（feature 分支名 / PR URL / 用户合并后需执行 `git checkout main && git pull --ff-only`）
+- 新增 "commit / PR title ≤ 72 字符" 硬约束，避免 Claude Code 自动截断成 `...` 破坏合并 commit
+- 工作流生命周期图末段更新：从"输出交付清单等人工"改为"自检自测 → 交付流程输出 PR URL → 人工 review + merge + 本地 pull"
+- 二次核查节的"稳定后写 CHANGELOG"衔接语调整，插入自检自测环节
+- 删除 `README-PLAN.md` 在顶部提示块和文件职责表中的引用（该文件实际不存在）
+
+### 涉及文件
+- docs/000README.md：改写工作流生命周期末段、禁止行为、新增自检自测节、交付清单节重写为交付流程节、删除 README-PLAN.md 引用
+- docs/003ISSUES.md：追加 ISS-003 条目，状态直接 [已解决]
 
 ### 关联
 -> ISS-003
--> ISS-004
--> decisions/003-trace-snapshot-scope.md
 
 ---
 
