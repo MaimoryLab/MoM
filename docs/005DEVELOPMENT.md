@@ -70,7 +70,7 @@ npm run dev
 curl -X POST http://localhost:3000/v1/messages \
   -H 'content-type: application/json' \
   -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"3+5=?"}]}],"max_tokens":200}'
-# 期望：终端 fastify 日志出现 3 条 event=advisor_fanout_complete / 1 条 event=aggregator_complete
+# 期望：终端 fastify 日志出现 1 条 event=advisor_fanout_complete（含 slot_count=3、failures=[]）/ 1 条 event=aggregator_complete
 # 期望：response 是 aggregator 模型的输出（Anthropic Messages 响应结构）
 
 # V5. mom_mode==='always' 流式主链路
