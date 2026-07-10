@@ -409,6 +409,8 @@ Advisor 请求侧按 system_and_3 布局装 4 个 `cache_control` marker。每�
 4. **`passthroughStream` 单一实现 + 可选 observer**，不复制出两套转发逻辑：透传模式不传 `onEvent`、行为等价；MoM streaming 传 `onEvent`、旁路解析。stream 层解析归 provider 层内部实现，不上升到 aggregator。
 5. **透传路径也写 trace**（`mom_triggered=false`）：给 Phase 4 `mom_trigger_rate` 一个正确的分母；每请求多一次 SQLite 同步写入，MVP 可接受，若 Phase 4 性能压力大再引入批量写。
 6. **`src/cost/` 目录职责收敛**：只放"计价 / usage 纯函数"；metrics 聚合永远归 storage / dashboard-api，避免目录膨胀。
+7. **顺手完成 ISS-007 SDK 解耦**：把 3 处 `FastifyReply` / `FastifyBaseLogger` 耦合（`orchestrate` / `runAggregatorStreaming` / `passthroughStream`）全部消除。`orchestrate` 变为 `createOrchestrator(runtime): { nonStreaming, streaming }` 工厂（同时闭包持有 fanout cache）；`runAggregatorStreaming` / `passthroughStream` 改接 `NodeJS.WritableStream + {onEvent?, log?}`；SSE header + hijack 上移到 `messages-handler`。业务层零 Fastify 依赖，Fastify 仅剩 `src/gateway/*`。因 Phase 3 无论如何都要动这 3 个文件，顺手解耦比之后专门开 refactor 更省事；ISS-007 从 [暂缓] 转 [已解决]。详见 `docs/006API.md §3`。
+8. **`passthroughStream` 内部改为手动 `data` 监听**：初稿是 `res.body.pipe(reply.raw)`；新实现是 `res.body.on('data', chunk => { output.write(chunk); if (onEvent) parser.push(chunk).forEach(evt => onEvent(...)) })`。理由：单一实现里同时给主链路 pipe + 观察者 tee，用 `data` 事件把两路合成一处、避免 PassThrough 中间层，也避免 `pipe` 与 `data` 混用的双消费问题。
 
 ### 验证方式
 

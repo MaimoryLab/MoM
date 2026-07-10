@@ -1,8 +1,8 @@
-import type { FastifyReply } from 'fastify';
-import type { AnthropicMessagesRequest } from '../types/anthropic.js';
+import type { AnthropicMessagesRequest, SSEEvent } from '../types/anthropic.js';
 import type {
   AdvisorResult,
   AggregatorResult,
+  Logger,
   MoMConfig,
   ProviderConfig,
 } from '../types/mom.js';
@@ -46,13 +46,25 @@ export async function runAggregatorNonStreaming(
   };
 }
 
+export interface RunAggregatorStreamingOptions {
+  onEvent?: (evt: SSEEvent) => void;
+  log?: Logger;
+}
+
 export async function runAggregatorStreaming(
   original: AnthropicMessagesRequest,
   results: AdvisorResult[],
   momConfig: MoMConfig,
   provider: ProviderConfig,
-  reply: FastifyReply,
-): Promise<void> {
-  const { request } = buildAggregatorRequest(original, results, momConfig);
-  await passthroughStream({ ...request, stream: true }, reply, provider);
+  output: NodeJS.WritableStream,
+  options: RunAggregatorStreamingOptions = {},
+): Promise<{ references_appended: string }> {
+  const { request, references } = buildAggregatorRequest(original, results, momConfig);
+  await passthroughStream(
+    { ...request, stream: true },
+    output,
+    provider,
+    options,
+  );
+  return { references_appended: references };
 }

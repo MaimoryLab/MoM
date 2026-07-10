@@ -6,6 +6,81 @@
 
 ---
 
+## [2026-07-10-1] Phase 3：trigger + fanout cache + cache_control + cost + trace + SDK 解耦
+
+### 环境要求
+
+沿用 [2026-07-09-2]（Node ≥ 22.13、无第三方 sqlite/dotenv/p-limit/lru-cache 依赖）。新增依赖：无。所有 Phase 3 新增能力（cache / trigger / cost / trace）均以纯函数或 Map-based 数据结构实现。
+
+### 关键新配置字段
+
+`data/mom.config.json` 需确保以下字段填齐（首次启动 `DEFAULT_MOM_CONFIG` 会写入默认值）：
+- `fanout_mode`: `user_turn`（默认）| `per_iteration`
+- `cache.ttl`: `5m` | `1h`；`cache.max_entries`: 建议 100–1000
+- `pricing_table`: `{ [modelName]: { input, output, cache_write, cache_read } }`，单位 USD per million tokens；缺失项 log warn + 该模型 cost 计 0
+
+### 单元测试（纯逻辑，56 例）
+
+```bash
+npm test
+# 覆盖：view-transformer / reference-builder / trigger / cache-key / fanout-cache / cache-decorator / pricing
+# 关键断言：
+#   - fanout cache 在 slot 顺序改变时 key 变（避免"复用即错位"）
+#   - user_turn 模式下 tool iteration 与前一次真实 user 命中同 key
+#   - cache-decorator system_and_3 布局跳过合成 ADVISORY_INSTRUCTION marker
+#   - Map-based LRU 淘汰最旧、touch on get 刷新
+```
+
+### 手动验证（对应 PLAN.md Phase 3 验证清单）
+
+需要 provider baseURL 处提供两个可用模型（不同的 advisor slot + 一个 aggregator）。若本地没有 provider 环境，可用最简 mock：
+
+```bash
+# 在临时目录建 mock provider（node:http 三十行、透传 non-streaming + streaming）
+# 再准备 mom.config.json + .env，指向 mock
+# 然后按下方 V1-V6 顺序发请求：
+```
+
+- **V1（`user_turn` MISS + fanout）**：新 user turn → 期望日志 `event=fanout_miss` / `trigger_reason=user_turn` / `slot_count=N`
+- **V2（`skipped_tool_iteration` HIT）**：同 turn 后加 tool_use + tool_result → 期望 `event=fanout_hit` / `trigger_reason=skipped_tool_iteration` / advisor 不再真跑（provider 请求数只多 aggregator 1 次）
+- **V3（不同 user turn，MISS）**：改变 user 内容 → 期望 `trigger_reason=user_turn`，cache 重新 set
+- **V4（`tool_iteration_cache_miss` 关键降级修复）**：首请求即 tool_result → 期望 `trigger_reason=tool_iteration_cache_miss` + advisor 补跑，aggregator 拿到非空 references
+- **V5（streaming）**：`stream:true` → 期望 SSE 帧完整（message_start / content_block_delta*N / message_stop）+ 日志 `event=aggregator_stream_complete`
+- **V6（`mom_off`）**：改配置 `mom_mode: off` 重启 → 期望透传 + 落一条 `mom_triggered=false / trigger_reason=mom_off` 的 trace
+
+### 数据库校验
+
+```bash
+# 查看 trace 分布
+node -e "
+const {DatabaseSync}=require('node:sqlite');
+const db=new DatabaseSync('mom.db');
+for (const r of db.prepare('SELECT trigger_reason, mom_triggered, total_cost_usd FROM traces ORDER BY timestamp').all())
+  console.log(JSON.stringify(r));
+"
+
+# 核验 settings_snapshot 无 provider 秘钥泄漏
+node -e "
+const {DatabaseSync}=require('node:sqlite');
+const {data}=new DatabaseSync('mom.db').prepare('SELECT data FROM traces LIMIT 1').get();
+const t=JSON.parse(data);
+if (JSON.stringify(t.settings_snapshot).includes('api_key')) throw new Error('LEAK');
+console.log('ok:', Object.keys(t.settings_snapshot));
+"
+```
+
+**期望结果**：trace 六种 `trigger_reason` 中你实际触发过的都能查到；`settings_snapshot` 键集合 = MoMConfig 字段集合，不含 `provider.*`。
+
+### 成本分账（Phase 3 精算示例）
+
+以 mock provider 固定 usage `input_tokens=10, output_tokens=5`（advisor）+ `input_tokens=10, output_tokens=5`（aggregator）为例，`pricing_table` 中 `adv-a/b/c` 单价 `1/2/3` input、`5/10/15` output（USD/M tokens），`agg-x` 单价 `0.5` input / `2` output：
+
+- 非命中 trace `total_cost_usd = 3 * (10 * slot_input + 5 * slot_output) / 1_000_000 + (10 * 0.5 + 5 * 2) / 1_000_000`
+- 命中 trace `total_cost_usd` 只等于 aggregator 部分（advisor usage 归零）
+- `mom_off` trace `total_cost_usd = 0`（透传路径不知道 provider 内 usage）
+
+---
+
 ## [2026-07-09-3] Phase 2：advisor fan-out + concat aggregator（`mom_mode: always`）
 
 ### 环境要求

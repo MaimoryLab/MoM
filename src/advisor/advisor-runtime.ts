@@ -8,6 +8,7 @@ import type { AdvisorResult, MoMConfig, ProviderConfig } from '../types/mom.js';
 import { passthroughCall, ProviderError } from '../provider/provider-client.js';
 import { convertToAdvisorView } from './view-transformer.js';
 import { ADVISOR_SYSTEM_PROMPT } from './prompts.js';
+import { applyAdvisorCacheControl } from '../cache/cache-decorator.js';
 
 const EMPTY_USAGE: Usage = { input_tokens: 0, output_tokens: 0 };
 
@@ -28,10 +29,12 @@ export async function runAdvisor(
   const startedAt = Date.now();
   try {
     const advisorMessages = convertToAdvisorView(messages);
+    const systemPrompt = momConfig.advisor.system_prompt ?? ADVISOR_SYSTEM_PROMPT;
+    const decorated = applyAdvisorCacheControl(systemPrompt, advisorMessages);
     const request: AnthropicMessagesRequest = {
       model: slot,
-      messages: advisorMessages,
-      system: ADVISOR_SYSTEM_PROMPT,
+      messages: decorated.messages,
+      system: decorated.system,
       max_tokens: momConfig.reference_max_tokens,
       stream: false,
     };
