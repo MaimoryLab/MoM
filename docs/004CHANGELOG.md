@@ -1,3 +1,27 @@
+## [2026-07-10-2] docs(api): add 006API.md; assess MoM SDK decoupling
+
+### 改动
+- 新增 docs/006API.md：
+  - §1 HTTP 端点：当前已实现（POST /v1/messages / GET /dashboard/* / GET /healthz）+ Phase 4-6 已规划（/api/traces / /api/metrics / /api/config / /api/comparison）+ 明确不会开放的路径（provider 秘钥编辑、auth 端点）
+  - §2 内部 MoM SDK 入口函数：主调度 / advisor fanout / aggregator / provider client / 配置装配 / 存储层各层导出函数清单，逐个标注已解耦或耦合状态
+  - §3 MoM 与网关消息处理解耦评估：`git grep FastifyReply|FastifyBaseLogger` 结果——业务层耦合集中在 3 处（orchestrator.ts:12 / aggregator-runtime.ts:49 / stream-forward.ts:8）；已解耦部分约 80%（所有类型、配置、advisor fanout、aggregator non-streaming、provider non-streaming、存储层）；完全解耦估算 ~50 行 diff / 4 个文件，不动业务逻辑
+  - §4 类型契约清单
+  - §5 变更规则
+- docs/000README.md 文件职责表新增 006API.md 一行
+- docs/003ISSUES.md 新增 ISS-007（状态 [暂缓] / P3）：记录 3 处耦合位置与解耦评估结果；暂缓原因（MVP 优先主链路 + 建议随 Phase 3 顺手做）
+- docs/004CHANGELOG.md 追加本条
+
+### 涉及文件
+- docs/006API.md：新建
+- docs/000README.md：文件职责表新增 006API.md 行
+- docs/003ISSUES.md：新增 ISS-007
+- docs/004CHANGELOG.md：新增本条
+
+### 关联
+-> ISS-007
+
+---
+
 ## [2026-07-10-1] docs(plan): revise Phase 3 — decouple trigger from cache reuse
 
 ### 改动

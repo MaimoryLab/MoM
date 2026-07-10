@@ -216,6 +216,42 @@ PLAN Phase 3 初稿把 `fanout_mode: user_turn` 描述为"tool iteration 复用 
 -> decisions/005-trigger-cache-decoupling.md
 -> 004CHANGELOG.md [2026-07-10-1]
 
+---
+
+## [ISS-007] MoM 业务逻辑对 Fastify 有 3 处遗留耦合，无法作为独立 SDK 复用
+
+**状态**：[暂缓]
+**优先级**：[P3 轻微]
+**类型**：[技术债]
+**发现日期**：2026-07-10
+
+**现象**：
+用户团队已有独立运行的网关消息处理项目，希望复用 MoM 的多模型 fan-out + reference 拼接能力时，只 import `src/orchestrator/*` + `src/advisor/*` + `src/aggregator/*` 三个子树无法运行——签名里仍然带 `FastifyReply` / `FastifyBaseLogger`。`git grep -n "FastifyReply\|FastifyBaseLogger" src/` 结果，业务层耦合集中在 3 处（详见 docs/006API.md §3.1）：
+
+1. `src/orchestrator/orchestrator.ts:12-17` — `orchestrate` 签名带 `reply` + `log`
+2. `src/aggregator/aggregator-runtime.ts:49-58` — `runAggregatorStreaming` 参数含 `reply`
+3. `src/provider/stream-forward.ts:8-24` — `passthroughStream` 内部 `reply.raw.setHeader` / `reply.hijack()` / `reply.raw.pipe`
+
+**后果**：
+1. 外部项目要复用 MoM 得连带引入 Fastify 或写一个 Fastify Reply mock，不合理
+2. MoM 打包成独立 npm 包（`@mom/orchestrator`）的路径被这 3 处耦合卡住
+3. 未来 CLI / SDK 形态引入时（PLAN 阶段总览"讨论中否定的方案"第 10 条"CLI / NPM 包 / Claude Code 插件形态属远期"）会顺带撕开这个 refactor，成本不高但延后越晚越贵
+
+**初步判断**：
+已确认。`git grep` 结果验证。核心业务逻辑（`fanoutAdvisors` / `runAdvisor` / `convertToAdvisorView` / `buildConcatReferences` / `appendReferencesToLastUser` / `runAggregatorNonStreaming` / `passthroughCall` / 所有配置装配 / 存储层）**已经完全不依赖 Fastify**——耦合面只剩这 3 处（详见 006API.md §3）。估算完全解耦 ~50 行 diff / 4 个文件，不动业务逻辑。
+
+**暂缓原因**：
+1. MVP 优先级是"MoM 主链路可用 + Dashboard 可展示效果"，Phase 3-5 都在这条主路径上；SDK 打包属于"能不能被别的项目复用"的正交能力
+2. 建议随 Phase 3 顺手做（Phase 3 无论如何都要动 `orchestrate` 与 `passthroughStream`：前者要落 trace、后者要加 SSE observer；顺手把 `FastifyReply` → `Writable` 改掉，比之后专门开一个 refactor 更省事）
+3. 若 Phase 3 因时间压力未能顺手做，本 issue 转 [讨论中] → [进行中]，独立开一个 refactor commit
+
+**关联**：
+-> src/orchestrator/orchestrator.ts:12
+-> src/aggregator/aggregator-runtime.ts:49
+-> src/provider/stream-forward.ts:8
+-> docs/006API.md §3（解耦评估与改法细节）
+-> 004CHANGELOG.md [2026-07-10-2]
+
 <!--
 新增条目模板：
 
