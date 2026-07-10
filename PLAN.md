@@ -142,7 +142,7 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
     - `pricing_table: Record<string, ModelPricing>`，其中 `ModelPricing = {input: number, output: number, cache_write: number, cache_read: number}`，单位 USD per million tokens
   - `RuntimeConfig = { provider: ProviderConfig; mom: MoMConfig }` — 网关内部统一运行时视图
   - `AdvisorResult` / `JudgeResult` / `AggregatorResult` / `BaselineResult`
-  - `Trace`（一次请求一条，字段：`id` / `timestamp` / `request` / `response` / `mom_triggered` / `trigger_reason` / `advisor_results` / `aggregator_result` / `judge_result?` / `baseline_result?` / `total_cost_usd` / `baseline_cost_usd?` / `total_latency_ms` / `settings_snapshot: RuntimeConfig`）
+  - `Trace`（一次请求一条，字段：`id` / `timestamp` / `request` / `response` / `mom_triggered` / `trigger_reason` / `advisor_results` / `aggregator_result` / `judge_result?` / `baseline_result?` / `total_cost_usd` / `baseline_cost_usd?` / `total_latency_ms` / `settings_snapshot: MoMConfig`）
   - `Metrics`（聚合，含 `total_usage`（含 advisor + judge + aggregator 汇总，非仅 aggregator）等）
   - `FanoutCacheKey` / `FanoutCacheValue`
   - `DEFAULT_MOM_CONFIG` 常量（provider 字段永不会有默认值——空 env 即启动失败）
@@ -224,6 +224,17 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 ### 目标
 `mom_mode: always` 时，每次请求都 fan-out 全部 advisor、拿到 references、以 concat 方式拼到 aggregator 请求最后一条 user 尾部，用 aggregator 模型调用 provider 返回。支持 streaming（aggregator 侧流式返回，advisor 侧非流式）。暂不做缓存、不做触发粒度判断、不做 trace 落盘（异常打 log 即可）。
 
+### 与本节初稿的偏离（执行时确认，见 decisions/003）
+
+1. **Streaming aggregator 仅做直 pipe**：初稿要求 tee + SSEParser + onComplete；Phase 2 无 trace 消费者，parser/回调为死代码——推迟到 Phase 3 与 saveTrace 一同引入
+2. **不引入 p-limit**：自写 `promisePool<T>(items, limit, worker)`（20 行）替代
+3. **不新建 `src/orchestrator/aggregation.ts`**：Phase 2 只有 concat 一条路径，`aggregator/reference-builder.ts` 就承担；Judge 是 Phase 6，届时再建骨架
+4. **新增启动护栏 `assertModeRequirements`**：`mom_mode==='always'` 时校验 `advisor.slots` 非空且 `aggregator.model` 非空，不满足即 `ConfigError` 退出（与 `assertRecursionGuard` 同级）
+5. **`Trace.settings_snapshot: RuntimeConfig` → `MoMConfig`**：宏观修复，避免 Phase 3 落盘时把 `provider.api_key` 写进 SQLite（违反 decisions/002）。类型层的边界防御，前置到 Phase 2
+6. **handler / server 签名升到 `RuntimeConfig`**：`createMessagesHandler(runtime)` / `startServer(port, runtime)`；provider 层的 `passthroughCall(req, provider)` / `passthroughStream(req, reply, provider)` 保持只依赖 `ProviderConfig`，分层约束不破
+7. **Phase 2 只 log 事件、不组装 Trace**：Trace 组装整体推迟到 Phase 3，与 saveTrace 一起做
+8. **单测采用 Node 22 内置 `node:test`**：零依赖，覆盖 `convertToAdvisorView` / `truncateToolResult` / `appendReferencesToLastUser` 三处纯逻辑；重点验证「append 只改最后一条 message、前缀 message 引用相等」不变量
+
 ### 前置条件
 - Phase 1 的 `passthroughCall()` / `passthroughStream()` 可用
 - Phase 1 的 `AnthropicMessagesRequest` / `ContentBlock` 类型齐全
@@ -255,7 +266,8 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
 **并发 fan-out**
 
 - **新增** `src/orchestrator/fanout.ts`
-  - `fanoutAdvisors(messages, momConfig, provider): Promise<AdvisorResult[]>` — `p-limit(8)` 并发，保持 slots 顺序返回
+  - `promisePool<T, R>(items, limit, worker)` — 自写 20 行并发限流（不引入 p-limit 依赖）
+  - `fanoutAdvisors(messages, momConfig, provider): Promise<AdvisorResult[]>` — 并发上限 8，保持 slots 顺序返回
 
 **References 拼接**
 
@@ -277,21 +289,19 @@ Node/TS 单进程服务启动后，暴露 `POST /v1/messages`（支持 `stream: 
   - `runAggregatorNonStreaming(original: AnthropicMessagesRequest, results: AdvisorResult[], settings): Promise<AggregatorResult>`
     - `buildConcatReferences` → `appendReferencesToLastUser` → 用 `momConfig.aggregator.model` 替换 `model` 字段 → `passthroughCall(req, provider)`
     - 返回含 `response` / `usage` / `latency_ms` / `references_appended`
-  - `runAggregatorStreaming(original, results, settings, reply, onComplete): Promise<void>`
-    - 同上构造 request 但 `stream=true`，向 provider 发起 undici 流式请求
-    - **双消费者分流实现**：拿到 `response.body`（Readable stream）后用 `stream.PassThrough` tee 出两路 —— 一路直接 `pipe(reply.raw)` 转发给 Claude Code、另一路走 `SSEParser`（Transform stream）解析累计 usage（从 `message_delta.usage` 和 `message_stop.usage`）和 output text（从 `content_block_delta.delta.text`）
-    - SSE parser 收到 `message_stop` 事件时调 `onComplete(AggregatorResult)` 触发 trace 落盘
-    - `latency_ms` 从请求发出到 `message_stop` 结束
-    - 函数返回时机：`reply.raw` end 后（不等 onComplete 完成，异步落盘）
+  - `runAggregatorStreaming(original, results, momConfig, provider, reply): Promise<void>`
+    - 同上构造 request 但 `stream=true`，直接 `passthroughStream(req, reply, provider)` 转发（Phase 2 复用 Phase 1 的字节级 pipe，不做 tee/SSEParser/onComplete；Phase 3 引入 trace 落盘时再加）
+    - `latency_ms` 与 trace 组装均由 Phase 3 承接
 
 **主调度**
 
 - **新增** `src/orchestrator/orchestrator.ts`
-  - `orchestrate(req, reply)`
+  - `orchestrate(body, reply, runtime, log)`
     - 读入进程启动时装配好的 `RuntimeConfig`（不再动态从磁盘 `loadSettings()`；Dashboard 编辑后由 `saveMoMConfig` 触发 hot-reload 或重启，具体机制在 Phase 4 定）→ 若 `momConfig.mom_mode !== "always"` 走透传（Phase 1 已有逻辑）
-    - `fanoutAdvisors(req.messages, settings)` 拿到 advisorResults
+    - `fanoutAdvisors(body.messages, momConfig, provider)` 拿到 advisorResults；用 fastify logger 打 fanout / aggregator 事件（Phase 2 不组装 Trace，Phase 3 再引入）
     - `stream` → `runAggregatorStreaming` 直接 pipe；否则 `runAggregatorNonStreaming` 返回 JSON
-- **修改** `src/gateway/messages-handler.ts`：把透传逻辑替换成 `orchestrate(req, reply)`
+- **修改** `src/gateway/messages-handler.ts`：签名升为 `createMessagesHandler(runtime: RuntimeConfig)`；把透传逻辑替换成 `orchestrate(body, reply, runtime, req.log)`
+- **修改** `src/gateway/server.ts`：签名升为 `startServer(port, runtime: RuntimeConfig)`；provider 层的 `passthroughCall(req, provider)` / `passthroughStream(req, reply, provider)` 保持只依赖 `ProviderConfig`
 
 ### 验证方式
 

@@ -109,6 +109,72 @@ Phase 1 现状下，`provider.base_url` / `provider.api_key` / `provider.auth_st
 
 ---
 
+## [ISS-004] Trace.settings_snapshot 类型带 RuntimeConfig 会把 api_key 写进 SQLite
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[安全]
+**发现日期**：2026-07-09
+**解决日期**：2026-07-09
+**解决方案**：`Trace.settings_snapshot` 类型从 `RuntimeConfig` 缩窄为 `MoMConfig`——只快照业务配置，不快照 provider 秘钥/端点。修复前置到 Phase 2（此时 orchestrator 首次开始在内存流转 advisor/aggregator 结果，Phase 3 才落盘），避免撕开更多改动。
+
+**现象**：
+Phase 1 `src/types/mom.ts` 把 `Trace.settings_snapshot` 定义为 `RuntimeConfig`（`= { provider: ProviderConfig, mom: MoMConfig }`），`ProviderConfig` 含 `api_key`。Phase 3 计划的 `saveTrace()` 一旦启用，每条 trace 都会以 JSON 形式把明文 `api_key` 写进 `mom.db` 的 `traces` 表。
+
+**后果**：
+1. **秘钥旅行升级**：ISS-002 已确认过的"mom.db 备份/共享会带出秘钥"问题会以更严重的形式重现——Phase 1 时 `settings` 表全库一份，Phase 3 后每一条 trace 都一份
+2. **与 decisions/002 的核心原则冲突**：拍板过"秘钥永不写 SQLite / config.json，只活在 .env 里"
+3. **越晚改越贵**：等到 Phase 3 saveTrace 上线时再改，要同时改类型、Storage 序列化、Dashboard 展示层
+
+**初步判断**：
+已确认。根因是 Phase 1 拆分 `MoMSettings → ProviderConfig + MoMConfig` 时，`Trace.settings_snapshot` 类型跟着 `RuntimeConfig` 走，没跟着"秘钥不落盘"的边界收紧。
+
+**方案讨论**：（已收敛）
+方案 A（**采纳**）：`settings_snapshot: MoMConfig`——只快照业务配置。`base_url`/`auth_style` 对 trace 分析价值极低，`api_key` 完全零价值。
+方案 B：`settings_snapshot: { mom: MoMConfig; provider: Pick<ProviderConfig, 'base_url' | 'auth_style'> }`——保 provider 元信息但剔除 api_key。否定：多环境对照能力可以 Phase 4+ 加独立 `env_tag: string` 字段更干净、更显式。
+方案 C：类型不动，在 `saveTrace` 序列化时黑名单 `api_key`。否定：把边界防御下沉到序列化层，未来加字段易漏。
+
+**关联**：
+-> src/types/mom.ts:129
+-> decisions/004-trace-snapshot-scope.md
+-> 004CHANGELOG.md [2026-07-09-4]
+
+---
+
+## [ISS-005] Phase 2 主链路（Advisor 视图 + Fan-out + Concat 拼接）尚未实现
+
+**状态**：[已解决]
+**优先级**：[P0 致命]
+**类型**：[功能异常]
+**发现日期**：2026-07-09
+**解决日期**：2026-07-09
+**解决方案**：按 PLAN.md Phase 2 落地 advisor / fanout / aggregator / orchestrator 四层；`mom_mode==='always'` 时 fan-out 全部 advisor、以 concat 方式把 references 拼到 aggregator 请求最后一条 user 尾部，调 aggregator 模型返回。执行时相对 PLAN 的偏离已在 PLAN.md Phase 2 章节"与本节初稿的偏离"块内标注。
+
+**现象**：
+Phase 1 完成后网关只做透传，`mom_mode` / `advisor.slots` / `aggregator.model` 全部字段悬空。
+
+**后果**：
+MoM 的核心能力（多模型 fan-out + reference 拼接）不可用。
+
+**初步判断**：
+已确认，属于计划性交付。
+
+**关联**：
+-> src/orchestrator/orchestrator.ts
+-> src/orchestrator/fanout.ts
+-> src/advisor/view-transformer.ts
+-> src/advisor/advisor-runtime.ts
+-> src/advisor/prompts.ts
+-> src/aggregator/reference-builder.ts
+-> src/aggregator/aggregator-runtime.ts
+-> src/config.ts（新增 assertModeRequirements）
+-> src/gateway/messages-handler.ts（签名升 RuntimeConfig）
+-> src/gateway/server.ts（签名升 RuntimeConfig）
+-> test/view-transformer.test.ts
+-> test/reference-builder.test.ts
+-> PLAN.md Phase 2
+-> 004CHANGELOG.md [2026-07-09-4]
+
 <!--
 新增条目模板：
 

@@ -42,6 +42,12 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协�
 └────────────────────────────────────────────────┘
                     ↓
 ┌────────────────────────────────────────────────┐
+│  Orchestrator 层（主调度 / fanout / references）  │
+│  src/orchestrator/*  src/advisor/*  src/aggregator/* │
+│    — 只依赖 RuntimeConfig，不直连 SQLite / config.json │
+└────────────────────────────────────────────────┘
+                    ↓
+┌────────────────────────────────────────────────┐
 │  Provider 层（HTTP 客户端 / 流式转发）            │
 │  src/provider/*  — 只依赖 ProviderConfig         │
 └────────────────────────────────────────────────┘
@@ -63,9 +69,10 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协�
 
 ## 3. 调用方向约束
 
-- Gateway 层只调用 Provider 层与 Config 层；不感知 provider 协议细节
+- Gateway 层只调用 Orchestrator 层与 Config 层；不感知 provider 协议细节
+- Orchestrator 层（`src/orchestrator/*` + `src/advisor/*` + `src/aggregator/*`）以 `RuntimeConfig` 为唯一依赖入口，调用 Provider 层完成 advisor fan-out 与 aggregator 请求；不读 SQLite、不读 config.json
 - Provider 层只负责 HTTP 与 SSE 转发，只依赖启动时装配好的 `ProviderConfig`；不读 SQLite、不读 config.json
-- Config 层：`src/config/provider-env.ts` 从 `process.env` 加载；`src/config/mom-config-file.ts` 从 `data/mom.config.json` 加载并原子写回；`src/config.ts` 组装 `RuntimeConfig` 并跑护栏
+- Config 层：`src/config/provider-env.ts` 从 `process.env` 加载；`src/config/mom-config-file.ts` 从 `data/mom.config.json` 加载并原子写回；`src/config.ts` 组装 `RuntimeConfig` 并跑护栏（`assertRecursionGuard` + `assertModeRequirements`）
 - Storage 层只负责 traces / metrics_cache 表的 CRUD，与配置完全解耦
 - 前端 `web/` 不直接访问 SQLite 与 config.json，只通过 HTTP 与网关交互（Dashboard 编辑 L2 走 `POST /api/config`，Phase 4+）
 
@@ -91,25 +98,27 @@ process.env (via --env-file=.env)
   → loadProviderConfig() → ProviderConfig
 data/mom.config.json (首次 ENOENT → 写入 DEFAULT_MOM_CONFIG)
   → loadMoMConfig() → MoMConfig
-assertRecursionGuard(MoMConfig)
+assertRecursionGuard(MoMConfig) + assertModeRequirements(MoMConfig)
   → RuntimeConfig = { provider, mom }
-  → startServer(port, runtime.provider)
+  → startServer(port, runtime)
 ```
 
-**链路 A：非流式请求透传**
+**链路 A：非流式请求（`mom_mode !== 'always'`）— 透传**
 ```
 Claude Code POST /v1/messages
   → Fastify router
-  → createMessagesHandler(provider) 闭包
+  → createMessagesHandler(runtime) 闭包
   → validateMessagesRequest()
+  → orchestrate() 判 mom_mode !== 'always'
   → passthroughCall(req, provider) (undici)
   → provider POST /v1/messages
   → JSON response 直接 reply.send()
 ```
 
-**链路 B：流式请求透传（SSE）**
+**链路 B：流式请求（`mom_mode !== 'always'`）— 透传 SSE**
 ```
 Claude Code POST /v1/messages {stream:true}
+  → orchestrate() 判 mom_mode !== 'always'
   → passthroughStream(req, reply, provider)
   → undici request()
   → reply.hijack() + res.body.pipe(reply.raw)
@@ -125,6 +134,32 @@ ValidationError → 400 + Anthropic error JSON
 Streaming 场景 → 错误编码为 SSE `event: error` 帧后 end()
 ```
 
+**链路 D：非流式请求（`mom_mode === 'always'`）— MoM 主链路**
+```
+Claude Code POST /v1/messages
+  → orchestrate() 判 mom_mode === 'always'
+  → fanoutAdvisors(body.messages, mom, provider)
+      → 对每个 slot：convertToAdvisorView(messages)
+        → passthroughCall(request with system=ADVISOR_SYSTEM_PROMPT, stream=false, provider)
+        → AdvisorResult；失败以占位符返回，绝不抛
+      → promisePool 并发 8，保 slots 顺序
+  → runAggregatorNonStreaming(body, advisorResults, mom, provider)
+      → buildConcatReferences → appendReferencesToLastUser（仅改最后一条 message，前缀引用不变）
+      → passthroughCall(aggregator request, provider)
+  → reply.send(response)；fastify logger 打 fanout / aggregator 事件
+```
+
+**链路 E：流式请求（`mom_mode === 'always'`）— MoM 主链路 + SSE 转发**
+```
+Claude Code POST /v1/messages {stream:true}
+  → orchestrate() 判 mom_mode === 'always'
+  → fanoutAdvisors(...) 同链路 D（advisor 侧非流式）
+  → runAggregatorStreaming(body, advisorResults, mom, provider, reply)
+      → 构造 aggregator request（stream=true）
+      → passthroughStream(...)：res.body.pipe(reply.raw) 字节级转发
+      （Phase 2 不 tee/parse；Phase 3 引入 trace 落盘时再加 SSE observer）
+```
+
 ---
 
 ## 6. 关键约定
@@ -136,10 +171,14 @@ Streaming 场景 → 错误编码为 SSE `event: error` 帧后 end()
   - `x-api-key` → `x-api-key: <PROVIDER_API_KEY>` + `anthropic-version: 2023-06-01`
 - **配置边界**：秘钥（`PROVIDER_*`）只来自 `.env`，永不写入 `data/mom.config.json` 与 SQLite；业务配置只来自 `data/mom.config.json`；Dashboard 只编辑 L2，只只读展示 provider 状态摘要
 - **递归护栏**：启动时 `assertRecursionGuard()` 检查 `momConfig.aggregator.model ∉ momConfig.advisor.slots`，违反则进程退出（`ConfigError`）
+- **模式护栏**：启动时 `assertModeRequirements()` 在 `mom_mode==='always'` 下检查 `advisor.slots` 非空且 `aggregator.model` 非空，违反则 `ConfigError` 退出
 - **秘钥缺失护栏**：`.env` 中 `PROVIDER_BASE_URL` / `PROVIDER_API_KEY` 缺失或空 → `ProviderConfigError`，进程退出
 - **Body 上限**：Fastify `bodyLimit: 10 MiB`
 - **环境变量默认值**：`MOM_PORT=3000` / `MOM_DB_PATH=mom.db` / `MOM_CONFIG_PATH=data/mom.config.json`
 - **Streaming 错误**：网关向客户端已开始 SSE 写入后，错误统一编码为 `event: error` 帧再 `end()`，不改协议
 - **定价表**：不硬编码，作为 `MoMConfig.pricing_table` 存于 `data/mom.config.json`，Dashboard 可编辑（Phase 4 起）
+- **Aggregator 字节级透传原则**（Phase 2 起）：`appendReferencesToLastUser` 只克隆最后一条 user message，前缀所有 message 保持原对象引用不变，保证 Claude Code 侧 cache_control 前缀命中
+- **Advisor 失败容忍**（Phase 2 起）：单个 advisor 失败以 `[Reference N — slot failed: reason]` 占位符继续拼接，aggregator 请求不中断；aggregator 自身失败按 handler 层的 ProviderError 走原样透出
+- **Trace 快照范围**（Phase 2 起）：`Trace.settings_snapshot: MoMConfig`——不快照 `provider.api_key` / `base_url` / `auth_style`（避免秘钥旅行到 SQLite）
 - **AdvisorResult 语义**（Phase 2 起）：`usage` 是本次真实调用产生的 token 数；命中缓存时 `usage` 全部为 0、`cache_hit = true`、`latency_ms ≈ 0`
 - **成本汇总语义**（Phase 3 起）：`trace.total_cost_usd` = advisor + aggregator + judge；`baseline_cost_usd` 独立字段

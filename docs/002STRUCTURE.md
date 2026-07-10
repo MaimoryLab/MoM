@@ -13,16 +13,26 @@ MoM/
 ├── data/                          # gitignore；业务配置与本地状态存放目录
 │   └── mom.config.json            # MoMConfig 持久化（首次启动自动写入 DEFAULT_MOM_CONFIG）
 ├── src/                           # 网关服务（后端）
-│   ├── index.ts                   # 进程入口：initDB → getConfig → startServer
-│   ├── config.ts                  # 组装 RuntimeConfig（provider + mom）+ 递归护栏（assertRecursionGuard）
+│   ├── index.ts                   # 进程入口：initDB → getConfig → startServer(port, runtime)
+│   ├── config.ts                  # 组装 RuntimeConfig（provider + mom）+ 递归护栏 + assertModeRequirements
 │   ├── config/
 │   │   ├── provider-env.ts        # loadProviderConfig — 从 process.env 读 PROVIDER_* + 校验
 │   │   └── mom-config-file.ts     # loadMoMConfig / saveMoMConfig — mom.config.json 读写（原子 rename）
 │   ├── gateway/
-│   │   ├── server.ts              # Fastify 实例、路由挂载、静态挂载 web/dist
-│   │   ├── messages-handler.ts    # createMessagesHandler(provider) 返回 Phase 1 透传 handler
+│   │   ├── server.ts              # Fastify 实例、路由挂载、静态挂载 web/dist；startServer(port, runtime)
+│   │   ├── messages-handler.ts    # createMessagesHandler(runtime) 委托给 orchestrate()
 │   │   ├── validator.ts           # 请求体最小校验（model / messages / max_tokens）
 │   │   └── sse.ts                 # SSE 单行解析 / 事件编码工具
+│   ├── orchestrator/              # 新增 — Phase 2
+│   │   ├── orchestrator.ts        # orchestrate(body, reply, runtime, log) — 主链路
+│   │   └── fanout.ts              # promisePool + fanoutAdvisors（并发 8，保序返回）
+│   ├── advisor/                   # 新增 — Phase 2
+│   │   ├── prompts.ts             # ADVISOR_SYSTEM_PROMPT / ADVISORY_INSTRUCTION
+│   │   ├── view-transformer.ts    # convertToAdvisorView / truncateToolResult
+│   │   └── advisor-runtime.ts     # runAdvisor（单 slot，失败以占位符返回，绝不抛）
+│   ├── aggregator/                # 新增 — Phase 2
+│   │   ├── reference-builder.ts   # buildConcatReferences / appendReferencesToLastUser
+│   │   └── aggregator-runtime.ts  # runAggregatorNonStreaming / runAggregatorStreaming（Phase 2 直 pipe）
 │   ├── provider/
 │   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders(provider)
 │   │   └── stream-forward.ts      # 流式 SSE 转发；错误编码为 SSE error 帧
@@ -32,6 +42,9 @@ MoM/
 │       ├── anthropic.ts           # Anthropic Messages API 请求/响应/SSE 事件类型
 │       ├── mom.ts                 # ProviderConfig / MoMConfig / RuntimeConfig / Trace / AdvisorResult + DEFAULT_MOM_CONFIG
 │       └── index.ts               # 汇出 anthropic.ts / mom.ts
+├── test/                          # 新增 — Phase 2；node --test --import tsx 执行
+│   ├── view-transformer.test.ts   # convertToAdvisorView / truncateToolResult 覆盖
+│   └── reference-builder.test.ts  # appendReferencesToLastUser 前缀引用不变量 + concat 拼接
 ├── web/                           # Dashboard 前端（Vite 子工程）
 │   ├── package.json               # workspace 成员
 │   ├── tsconfig.json
@@ -54,9 +67,6 @@ MoM/
 
 ## 未创建目录（后续阶段引入）
 
-- `src/orchestrator/`：Phase 2 引入的主调度（fanout / trigger / aggregation）
-- `src/advisor/`：Phase 2 引入的 advisor 视图转换与调用
-- `src/aggregator/`：Phase 2 引入的 aggregator 调用与 references 拼接
 - `src/judge/`：Phase 6 引入的 judge 调用
 - `src/cache/`：Phase 3 引入的 fanout 缓存与 cache_control 装饰
 - `src/dashboard-api/`：Phase 4 引入的 REST API
