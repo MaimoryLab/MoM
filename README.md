@@ -40,7 +40,7 @@ npm install
 - **`.env`**（部署配置 / 秘钥）：provider 秘钥、监听端口、数据文件路径
 - **`data/mom.config.json`**（业务配置）：MoM 触发模式、advisor slots、aggregator 模型、定价表 等；不含任何秘钥
 
-先建 `.env`：
+### 1. `.env`（provider 秘钥）
 
 ```bash
 cp .env.example .env
@@ -48,7 +48,51 @@ cp .env.example .env
 # PROVIDER_AUTH_STYLE 默认 bearer；官方 Anthropic 用 x-api-key
 ```
 
-`data/mom.config.json` 首次启动时自动生成 `DEFAULT_MOM_CONFIG`，之后可以直接手工 `vi` 编辑，或者通过 Phase 5 上线的 Dashboard 表单编辑。Dashboard 不编辑秘钥——秘钥永远只改 `.env`。
+### 2. `data/mom.config.json`（业务配置）
+
+首次启动时会自动写入 `DEFAULT_MOM_CONFIG`——它是安全的空壳（`mom_mode=off`、`advisor.slots=[]`、`aggregator.model=""`），需要手工填模型名后 MoM 才会真的 fan-out。此后可以直接 `vi` 编辑，或者等 Phase 5 的 Dashboard 表单。Dashboard 不编辑秘钥——秘钥永远只改 `.env`。
+
+模型名分别填在两个位置：
+
+- `advisor.slots`：advisor 模型名数组，一个元素等于一个并发的 advisor 请求（3 个 slot 就 fan-out 3 次）
+- `aggregator.model`：单个 aggregator 模型名，负责把 advisor 的 references 汇总成最终回复
+
+模型名需要是 `.env` 里 `PROVIDER_BASE_URL` 那个 provider 侧真实存在的模型 id；slots 里的模型可以与 aggregator 相同，也可以彼此重复。
+
+一份能直接跑 fan-out 的示例（把 `<...>` 换成 provider 侧真实的模型名即可）：
+
+```json
+{
+  "mom_mode": "always",
+  "fanout_mode": "user_turn",
+  "aggregation_mode": "concat",
+  "reference_max_tokens": 4096,
+  "advisor": {
+    "slots": ["<advisor-model-1>", "<advisor-model-2>", "<advisor-model-3>"],
+    "tools_enabled": false
+  },
+  "aggregator": {
+    "model": "<aggregator-model>"
+  },
+  "judge": {
+    "model": ""
+  },
+  "cache": {
+    "ttl": "5m",
+    "max_entries": 1000
+  },
+  "comparison": {
+    "enabled": false,
+    "baseline_model": ""
+  },
+  "pricing_table": {},
+  "cost_tradeoff": {
+    "enabled": false
+  }
+}
+```
+
+`mom_mode` 目前有效值：`always` 每个 user turn 都触发 fan-out（推荐默认）；`off` 完全透传（`auto` 已列入类型但当前实现等价于 `off`）。`pricing_table` 留空时 cost 记 0，不影响功能；填法与字段含义见 [`docs/005DEVELOPMENT.md`](docs/005DEVELOPMENT.md)。
 
 ---
 
