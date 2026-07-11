@@ -92,7 +92,24 @@ cp .env.example .env
 }
 ```
 
-`mom_mode` 目前有效值：`always` 每个 user turn 都触发 fan-out（推荐默认）；`off` 完全透传（`auto` 已列入类型但当前实现等价于 `off`）。`pricing_table` 留空时 cost 记 0，不影响功能；填法与字段含义见 [`docs/005DEVELOPMENT.md`](docs/005DEVELOPMENT.md)。
+`mom_mode` 目前有效值：`always` 每个 user turn 都触发 fan-out（推荐默认）；`off` 完全透传（`auto` 已列入类型但当前实现等价于 `off`）。`pricing_table` 留空时 trace 的 `pricing` 快照为 null、eval 侧算不出成本，但**不影响功能**；建议按下一小节一次性从 provider 灌入。字段含义见 [`docs/005DEVELOPMENT.md`](docs/005DEVELOPMENT.md)。
+
+### 3. 首次同步定价（推荐）
+
+`data/mom.config.json.pricing_table` 默认为空。第一次跑之前建议执行一次同步脚本，从 `.env` 里的 provider `/v1/models` 拉取当前模型价格，按 per-1M-tokens 换算后写入 `pricing_table`，之后 trace 的 `pricing.currency` / `input_per_million` / ... 字段就有值、eval 侧可以现算成本：
+
+```bash
+# 默认 currency=CNY（当前 paigod 数据源是人民币）；只补齐缺失项、不覆盖手改
+npm run sync-pricing
+
+# 换 provider 或币种时显式指定
+npm run sync-pricing -- --currency USD
+
+# 想先看要写什么、不真的落盘
+npm run sync-pricing -- --dry-run
+```
+
+脚本永远不会删除本地 `pricing_table` 里 provider 不再列出的条目（只打印 `SKIP unknown-to-provider`）。加 `--overwrite` 才会覆盖已有条目。以后新增 advisor slot 或换 aggregator 模型时，重新跑一次即可。
 
 ---
 

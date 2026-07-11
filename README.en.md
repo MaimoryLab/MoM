@@ -92,7 +92,25 @@ A ready-to-run fan-out example (replace `<...>` with real model names from your 
 }
 ```
 
-Effective values for `mom_mode` today: `always` fans out on every user turn (recommended default); `off` passes traffic through unchanged (`auto` is a declared value but currently behaves like `off`). An empty `pricing_table` just makes cost accounting 0 — behavior is unaffected. Field-by-field notes live in [`docs/005DEVELOPMENT.md`](docs/005DEVELOPMENT.md).
+Effective values for `mom_mode` today: `always` fans out on every user turn (recommended default); `off` passes traffic through unchanged (`auto` is a declared value but currently behaves like `off`). An empty `pricing_table` makes trace `pricing` snapshots `null` — eval-side cost accounting cannot compute, but **the gateway keeps working**. Prefer running the sync step below on first boot. Field-by-field notes live in [`docs/005DEVELOPMENT.md`](docs/005DEVELOPMENT.md).
+
+### 3. Sync pricing on first boot (recommended)
+
+`data/mom.config.json.pricing_table` starts empty. Before the first real run, invoke the sync script — it fetches the provider's `/v1/models`, converts per-token prices to per-1M-tokens, and writes them into `pricing_table`. From then on trace `pricing.currency` / `input_per_million` / ... are populated and eval-side cost math works:
+
+```bash
+# Default currency=CNY (the current paigod data source is in CNY);
+# only fills missing entries — never overwrites hand-tuned prices.
+npm run sync-pricing
+
+# For a different provider or currency:
+npm run sync-pricing -- --currency USD
+
+# Preview what would be written without touching disk:
+npm run sync-pricing -- --dry-run
+```
+
+The script never deletes local `pricing_table` entries the provider no longer lists — it only prints `SKIP unknown-to-provider`. Pass `--overwrite` to replace existing entries. Re-run whenever you add an advisor slot or swap the aggregator model.
 
 ---
 
