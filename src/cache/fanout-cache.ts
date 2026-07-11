@@ -73,6 +73,7 @@ export function createFanoutCache(opts: CreateFanoutCacheOptions): FanoutCache {
 }
 
 export function cloneAsCacheHit(results: AdvisorResult[]): AdvisorResult[] {
+  const consumedAt = Date.now();
   return results.map((r) => ({
     slot: r.slot,
     success: r.success,
@@ -80,6 +81,10 @@ export function cloneAsCacheHit(results: AdvisorResult[]): AdvisorResult[] {
     usage: { input_tokens: 0, output_tokens: 0 },
     latency_ms: 0,
     cache_hit: true,
-    ...(r.error !== undefined ? { error: r.error } : {}),
+    started_at: consumedAt,
+    finished_at: consumedAt,
+    selected_model: r.selected_model,
+    response_summary: null,
+    error: r.error,
   }));
 }

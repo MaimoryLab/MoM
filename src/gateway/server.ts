@@ -3,6 +3,7 @@ import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createMessagesHandler } from './messages-handler.js';
+import { registerTraceAPI } from './trace-api.js';
 import type { RuntimeConfig } from '../types/mom.js';
 
 const BODY_LIMIT_BYTES = 10 * 1024 * 1024;
@@ -15,6 +16,7 @@ export function createServer(runtime: RuntimeConfig): FastifyInstance {
   });
 
   app.post('/v1/messages', createMessagesHandler(runtime));
+  registerTraceAPI(app);
 
   const webDist = resolve(process.cwd(), 'web/dist');
   if (existsSync(webDist)) {

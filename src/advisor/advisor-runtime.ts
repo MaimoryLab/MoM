@@ -1,11 +1,17 @@
 import type {
   AnthropicMessage,
   AnthropicMessagesRequest,
+  AnthropicMessagesResponse,
   ContentBlock,
   Usage,
 } from '../types/anthropic.js';
-import type { AdvisorResult, MoMConfig, ProviderConfig } from '../types/mom.js';
-import { passthroughCall, ProviderError } from '../provider/provider-client.js';
+import type {
+  AdvisorResult,
+  MoMConfig,
+  ProviderConfig,
+  ResponseSummary,
+} from '../types/mom.js';
+import { passthroughCall, toTraceError } from '../provider/provider-client.js';
 import { convertToAdvisorView } from './view-transformer.js';
 import { ADVISOR_SYSTEM_PROMPT } from './prompts.js';
 import { applyAdvisorCacheControl } from '../cache/cache-decorator.js';
@@ -18,6 +24,14 @@ function extractText(blocks: ContentBlock[]): string {
     if (b.type === 'text') parts.push(b.text);
   }
   return parts.join('\n');
+}
+
+function summarize(response: AnthropicMessagesResponse): ResponseSummary {
+  return {
+    id: response.id,
+    stop_reason: response.stop_reason,
+    stop_sequence: response.stop_sequence,
+  };
 }
 
 export async function runAdvisor(
@@ -39,29 +53,34 @@ export async function runAdvisor(
       stream: false,
     };
     const response = await passthroughCall(request, provider);
+    const finishedAt = Date.now();
     return {
       slot,
       success: true,
       reference: extractText(response.content),
       usage: response.usage,
-      latency_ms: Date.now() - startedAt,
+      latency_ms: finishedAt - startedAt,
       cache_hit: false,
+      error: null,
+      started_at: startedAt,
+      finished_at: finishedAt,
+      selected_model: slot,
+      response_summary: summarize(response),
     };
   } catch (err) {
-    const message =
-      err instanceof ProviderError
-        ? `provider ${err.statusCode}: ${err.providerBody.slice(0, 200)}`
-        : err instanceof Error
-        ? err.message
-        : String(err);
+    const finishedAt = Date.now();
     return {
       slot,
       success: false,
       reference: '',
       usage: EMPTY_USAGE,
-      latency_ms: Date.now() - startedAt,
+      latency_ms: finishedAt - startedAt,
       cache_hit: false,
-      error: message,
+      error: toTraceError(err, 'advisor_error'),
+      started_at: startedAt,
+      finished_at: finishedAt,
+      selected_model: slot,
+      response_summary: null,
     };
   }
 }

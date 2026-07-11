@@ -1,7 +1,12 @@
 import { request } from 'undici';
 import type { AnthropicMessagesRequest, SSEEvent } from '../types/anthropic.js';
 import type { Logger, ProviderConfig } from '../types/mom.js';
-import { buildAuthHeaders, buildProviderURL } from './provider-client.js';
+import {
+  buildAuthHeaders,
+  buildProviderURL,
+  ProviderError,
+  toTraceError,
+} from './provider-client.js';
 import { createSSEParser, formatSSEEvent } from '../gateway/sse.js';
 
 export interface PassthroughStreamOptions {
@@ -9,6 +14,12 @@ export interface PassthroughStreamOptions {
   log?: Logger;
 }
 
+/**
+ * Forwards a streaming request to provider byte-by-byte. Rethrows on failure so
+ * upstream callers (orchestrator / aggregator) can persist a status='error'
+ * TraceRequest — writing an SSE `error` frame to `output` is a side effect for
+ * the *client*, never the signal for observers.
+ */
 export async function passthroughStream(
   req: AnthropicMessagesRequest,
   output: NodeJS.WritableStream,
@@ -23,36 +34,40 @@ export async function passthroughStream(
   };
   const { onEvent, log } = options;
 
-  const writeError = (type: string, message: string): void => {
-    if (!isEnded(output)) {
-      output.write(
-        formatSSEEvent('error', {
-          type: 'error',
-          error: { type, message },
-        }),
-      );
-      output.end();
-    }
+  const emitErrorFrame = (err: unknown): void => {
+    if (isEnded(output)) return;
+    const trace = toTraceError(err);
+    output.write(
+      formatSSEEvent('error', {
+        type: 'error',
+        error: { type: trace.type, message: trace.message },
+      }),
+    );
+    output.end();
   };
 
+  let res;
   try {
-    const res = await request(url, {
+    res = await request(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(req),
     });
+  } catch (err) {
+    emitErrorFrame(err);
+    throw err;
+  }
 
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      const body = await res.body.text();
-      writeError(
-        'provider_error',
-        `provider ${res.statusCode}: ${body.slice(0, 500)}`,
-      );
-      return;
-    }
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    const body = await res.body.text();
+    const providerErr = new ProviderError(res.statusCode, body, req.model);
+    emitErrorFrame(providerErr);
+    throw providerErr;
+  }
 
-    const parser = onEvent ? createSSEParser() : null;
+  const parser = onEvent ? createSSEParser() : null;
 
+  try {
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       const finish = (err?: Error): void => {
@@ -114,8 +129,8 @@ export async function passthroughStream(
       });
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    writeError('gateway_error', message);
+    emitErrorFrame(err);
+    throw err;
   }
 }
 

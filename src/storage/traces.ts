@@ -1,15 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { getDB } from './db.js';
-import type { Trace } from '../types/mom.js';
+import type { TraceRequest } from '../types/mom.js';
 
 interface TraceRow {
-  id: string;
-  timestamp: number;
-  mom_triggered: number;
-  trigger_reason: string;
-  total_cost_usd: number;
-  baseline_cost_usd: number | null;
-  total_latency_ms: number;
   data: string;
 }
 
@@ -17,36 +10,52 @@ function db(): DatabaseSync {
   return getDB();
 }
 
-export function saveTrace(trace: Trace): void {
+export function saveTraceRequest(trace: TraceRequest): void {
   const stmt = db().prepare(
-    `INSERT INTO traces (id, timestamp, mom_triggered, trigger_reason, total_cost_usd, baseline_cost_usd, total_latency_ms, data)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO traces (
+      request_id, session_id, gateway_request_id, role, client_model, selected_model,
+      provider, started_at, finished_at, duration_ms, status, cost_usd, trigger_reason, data
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   stmt.run(
-    trace.id,
-    trace.timestamp,
-    trace.mom_triggered ? 1 : 0,
+    trace.request_id,
+    trace.session_id,
+    trace.gateway_request_id,
+    trace.role,
+    trace.client_model,
+    trace.selected_model,
+    trace.provider,
+    trace.started_at,
+    trace.finished_at,
+    trace.duration_ms,
+    trace.status,
+    trace.cost_usd,
     trace.trigger_reason,
-    trace.total_cost_usd,
-    trace.baseline_cost_usd,
-    trace.total_latency_ms,
     JSON.stringify(trace),
   );
 }
 
-function deserializeTraceRow(row: TraceRow): Trace {
-  return JSON.parse(row.data) as Trace;
+function deserialize(row: TraceRow): TraceRequest {
+  return JSON.parse(row.data) as TraceRequest;
 }
 
-export function getTraceById(id: string): Trace | null {
-  const row = db().prepare('SELECT * FROM traces WHERE id = ?').get(id) as
-    | unknown as TraceRow | undefined;
-  return row ? deserializeTraceRow(row) : null;
+export function getTraceRequestById(request_id: string): TraceRequest | null {
+  const row = db()
+    .prepare('SELECT data FROM traces WHERE request_id = ?')
+    .get(request_id) as unknown as TraceRow | undefined;
+  return row ? deserialize(row) : null;
 }
 
-export function getRecentTraces(limit: number): Trace[] {
+export function getTraceRequestsBySessionId(session_id: string): TraceRequest[] {
   const rows = db()
-    .prepare('SELECT * FROM traces ORDER BY timestamp DESC LIMIT ?')
+    .prepare('SELECT data FROM traces WHERE session_id = ? ORDER BY started_at ASC')
+    .all(session_id) as unknown as TraceRow[];
+  return rows.map(deserialize);
+}
+
+export function getRecentTraceRequests(limit: number): TraceRequest[] {
+  const rows = db()
+    .prepare('SELECT data FROM traces ORDER BY started_at DESC LIMIT ?')
     .all(limit) as unknown as TraceRow[];
-  return rows.map(deserializeTraceRow);
+  return rows.map(deserialize);
 }

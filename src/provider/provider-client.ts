@@ -3,7 +3,7 @@ import type {
   AnthropicMessagesRequest,
   AnthropicMessagesResponse,
 } from '../types/anthropic.js';
-import type { ProviderConfig } from '../types/mom.js';
+import type { ProviderConfig, TraceError, TraceErrorType } from '../types/mom.js';
 
 export class ProviderError extends Error {
   statusCode: number;
@@ -16,6 +16,22 @@ export class ProviderError extends Error {
     this.providerBody = providerBody;
     this.model = model;
   }
+}
+
+const PROVIDER_BODY_PREVIEW_LIMIT = 500;
+
+export function toTraceError(err: unknown, fallbackType: TraceErrorType = 'gateway_error'): TraceError {
+  if (err instanceof ProviderError) {
+    return {
+      type: 'provider_error',
+      message: err.providerBody.slice(0, PROVIDER_BODY_PREVIEW_LIMIT),
+      http_status: err.statusCode,
+    };
+  }
+  if (err instanceof Error) {
+    return { type: fallbackType, message: err.message, http_status: null };
+  }
+  return { type: fallbackType, message: String(err), http_status: null };
 }
 
 export function buildAuthHeaders(provider: ProviderConfig): Record<string, string> {

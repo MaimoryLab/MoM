@@ -1,3 +1,5 @@
+import { basename } from 'node:path';
+import { statSync } from 'node:fs';
 import { loadProviderConfig } from './config/provider-env.js';
 import { loadMoMConfig } from './config/mom-config-file.js';
 import type { MoMConfig, RuntimeConfig } from './types/mom.js';
@@ -27,10 +29,25 @@ export function assertModeRequirements(mom: MoMConfig): void {
   }
 }
 
+/**
+ * Stamps `<filename>@<mtime iso>` for the pricing source pointer.
+ * If stat fails (file freshly created by defaults save), fall back to filename only.
+ */
+export function stampMoMConfigSource(momConfigPath: string): string {
+  const name = basename(momConfigPath);
+  try {
+    const mtime = statSync(momConfigPath).mtime.toISOString();
+    return `${name}@${mtime}`;
+  } catch {
+    return name;
+  }
+}
+
 export function getConfig(momConfigPath: string): RuntimeConfig {
   const provider = loadProviderConfig();
   const mom = loadMoMConfig(momConfigPath);
   assertRecursionGuard(mom);
   assertModeRequirements(mom);
-  return { provider, mom };
+  const mom_config_source = stampMoMConfigSource(momConfigPath);
+  return { provider, mom, mom_config_source };
 }
