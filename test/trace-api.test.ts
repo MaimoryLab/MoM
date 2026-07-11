@@ -31,7 +31,6 @@ function baseTrace(overrides: Partial<TraceRequest>): TraceRequest {
       reasoning_tokens: 0,
     },
     pricing: null,
-    cost_usd: 0,
     error: null,
     request_summary: {
       max_tokens: 4096,

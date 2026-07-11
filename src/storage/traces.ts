@@ -14,8 +14,8 @@ export function saveTraceRequest(trace: TraceRequest): void {
   const stmt = db().prepare(
     `INSERT INTO traces (
       request_id, session_id, gateway_request_id, role, client_model, selected_model,
-      provider, started_at, finished_at, duration_ms, status, cost_usd, trigger_reason, data
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      provider, started_at, finished_at, duration_ms, status, trigger_reason, data
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   stmt.run(
     trace.request_id,
@@ -29,7 +29,6 @@ export function saveTraceRequest(trace: TraceRequest): void {
     trace.finished_at,
     trace.duration_ms,
     trace.status,
-    trace.cost_usd,
     trace.trigger_reason,
     JSON.stringify(trace),
   );

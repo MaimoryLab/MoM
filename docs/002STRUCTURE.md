@@ -12,6 +12,8 @@ MoM/
 ├── .gitignore
 ├── data/                          # gitignore；业务配置与本地状态存放目录
 │   └── mom.config.json            # MoMConfig 持久化（首次启动自动写入 DEFAULT_MOM_CONFIG）
+├── scripts/                       # 新增 — ISS-010；一次性运维脚本
+│   └── sync-pricing.mjs           # 拉取 provider `/v1/models`，把 per-token 价格换算成 per-1M-tokens ModelPricing 灌进 mom.config.json.pricing_table；`--currency`（默认 CNY）+ `--overwrite` / `--dry-run`
 ├── src/                           # 网关服务（后端）
 │   ├── index.ts                   # 进程入口：initDB → getConfig → startServer(port, runtime)
 │   ├── config.ts                  # 组装 RuntimeConfig（provider + mom）+ 递归护栏 + assertModeRequirements
@@ -40,7 +42,7 @@ MoM/
 │   │   ├── fanout-cache.ts        # createFanoutCache（Map-based TTL + LRU 手写、零第三方依赖）/ parseTTL / cloneAsCacheHit（ISS-009 起 clone 补 started_at/finished_at=Date.now() / selected_model / response_summary=null）
 │   │   └── cache-decorator.ts     # applyAdvisorCacheControl（system_and_3 布局；跳过合成 ADVISORY_INSTRUCTION marker）
 │   ├── cost/                      # 新增 — Phase 3
-│   │   └── pricing.ts             # calculateCost / sumUsage（4 段 Usage 汇总）+ ISS-009 起 snapshotPricing / calculateCostFromSnapshot / toTraceUsage 三段快照-用纯函数；只放计价纯函数，metrics 聚合归 storage/dashboard-api
+│   │   └── pricing.ts             # calculateCost / sumUsage（4 段 Usage 汇总）+ ISS-009 起 snapshotPricing / calculateCostFromSnapshot / toTraceUsage；ISS-010 起 snapshotPricing 从 ModelPricing.currency 忠实带出币种，不再假设 USD
 │   ├── provider/
 │   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders(provider)
 │   │   └── stream-forward.ts      # 流式 SSE 转发；签名 NodeJS.WritableStream + {onEvent?, log?}（Phase 3 起）；SSE header/hijack 上移到 gateway 层

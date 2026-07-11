@@ -1,3 +1,36 @@
+## [2026-07-11-3] feat(scripts): add sync-pricing + drop cost_usd, carry currency from data source [ISS-010]
+
+### 改动
+- 新增 `scripts/sync-pricing.mjs`：一次性运维脚本，从 `PROVIDER_BASE_URL/v1/models` 拉取模型清单，按 `input_price * 1e6` / `output_price * 1e6` / `cached_price * 1e6` 换算成 per-1M-tokens 价格灌进 `data/mom.config.json.pricing_table`；`cache_write` 按 Anthropic 惯例 `input × 1.25` 估算（provider 未暴露该字段）；`--currency`（默认 `CNY`）+ `--overwrite` + `--dry-run` + `--config <path>`；默认只补齐缺失项、不覆盖手改；provider 未列出的本地条目仅打印 `SKIP unknown-to-provider` 不删除；.tmp + rename 原子写；`package.json` 加 `sync-pricing` npm script
+- 类型 `src/types/mom.ts`：`ModelPricing` 新增必填字段 `currency: string`（ISO 4217，跟随数据源）；`PricingSnapshot.currency` 从字面量 `'USD'` 拓宽为 `string`（网关不假设币种，从 `ModelPricing.currency` 忠实带出）；**删除** `TraceRequest.cost_usd`、`JudgeResult.cost_usd`、`Metrics.total_cost_usd`、`Metrics.baseline_cost_usd`
+- 存储 `src/storage/db.ts` / `src/storage/traces.ts`：`traces` 表 DDL 删除 `cost_usd REAL NOT NULL` 列；`saveTraceRequest` INSERT 语句从 14 列改回 13 列，去掉 `trace.cost_usd` 参数
+- 计价 `src/cost/pricing.ts`：`snapshotPricing` 从 `rate.currency` 带出 `currency`，不再硬编码 `'USD'`
+- Orchestrator `src/orchestrator/orchestrator.ts`：三处（persistAdvisorTraces / persistAggregatorTrace / persistPassthroughTrace）删除 `cost_usd: calculateCostFromSnapshot(usage, pricing)` 写入；`calculateCostFromSnapshot` 保留作为 SDK 层公开 helper（eval / 未来 dashboard-api 可用）
+- 测试同步：`test/pricing.test.ts` / `test/pricing-snapshot.test.ts` `ModelPricing` 字面量补 `currency: 'CNY'`；新增 `snapshotPricing carries currency verbatim` 断言；`test/trace-api.test.ts` / `test/trace-storage.test.ts` 删除 `cost_usd: 0` 字面量；91/91 通过
+- 关闭 ISS-010：状态改 `[已解决]`；解决方案一句话；关联本 CHANGELOG
+
+### 涉及文件
+- scripts/sync-pricing.mjs：新增，一次性 pricing 同步脚本
+- package.json：新增 `sync-pricing` npm script
+- src/types/mom.ts：ModelPricing 加 currency；PricingSnapshot.currency 拓宽为 string；TraceRequest / JudgeResult / Metrics 去掉 cost_usd 及派生字段
+- src/storage/db.ts：traces 表删除 cost_usd 列
+- src/storage/traces.ts：saveTraceRequest 参数列表同步
+- src/cost/pricing.ts：snapshotPricing 从 rate.currency 带出
+- src/orchestrator/orchestrator.ts：三处 cost_usd 写入删除；import 精简
+- test/pricing.test.ts / test/pricing-snapshot.test.ts：ModelPricing 加 currency；新增 currency 携带断言
+- test/trace-api.test.ts / test/trace-storage.test.ts：删除 cost_usd 字面量
+- docs/003ISSUES.md：ISS-010 状态 [讨论中] → [已解决]；方案讨论收敛；解决日期
+- docs/001ARCHITECTURE.md：链路 A / 链路 D 描述删掉 cost_usd；"Pricing 请求时冻结" 约定改写为币种从数据源带出、成本由消费方现算
+- docs/002STRUCTURE.md：新增 scripts/ 目录说明；src/cost/pricing.ts 说明校准
+- docs/006API.md：§1.4 TraceRequest 契约删除 cost_usd 示例；pricing.currency 说明改为跟随数据源、示例值改为 CNY
+- docs/005DEVELOPMENT.md：新增 [2026-07-11-1] 段，记录 sync-pricing 使用姿势、类型结构变化、DB 破坏性变更（需 `rm mom.db`）
+
+### 关联
+-> ISS-010
+-> decisions/006-eval-trace-request-api.md（§不在本期范围 项 1 / 项 4 均由本次交付闭环）
+
+---
+
 ## [2026-07-11-2] fix(gateway): trace observation completeness on error paths [ISS-012]
 
 ### 改动

@@ -115,7 +115,7 @@ Claude Code POST /v1/messages（可带 X-Session-ID header）
   → gateway_request_id = randomUUID()
   → passthroughCall(req, provider) (undici)
   → provider POST /v1/messages
-  → persistPassthroughTrace 落一条 role='passthrough' TraceRequest（session_id / gateway_request_id / started_at / finished_at / status / pricing 快照 / cost_usd / error 全字段落盘）
+  → persistPassthroughTrace 落一条 role='passthrough' TraceRequest（session_id / gateway_request_id / started_at / finished_at / status / pricing 快照 / error 全字段落盘）
   → JSON response 直接 reply.send()
 ```
 
@@ -158,7 +158,7 @@ Claude Code POST /v1/messages（可带 X-Session-ID header）
                      → AdvisorResult（含 started_at / finished_at / selected_model / response_summary）；失败以 [Reference N failed] 占位继续，绝不抛
                  cache.set(key, advisorResults)
       → computeTriggerReason(fanout_mode, isNewTurn, cacheHit) → TriggerReason（6 种标签之一）
-      → persistAdvisorTraces 落 N 条 role='advisor' TraceRequest（每个 slot 一条；status=success/error/cache_hit；pricing 快照 + cost_usd）
+      → persistAdvisorTraces 落 N 条 role='advisor' TraceRequest（每个 slot 一条；status=success/error/cache_hit；pricing 快照）
   → runAggregatorNonStreaming(body, advisorResults, mom, provider)
       → buildConcatReferences → appendReferencesToLastUser（仅改最后一条 message，前缀引用不变）
       → passthroughCall(aggregator request, provider)
@@ -214,7 +214,7 @@ Claude Code POST /v1/messages {stream:true}（可带 X-Session-ID header）
 - **AdvisorResult 语义**（Phase 2 起）：`usage` 是本次真实调用产生的 token 数；命中缓存时 `usage` 全部为 0、`cache_hit = true`、`latency_ms ≈ 0`
 - **Trace 粒度**（ISS-009 起）：一条 `TraceRequest` = 一次网关→provider 上游 HTTP 调用。MoM `always` 模式下 1 次入口请求 = N advisor + 1 aggregator = N+1 条 TraceRequest，共享同一 `session_id` + `gateway_request_id`；透传模式 1 条
 - **Session 关联键**（ISS-011 起）：`X-Session-ID` HTTP header（由 eval 侧生成 UUID 保证任务内共享）；缺失即 `session_id = null`；不读 body.metadata，不生成兜底 uuid
-- **Pricing 请求时冻结**（ISS-009 起）：每条 TraceRequest 内嵌 `pricing: PricingSnapshot` — 是发起上游调用瞬间从 `momConfig.pricing_table[selected_model]` 深拷贝的快照；`cost_usd` 用该快照 × usage 现算并落盘。pricing_table 变动后历史成本可复现
+- **Pricing 请求时冻结**（ISS-009 起）：每条 TraceRequest 内嵌 `pricing: PricingSnapshot` — 是发起上游调用瞬间从 `momConfig.pricing_table[selected_model]` 深拷贝的快照。ISS-010 起 `pricing.currency` 从 `ModelPricing.currency` 忠实带出（网关不假设币种、不做汇率换算）；成本由 eval / dashboard 层用 `pricing × usage` 现算，网关不再落盘 `cost_usd` 字段。pricing_table 变动后历史成本可复现
 - **Trigger 语义**（Phase 3 起）：`trigger_reason` 是叙述性标签，六种枚举——`mom_off` / `user_turn` / `skipped_tool_iteration` / `tool_iteration_cache_miss` / `per_iteration` / `fanout_cache_hit`；主链路控制流永远"cache 查询 → 命中即复用、未命中就补跑"，无"跳过 advisor"分支
 - **Fanout cache key**（Phase 3 起）：`sha256(settings)|sha256(slots-in-original-order)|sha256(canonicalJSON(signatureMessages))`；user_turn 模式下 signatureMessages 截到最后一条真实 user message（含）；per_iteration 模式下签名全 messages；slot 顺序改变即 key 变
 - **Fanout cache 结构**（Phase 3 起）：Map-based TTL + LRU（`get`/`set` 时先 delete 再 set 利用 Map 插入顺序），懒过期检查；TTL preset `5m` / `1h`
