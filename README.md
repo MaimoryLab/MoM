@@ -26,7 +26,7 @@ SQLite 通过 Node 内置模块 `node:sqlite` 使用，无需另装、无 native
 ## 安装
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/MaimoryLab/MoM.git
 cd MoM
 npm install
 ```

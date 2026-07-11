@@ -26,7 +26,7 @@ SQLite is provided by the built-in `node:sqlite` module — no separate install,
 ## Install
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/MaimoryLab/MoM.git
 cd MoM
 npm install
 ```
