@@ -85,6 +85,6 @@ export function cloneAsCacheHit(results: AdvisorResult[]): AdvisorResult[] {
     finished_at: consumedAt,
     selected_model: r.selected_model,
     response_summary: null,
-    ...(r.error !== undefined ? { error: r.error } : {}),
+    error: r.error,
   }));
 }

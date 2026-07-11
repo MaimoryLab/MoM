@@ -69,6 +69,8 @@ export interface MoMConfig {
 export interface RuntimeConfig {
   provider: ProviderConfig;
   mom: MoMConfig;
+  /** Human-readable pointer to the pricing source, frozen into every TraceRequest.pricing.source. */
+  mom_config_source: string;
 }
 
 export interface ResponseSummary {
@@ -84,7 +86,7 @@ export interface AdvisorResult {
   usage: Usage;
   latency_ms: number;
   cache_hit: boolean;
-  error?: string;
+  error: TraceError | null;
   started_at: number;
   finished_at: number;
   selected_model: string;
@@ -99,7 +101,7 @@ export interface AggregatorResult {
   references_appended: string;
   started_at: number;
   finished_at: number;
-  error?: string;
+  error: TraceError | null;
   response_summary: ResponseSummary | null;
 }
 
@@ -194,8 +196,14 @@ export interface PricingSnapshot {
   source: string;
 }
 
+export type TraceErrorType =
+  | 'provider_error'
+  | 'gateway_error'
+  | 'advisor_error'
+  | 'aggregator_error';
+
 export interface TraceError {
-  type: string;
+  type: TraceErrorType;
   message: string;
   http_status: number | null;
 }

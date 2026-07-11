@@ -222,3 +222,6 @@ Claude Code POST /v1/messages {stream:true}（可带 X-Session-ID header）
 - **Streaming trace observer**（Phase 3 起）：`passthroughStream` 可选 `onEvent(evt: SSEEvent) => void`；主链路仍字节级 pipe 到 output，旁路增量分帧 + JSON.parse 后回调；observer 内部异常一律 `log.warn` 吞掉，不影响主转发
 - **透传路径也写 trace**（Phase 3 起）：`mom_mode !== 'always'` 请求也落一条 `role='passthrough' / trigger_reason='mom_off'` 的 TraceRequest，给 Phase 4 metrics `mom_trigger_rate` 一个分母
 - **Trace 落盘失败容忍**（Phase 3 起）：`saveTraceRequest` 抛错一律 `log.error` 后吞掉，不打断响应
+- **Provider 错误信号双通道**（ISS-012 起）：`passthroughStream` 遇 provider 非 2xx / 网络错误时——(1) 副作用：向 output 写一条 SSE `error` 帧供客户端观察；(2) 主信号：仍抛 `ProviderError` / 原始 `Error` 让 orchestrator 层落 `status='error'` TraceRequest。写帧不吞信号，两条通道独立
+- **TraceError 结构化传递**（ISS-012 起）：`AdvisorResult.error` / `AggregatorResult.error` / `TraceRequest.error` 统一为 `TraceError | null`（`type` 收窄为 `provider_error | gateway_error | advisor_error | aggregator_error`）；`toTraceError(err, fallbackType)` 位于 provider-client，四条路径（advisor / aggregator / passthrough / stream-forward）共用一个转换器，`ProviderError.statusCode` 一路带进 `TraceError.http_status`
+- **Pricing source stamping**（ISS-012 起）：`RuntimeConfig.mom_config_source` 在 `getConfig(momConfigPath)` 时读文件 mtime 拼 `basename@<iso>`（stat 失败 fallback 到 basename）；orchestrator 每次 `snapshotPricing` 用此值填 `PricingSnapshot.source`

@@ -17,11 +17,12 @@ import type {
   RequestSummary,
   ResponseSummary,
   RuntimeConfig,
+  TraceError,
   TraceRequest,
   TraceUsage,
   TriggerReason,
 } from '../types/mom.js';
-import { passthroughCall, ProviderError } from '../provider/provider-client.js';
+import { passthroughCall, toTraceError } from '../provider/provider-client.js';
 import { passthroughStream } from '../provider/stream-forward.js';
 import { fanoutAdvisorsWithCache } from './fanout.js';
 import {
@@ -40,7 +41,6 @@ import {
 import { saveTraceRequest } from '../storage/traces.js';
 
 const EMPTY_USAGE: Usage = { input_tokens: 0, output_tokens: 0 };
-const PRICING_SOURCE = 'mom.config.json';
 
 export interface Orchestrator {
   nonStreaming(
@@ -57,7 +57,7 @@ export interface Orchestrator {
 }
 
 export function createOrchestrator(runtime: RuntimeConfig): Orchestrator {
-  const { provider, mom } = runtime;
+  const { provider, mom, mom_config_source } = runtime;
   const cache = createFanoutCache({
     max_entries: mom.cache.max_entries,
     ttl_ms: parseTTL(mom.cache.ttl),
@@ -65,7 +65,7 @@ export function createOrchestrator(runtime: RuntimeConfig): Orchestrator {
   const providerHost = extractHost(provider.base_url);
   return {
     nonStreaming: (body, sessionId, log) =>
-      orchestrateNonStreaming(body, sessionId, provider, providerHost, mom, cache, log),
+      orchestrateNonStreaming(body, sessionId, provider, providerHost, mom, mom_config_source, cache, log),
     streaming: (body, sessionId, output, log) =>
       orchestrateStreaming(
         body,
@@ -74,6 +74,7 @@ export function createOrchestrator(runtime: RuntimeConfig): Orchestrator {
         provider,
         providerHost,
         mom,
+        mom_config_source,
         cache,
         log,
       ),
@@ -94,6 +95,7 @@ async function orchestrateNonStreaming(
   provider: ProviderConfig,
   providerHost: string,
   mom: MoMConfig,
+  pricingSource: string,
   cache: FanoutCache,
   log: Logger,
 ): Promise<AnthropicMessagesResponse> {
@@ -106,6 +108,7 @@ async function orchestrateNonStreaming(
       provider,
       providerHost,
       mom,
+      pricingSource,
       log,
     );
   }
@@ -123,6 +126,7 @@ async function orchestrateNonStreaming(
     gatewayRequestId,
     providerHost,
     mom,
+    pricingSource,
     triggerReason,
     log,
   );
@@ -146,7 +150,7 @@ async function orchestrateNonStreaming(
       started_at: aggregatorStartedAt,
       finished_at: finishedAt,
       response_summary: null,
-      error: err instanceof Error ? err.message : String(err),
+      error: toTraceError(err, 'aggregator_error'),
     };
     persistAggregatorTrace(
       errorAggregator,
@@ -155,6 +159,7 @@ async function orchestrateNonStreaming(
       gatewayRequestId,
       providerHost,
       mom,
+      pricingSource,
       triggerReason,
       log,
     );
@@ -176,6 +181,7 @@ async function orchestrateNonStreaming(
     gatewayRequestId,
     providerHost,
     mom,
+    pricingSource,
     triggerReason,
     log,
   );
@@ -189,6 +195,7 @@ async function orchestrateStreaming(
   provider: ProviderConfig,
   providerHost: string,
   mom: MoMConfig,
+  pricingSource: string,
   cache: FanoutCache,
   log: Logger,
 ): Promise<void> {
@@ -202,6 +209,7 @@ async function orchestrateStreaming(
       provider,
       providerHost,
       mom,
+      pricingSource,
       log,
     );
     return;
@@ -220,6 +228,7 @@ async function orchestrateStreaming(
     gatewayRequestId,
     providerHost,
     mom,
+    pricingSource,
     triggerReason,
     log,
   );
@@ -248,7 +257,7 @@ async function orchestrateStreaming(
           stop_sequence: response.stop_sequence,
         }
       : null,
-    ...(streamTiming.error !== undefined ? { error: streamTiming.error } : {}),
+    error: streamTiming.error,
   };
   log.info(
     {
@@ -266,6 +275,7 @@ async function orchestrateStreaming(
     gatewayRequestId,
     providerHost,
     mom,
+    pricingSource,
     triggerReason,
     log,
   );
@@ -280,6 +290,7 @@ async function runPassthroughNonStreaming(
   provider: ProviderConfig,
   providerHost: string,
   mom: MoMConfig,
+  pricingSource: string,
   log: Logger,
 ): Promise<AnthropicMessagesResponse> {
   const startedAt = Date.now();
@@ -297,6 +308,7 @@ async function runPassthroughNonStreaming(
       status: 'success',
       error: null,
       mom,
+      pricingSource,
       log,
     });
     return response;
@@ -313,6 +325,7 @@ async function runPassthroughNonStreaming(
       status: 'error',
       error: toTraceError(err),
       mom,
+      pricingSource,
       log,
     });
     throw err;
@@ -327,6 +340,7 @@ async function runPassthroughStreaming(
   provider: ProviderConfig,
   providerHost: string,
   mom: MoMConfig,
+  pricingSource: string,
   log: Logger,
 ): Promise<void> {
   const startedAt = Date.now();
@@ -353,6 +367,7 @@ async function runPassthroughStreaming(
       status: streamError ? 'error' : 'success',
       error: streamError ? toTraceError(streamError) : null,
       mom,
+      pricingSource,
       log,
     });
   }
@@ -415,6 +430,7 @@ function persistAdvisorTraces(
   gatewayRequestId: string,
   providerHost: string,
   mom: MoMConfig,
+  pricingSource: string,
   triggerReason: TriggerReason,
   log: Logger,
 ): void {
@@ -425,7 +441,7 @@ function persistAdvisorTraces(
       : r.success
       ? 'success'
       : 'error';
-    const pricing = snapshotPricing(r.selected_model, mom.pricing_table, PRICING_SOURCE);
+    const pricing = snapshotPricing(r.selected_model, mom.pricing_table, pricingSource);
     if (!pricing && !r.cache_hit) {
       log.warn(
         { event: 'pricing_missing', model: r.selected_model, role: 'advisor' },
@@ -448,9 +464,7 @@ function persistAdvisorTraces(
       usage,
       pricing,
       cost_usd: calculateCostFromSnapshot(usage, pricing),
-      error: r.error
-        ? { type: 'advisor_error', message: r.error, http_status: null }
-        : null,
+      error: r.error,
       request_summary: requestSummary,
       response_summary: r.response_summary,
       trigger_reason: triggerReason,
@@ -461,6 +475,12 @@ function persistAdvisorTraces(
   }
 }
 
+const AGGREGATOR_EMPTY_RESPONSE_ERROR: TraceError = {
+  type: 'aggregator_error',
+  message: 'aggregator produced no response',
+  http_status: null,
+};
+
 function persistAggregatorTrace(
   result: AggregatorResult,
   body: AnthropicMessagesRequest,
@@ -468,15 +488,14 @@ function persistAggregatorTrace(
   gatewayRequestId: string,
   providerHost: string,
   mom: MoMConfig,
+  pricingSource: string,
   triggerReason: TriggerReason,
   log: Logger,
 ): void {
-  const failed = result.error !== undefined || result.response === null;
-  const status: TraceRequest['status'] = failed ? 'error' : 'success';
-  const errorMessage =
-    result.error ??
-    (result.response === null ? 'aggregator produced no response' : undefined);
-  const pricing = snapshotPricing(result.model, mom.pricing_table, PRICING_SOURCE);
+  const traceError: TraceError | null =
+    result.error ?? (result.response === null ? AGGREGATOR_EMPTY_RESPONSE_ERROR : null);
+  const status: TraceRequest['status'] = traceError ? 'error' : 'success';
+  const pricing = snapshotPricing(result.model, mom.pricing_table, pricingSource);
   if (!pricing) {
     log.warn(
       { event: 'pricing_missing', model: result.model, role: 'aggregator' },
@@ -499,9 +518,7 @@ function persistAggregatorTrace(
     usage,
     pricing,
     cost_usd: calculateCostFromSnapshot(usage, pricing),
-    error: errorMessage
-      ? { type: 'aggregator_error', message: errorMessage, http_status: null }
-      : null,
+    error: traceError,
     request_summary: summarizeRequest(body),
     response_summary: result.response_summary,
     trigger_reason: triggerReason,
@@ -520,17 +537,18 @@ interface PersistPassthroughInput {
   startedAt: number;
   finishedAt: number;
   status: 'success' | 'error';
-  error: { type: string; message: string; http_status: number | null } | null;
+  error: TraceError | null;
   mom: MoMConfig;
+  pricingSource: string;
   log: Logger;
 }
 
 function persistPassthroughTrace(input: PersistPassthroughInput): void {
   const {
     body, response, sessionId, gatewayRequestId, providerHost,
-    startedAt, finishedAt, status, error, mom, log,
+    startedAt, finishedAt, status, error, mom, pricingSource, log,
   } = input;
-  const pricing = snapshotPricing(body.model, mom.pricing_table, PRICING_SOURCE);
+  const pricing = snapshotPricing(body.model, mom.pricing_table, pricingSource);
   const usage = toTraceUsage(response?.usage ?? EMPTY_USAGE);
   const trace: TraceRequest = {
     request_id: randomUUID(),
@@ -593,24 +611,6 @@ function countToolUseBlocks(messages: AnthropicMessage[]): number {
     }
   }
   return n;
-}
-
-function toTraceError(err: unknown): {
-  type: string;
-  message: string;
-  http_status: number | null;
-} {
-  if (err instanceof ProviderError) {
-    return {
-      type: 'provider_error',
-      message: err.providerBody.slice(0, 500),
-      http_status: err.statusCode,
-    };
-  }
-  if (err instanceof Error) {
-    return { type: 'gateway_error', message: err.message, http_status: null };
-  }
-  return { type: 'gateway_error', message: String(err), http_status: null };
 }
 
 // ---------------------- stream collector ----------------------

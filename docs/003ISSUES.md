@@ -300,10 +300,12 @@ Phase 2 完成后主链路已跑通，但 `fanout_mode` / `cache` / `pricing_tab
 
 ## [ISS-009] Trace 落盘 schema 从"入口聚合"重构为"每次上游调用一条"
 
-**状态**：[进行中]
+**状态**：[已解决]
 **优先级**：[P1 严重]
 **类型**：[技术债]
 **发现日期**：2026-07-11
+**解决日期**：2026-07-11
+**解决方案**：一条 TraceRequest = 一次网关→provider 上游调用；14 列新 schema + 3 索引；orchestrator 每次上游落盘；pricing 请求时深拷贝冻结。
 
 **现象**：
 当前 Phase 3 落地的 `Trace` 类型（`src/types/mom.ts:115-130`）与 `traces` 表 schema（`src/storage/db.ts:3-15`）是"以一次入口 HTTP 请求为单位的一条聚合记录"——把 MoM `always` 模式下的 N 个 advisor + 1 个 aggregator 压成一条 trace 里的 `advisor_results: AdvisorResult[]` + `aggregator_result: AggregatorResult` 嵌套结构。缺失关键字段：
@@ -339,6 +341,7 @@ Phase 2 完成后主链路已跑通，但 `fanout_mode` / `cache` / `pricing_tab
 -> src/cost/pricing.ts（新增 snapshotPricing(model, pricingTable): PricingSnapshot | null）
 -> test/trace-request.test.ts（新增）
 -> decisions/006-eval-trace-request-api.md
+-> 004CHANGELOG.md [2026-07-11-1]
 
 ---
 
@@ -377,10 +380,12 @@ Phase 2 完成后主链路已跑通，但 `fanout_mode` / `cache` / `pricing_tab
 
 ## [ISS-011] Eval 对接接口 `GET /trace/requests?session_id=<uuid>` 尚未实现
 
-**状态**：[进行中]
+**状态**：[已解决]
 **优先级**：[P1 严重]
 **类型**：[功能异常]
 **发现日期**：2026-07-11
+**解决日期**：2026-07-11
+**解决方案**：新增 `src/gateway/trace-api.ts` 挂载 `GET /trace/requests`；UUID 校验 + 空数组 200 + 错误路径 400/500；messages-handler 提取 `X-Session-ID` header 传入 orchestrator。
 
 **现象**：
 Eval / Dashboard 侧对接需求文档（2026-07-10）要求：
@@ -412,6 +417,107 @@ GET /trace/requests?session_id=<uuid>
 -> test/trace-api.test.ts（新增）
 -> decisions/006-eval-trace-request-api.md
 -> docs/006API.md（新增 §1.4 /trace/* 命名空间）
+-> 004CHANGELOG.md [2026-07-11-1]
+
+---
+
+## [ISS-012] Trace 错误路径观察不完整（passthrough 流式吞错 / http_status 丢失 / pricing source 缺 mtime / UUID 正则拒 v7）
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-11
+**解决日期**：2026-07-11
+
+**现象**：
+ISS-009/011 交付后的二次核查发现 4 处偏离 decision 006 与 eval 需求文档"gateway 是观察的唯一真相源"承诺：
+1. **passthrough streaming 遇 provider 非 2xx 时 trace 错记 `status='success'`**：`src/provider/stream-forward.ts` 遇 502/429 时写 SSE `error` 帧后直接 `return`（不抛），`src/orchestrator/orchestrator.ts:runPassthroughStreaming` 的 try/catch 判断 `streamError=null` → 落 `status='success' / error=null`；non-streaming 分支对称抛 `ProviderError` 落 `status='error'`，两侧不对称
+2. **aggregator streaming 遇 provider 非 2xx 时 error.message 丢失**：与 (1) 同根，最终仅落 "aggregator produced no response"，真实 `provider 502: <body>` 内容被 stream-forward 吞掉
+3. **advisor / aggregator 路径 `TraceError.http_status` 恒为 null**：orchestrator persist* 硬编码 `http_status: null`；`AdvisorResult.error` / `AggregatorResult.error` 是 `string` 而非结构化 `TraceError`；provider_client 的 `statusCode` 被拼进 message 后丢弃。passthrough 路径通过 `toTraceError` 正确保留了 statusCode，三条路径处理不一致
+4. **UUID 校验正则拒绝 v6/v7/NIL**：`src/gateway/trace-api.ts` 正则 `[1-5]` 只放 RFC 4122 v1–v5，eval 侧若采用 UUIDv7（timestamp-ordered，越来越常见）或 NIL UUID 直接 400。decision 006 只说"UUID 格式"，未强制版本
+5. **`pricing.source` 缺 mtime**：decision 006 §"TraceRequest.pricing 字段结构"明确 `"mom.config.json@<mtime iso>"`，实现是 `PRICING_SOURCE = 'mom.config.json'` 常量，事后无法定位历史 trace 用的是哪一版 pricing_table
+
+**后果**：
+- (1)(2)：eval 侧对 stream 请求的失败观察不到，成本 / 可用性统计与真实运行发散
+- (3)：eval 侧需要区分 provider 4xx（客户端问题）vs 5xx（provider 问题），当前全部靠 grep message
+- (4)：eval / dashboard 若采用 UUIDv7 无法查询
+- (5)：pricing_table 变动后无法定位漂移点，可审计性打折（数值仍冻结）
+
+**初步判断**：
+已确认。根因是 stream-forward 把"写 SSE 错误帧给客户端"与"给 orchestrator 报错"两件事绑到一个 return 上，把它们解耦即修。(3) 是本次落盘代码没接住 provider_client 已提供的 statusCode。(4)(5) 是实现走样。
+
+**解决方案**：
+- 重构 `src/provider/stream-forward.ts`：非 2xx 与网络错误都抛 `ProviderError` / 原始 `Error`；SSE `error` 帧作为副作用先写再抛（客户端仍收到规范帧）
+- 提升 `toTraceError(err, fallbackType)` 到 `src/provider/provider-client.ts` 供 advisor / aggregator / passthrough / stream-forward 四条路径共用；从 `ProviderError` 抽 `statusCode` 到 `TraceError.http_status`
+- `AdvisorResult.error` / `AggregatorResult.error` 由 `string` 改为 `TraceError | null`；orchestrator persist* 直接透传
+- `TraceError.type` 由 `string` 收窄为 union `'provider_error' | 'gateway_error' | 'advisor_error' | 'aggregator_error'`
+- `src/gateway/trace-api.ts` UUID 正则放宽为 hex-only `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
+- `RuntimeConfig.mom_config_source` 新增；`src/config.ts:stampMoMConfigSource(path)` 读 mtime 拼 `mom.config.json@<iso>`；orchestrator 用 `runtime.mom_config_source` 替代常量
+- 回归测试新增 14 例：stream-forward 502 抛错 / advisor 502 http_status 保留 / UUIDv7/v6/NIL 接受 / stampMoMConfigSource mtime
+
+**关联**：
+-> src/provider/stream-forward.ts / src/provider/provider-client.ts
+-> src/advisor/advisor-runtime.ts / src/aggregator/aggregator-runtime.ts / src/orchestrator/orchestrator.ts
+-> src/gateway/trace-api.ts
+-> src/config.ts / src/types/mom.ts（RuntimeConfig.mom_config_source / TraceErrorType）
+-> src/cache/fanout-cache.ts（cloneAsCacheHit 适配 error: TraceError | null）
+-> test/{stream-forward-error,advisor-error,trace-api-uuid,config-source}.test.ts（新增）
+-> 004CHANGELOG.md [2026-07-11-2]
+
+---
+
+## [ISS-013] `TraceRequest.settings_snapshot: MoMConfig` 冗余，每条上游调用重复整份深拷贝
+
+**状态**：[发现]
+**优先级**：[P3 轻微]
+**类型**：[技术债]
+**发现日期**：2026-07-11
+
+**现象**：
+`src/types/mom.ts:TraceRequest.settings_snapshot: MoMConfig` 是 Phase 3 遗留字段。ISS-009 起 `pricing` 已从 `settings_snapshot` 拆出为顶层字段 + 请求时冻结快照，`settings_snapshot` 保留在每条 TraceRequest 里显得冗余：一次 `always` 请求写 N+1 条，每条都携带完整 `pricing_table` / `advisor.slots` / `aggregator.model` 副本。eval 需求文档没要 `settings_snapshot`；decision 006 §"JSON payload"字段清单也不包含它。
+
+**后果**：
+- 存储浪费：一次 4-advisor 请求 5 条 trace × MoMConfig 深拷贝（~1KB）≈ 5KB，其中 4KB 是重复
+- `data` 列膨胀，`SELECT data FROM traces WHERE session_id=?` 的 IO 增大
+- 概念上 eval 侧读一条 trace 时看到 `settings_snapshot` 会误以为它是"该请求专用配置"而非"全局配置副本"
+
+**初步判断**：
+已确认。属 Phase 3 遗留而非本次交付新增；无消费方（Phase 4-5 dashboard 尚未开工），可安全删除或降级。
+
+**方案讨论**：（待定）
+- 方案 A：完全删除 `settings_snapshot` 字段（eval 侧完全靠 pricing / usage / trigger_reason 反演；audit 需求交给 git log of mom.config.json）
+- 方案 B：只在 `gateway_request_id` 首条 trace 保留 settings_snapshot，其余为 null（信息完整但不重复）
+- 方案 C：抽出独立表 `gateway_requests`（保留 audit 但脱离行内）
+- 当前倾向：方案 A —— pricing_snapshot 已经覆盖成本可复现需求，settings 的其他字段（fanout_mode / aggregation_mode）价值不大
+
+**关联**：
+-> src/types/mom.ts:TraceRequest.settings_snapshot
+-> src/orchestrator/orchestrator.ts（persist* 每条 structuredClone(mom)）
+-> src/storage/traces.ts（saveTraceRequest 的 data 列膨胀）
+-> data/mom.config.json（配置版本追溯的替代方案）
+
+---
+
+## [ISS-014] `saveTraceRequest` 每次 INSERT 都重新 `prepare` statement，未缓存
+
+**状态**：[发现]
+**优先级**：[P3 轻微]
+**类型**：[技术债]
+**发现日期**：2026-07-11
+
+**现象**：
+`src/storage/traces.ts:saveTraceRequest` 每条 INSERT 都调用 `db().prepare(...)`。ISS-009 后 MoM `always` 模式一次入口请求 N+1 次 prepare，Phase 4 metrics rps 上来后可能成为瓶颈。
+
+**后果**：
+- 单机 MVP <10 rps 无感
+- Phase 4 dashboard-api 上线后如果引入 baseline / comparison 会翻倍写入
+- `getTraceRequestsBySessionId` / `getTraceRequestById` / `getRecentTraceRequests` 同样问题
+
+**初步判断**：
+已确认。node:sqlite `DatabaseSync.prepare()` 缓存 statement 是零风险改动，可等观测到瓶颈再动。
+
+**关联**：
+-> src/storage/traces.ts
 
 <!--
 新增条目模板：

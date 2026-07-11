@@ -1,3 +1,40 @@
+## [2026-07-11-2] fix(gateway): trace observation completeness on error paths [ISS-012]
+
+### 改动
+- 重构 `src/provider/stream-forward.ts`：passthroughStream 遇 provider 非 2xx / 网络错误时统一抛 `ProviderError` / 原始 `Error`；SSE `error` 帧作为副作用先写再抛，客户端仍收到规范帧、orchestrator 落 `status='error'` TraceRequest 不再被吞（修复 A/C 根因：先前非 2xx 只 `return` 让 streamError=null 导致 trace 错记 success）
+- 提升 `toTraceError(err, fallbackType)` 到 `src/provider/provider-client.ts`，advisor / aggregator / passthrough / stream-forward 四条路径共用；从 `ProviderError` 抽 `statusCode` 到 `TraceError.http_status`（修复 B：advisor / aggregator 路径 http_status 恒为 null）
+- 类型收窄 `src/types/mom.ts`：`TraceError.type` 由 `string` 改为 `TraceErrorType = 'provider_error' | 'gateway_error' | 'advisor_error' | 'aggregator_error'` union；`AdvisorResult.error` / `AggregatorResult.error` 由 `string?` 改为 `TraceError | null`；`RuntimeConfig` 新增 `mom_config_source: string` 字段
+- 修改 `src/advisor/advisor-runtime.ts` / `src/aggregator/aggregator-runtime.ts`：catch 用 `toTraceError(err, 'advisor_error' | 'aggregator_error')` 保留结构化错误；`StreamingTimingResult.error` 改为 `TraceError | null`
+- 修改 `src/orchestrator/orchestrator.ts`：`persistAdvisorTraces` / `persistAggregatorTrace` / `persistPassthroughTrace` 直接透传 `TraceError`，不再本地构造 `{type, message, http_status: null}`；orchestrator 接受 `runtime.mom_config_source` 作为 `PRICING_SOURCE` 常量的替代，pricing.source 现为 `mom.config.json@<mtime iso>`（修复 E：pricing_table 变动后可从 source 定位版本）
+- 修改 `src/cache/fanout-cache.ts`：`cloneAsCacheHit` 适配 `error: TraceError | null`（从 conditional spread 改为 直传原值）
+- 放宽 `src/gateway/trace-api.ts` UUID 正则：`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$` 大小写不敏感，接受 v6/v7/v8/NIL/max（修复 D：先前 `[1-5]` 拒绝 UUIDv7 timestamp-ordered）
+- 新增 `src/config.ts:stampMoMConfigSource(path)`：`statSync` 读 mtime 拼 `basename@<iso>`；stat 失败 fallback 到 basename；`getConfig` 拼进 `RuntimeConfig.mom_config_source`
+- 新增回归测试 4 个文件 14 例：`test/stream-forward-error.test.ts`（502 / 网络错误抛 ProviderError + SSE 帧）/ `test/advisor-error.test.ts`（502 / 429 http_status 保留）/ `test/trace-api-uuid.test.ts`（v6 / v7 / NIL / max 接受）/ `test/config-source.test.ts`（mtime stamping）；全 90 例通过
+- 关闭 ISS-009 / ISS-011（补 [已解决] + 解决方案 + CHANGELOG 关联）；新开 ISS-012（本次交付）/ ISS-013（settings_snapshot 冗余，Phase 3 遗留）/ ISS-014（saveTraceRequest 未缓存 statement）
+
+### 涉及文件
+- src/provider/stream-forward.ts：非 2xx / 网络错误抛错；SSE 帧作为副作用
+- src/provider/provider-client.ts：新增 toTraceError 共享工具
+- src/types/mom.ts：TraceError.type 收窄；AdvisorResult/AggregatorResult error 结构化；RuntimeConfig 加 mom_config_source
+- src/advisor/advisor-runtime.ts：catch 用 toTraceError；success 时 error: null
+- src/aggregator/aggregator-runtime.ts：catch 用 toTraceError；StreamingTimingResult.error: TraceError | null
+- src/orchestrator/orchestrator.ts：persist* 透传 TraceError；pricingSource 由 runtime 提供
+- src/cache/fanout-cache.ts：cloneAsCacheHit 适配 error 新类型
+- src/gateway/trace-api.ts：UUID 正则放宽为 hex-only
+- src/config.ts：新增 stampMoMConfigSource；getConfig 拼 mom_config_source
+- test/stream-forward-error.test.ts / test/advisor-error.test.ts / test/trace-api-uuid.test.ts / test/config-source.test.ts：新增回归
+- docs/003ISSUES.md：ISS-009/011 关闭；新增 ISS-012/013/014
+- docs/001ARCHITECTURE.md：新增 "Provider 错误信号双通道" / "TraceError 结构化传递" / "Pricing source stamping" 三条约定
+- docs/006API.md：§1.4 UUID 描述更新；`pricing.source` 示例改为 `mom.config.json@<iso>`；§4 类型清单补 TraceErrorType 与 RuntimeConfig.mom_config_source
+
+### 关联
+-> ISS-009
+-> ISS-011
+-> ISS-012
+-> decisions/006-eval-trace-request-api.md
+
+---
+
 ## [2026-07-11-1] feat(gateway): eval trace API — per-upstream TraceRequest + GET /trace/requests
 
 ### 改动

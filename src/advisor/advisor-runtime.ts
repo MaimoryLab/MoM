@@ -11,7 +11,7 @@ import type {
   ProviderConfig,
   ResponseSummary,
 } from '../types/mom.js';
-import { passthroughCall, ProviderError } from '../provider/provider-client.js';
+import { passthroughCall, toTraceError } from '../provider/provider-client.js';
 import { convertToAdvisorView } from './view-transformer.js';
 import { ADVISOR_SYSTEM_PROMPT } from './prompts.js';
 import { applyAdvisorCacheControl } from '../cache/cache-decorator.js';
@@ -61,6 +61,7 @@ export async function runAdvisor(
       usage: response.usage,
       latency_ms: finishedAt - startedAt,
       cache_hit: false,
+      error: null,
       started_at: startedAt,
       finished_at: finishedAt,
       selected_model: slot,
@@ -68,12 +69,6 @@ export async function runAdvisor(
     };
   } catch (err) {
     const finishedAt = Date.now();
-    const message =
-      err instanceof ProviderError
-        ? `provider ${err.statusCode}: ${err.providerBody.slice(0, 200)}`
-        : err instanceof Error
-        ? err.message
-        : String(err);
     return {
       slot,
       success: false,
@@ -81,7 +76,7 @@ export async function runAdvisor(
       usage: EMPTY_USAGE,
       latency_ms: finishedAt - startedAt,
       cache_hit: false,
-      error: message,
+      error: toTraceError(err, 'advisor_error'),
       started_at: startedAt,
       finished_at: finishedAt,
       selected_model: slot,

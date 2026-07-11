@@ -10,8 +10,9 @@ import type {
   MoMConfig,
   ProviderConfig,
   ResponseSummary,
+  TraceError,
 } from '../types/mom.js';
-import { passthroughCall, ProviderError } from '../provider/provider-client.js';
+import { passthroughCall, toTraceError } from '../provider/provider-client.js';
 import { passthroughStream } from '../provider/stream-forward.js';
 import {
   appendReferencesToLastUser,
@@ -24,14 +25,6 @@ function summarize(response: AnthropicMessagesResponse): ResponseSummary {
     stop_reason: response.stop_reason,
     stop_sequence: response.stop_sequence,
   };
-}
-
-function providerErrorMessage(err: unknown): string {
-  if (err instanceof ProviderError) {
-    return `provider ${err.statusCode}: ${err.providerBody.slice(0, 200)}`;
-  }
-  if (err instanceof Error) return err.message;
-  return String(err);
 }
 
 function buildAggregatorRequest(
@@ -67,6 +60,7 @@ export async function runAggregatorNonStreaming(
     references_appended: references,
     started_at: startedAt,
     finished_at: finishedAt,
+    error: null,
     response_summary: summarize(response),
   };
 }
@@ -80,7 +74,7 @@ export interface StreamingTimingResult {
   references_appended: string;
   started_at: number;
   finished_at: number;
-  error?: string;
+  error: TraceError | null;
 }
 
 export async function runAggregatorStreaming(
@@ -104,13 +98,14 @@ export async function runAggregatorStreaming(
       references_appended: references,
       started_at: startedAt,
       finished_at: Date.now(),
+      error: null,
     };
   } catch (err) {
     return {
       references_appended: references,
       started_at: startedAt,
       finished_at: Date.now(),
-      error: providerErrorMessage(err),
+      error: toTraceError(err, 'aggregator_error'),
     };
   }
 }
