@@ -9,14 +9,14 @@ import {
 } from '../src/cost/pricing.js';
 
 const TABLE: Record<string, ModelPricing> = {
-  'model-a': { input: 3, output: 15, cache_write: 3.75, cache_read: 0.3 },
+  'model-a': { currency: 'CNY', input: 3, output: 15, cache_write: 3.75, cache_read: 0.3 },
 };
 
 describe('snapshotPricing', () => {
   it('deep-copies pricing entry and stamps source', () => {
     const snap = snapshotPricing('model-a', TABLE, 'mom.config.json@t');
     assert.ok(snap);
-    assert.equal(snap.currency, 'USD');
+    assert.equal(snap.currency, 'CNY');
     assert.equal(snap.input_per_million, 3);
     assert.equal(snap.output_per_million, 15);
     assert.equal(snap.cache_write_per_million, 3.75);
@@ -33,6 +33,14 @@ describe('snapshotPricing', () => {
     const snap = snapshotPricing('model-a', TABLE, 'src')!;
     snap.input_per_million = 999;
     assert.equal(TABLE['model-a']!.input, 3);
+  });
+
+  it('carries currency verbatim from ModelPricing (no hardcoded USD)', () => {
+    const usdTable: Record<string, ModelPricing> = {
+      'model-usd': { currency: 'USD', input: 1, output: 2, cache_write: 1.25, cache_read: 0.1 },
+    };
+    const snap = snapshotPricing('model-usd', usdTable, 'src');
+    assert.equal(snap!.currency, 'USD');
   });
 });
 

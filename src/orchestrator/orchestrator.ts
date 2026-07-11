@@ -33,11 +33,7 @@ import { computeFanoutCacheKey } from '../cache/cache-key.js';
 import type { FanoutCache } from '../cache/fanout-cache.js';
 import { createFanoutCache, parseTTL } from '../cache/fanout-cache.js';
 import { computeTriggerReason, isNewUserTurn } from './trigger.js';
-import {
-  calculateCostFromSnapshot,
-  snapshotPricing,
-  toTraceUsage,
-} from '../cost/pricing.js';
+import { snapshotPricing, toTraceUsage } from '../cost/pricing.js';
 import { saveTraceRequest } from '../storage/traces.js';
 
 const EMPTY_USAGE: Usage = { input_tokens: 0, output_tokens: 0 };
@@ -463,7 +459,6 @@ function persistAdvisorTraces(
       status,
       usage,
       pricing,
-      cost_usd: calculateCostFromSnapshot(usage, pricing),
       error: r.error,
       request_summary: requestSummary,
       response_summary: r.response_summary,
@@ -517,7 +512,6 @@ function persistAggregatorTrace(
     status,
     usage,
     pricing,
-    cost_usd: calculateCostFromSnapshot(usage, pricing),
     error: traceError,
     request_summary: summarizeRequest(body),
     response_summary: result.response_summary,
@@ -564,7 +558,6 @@ function persistPassthroughTrace(input: PersistPassthroughInput): void {
     status,
     usage,
     pricing,
-    cost_usd: calculateCostFromSnapshot(usage, pricing),
     error,
     request_summary: summarizeRequest(body),
     response_summary: response

@@ -347,13 +347,15 @@ Phase 2 完成后主链路已跑通，但 `fanout_mode` / `cache` / `pricing_tab
 
 ## [ISS-010] pricing_table 手工维护不可持续，需从 provider `/v1/models` 自动同步
 
-**状态**：[讨论中]
+**状态**：[已解决]
 **优先级**：[P2 一般]
 **类型**：[体验]
 **发现日期**：2026-07-11
+**解决日期**：2026-07-11
+**解决方案**：新增 `scripts/sync-pricing.mjs` 一次性运维脚本从 provider `/v1/models` 灌 `pricing_table`；`ModelPricing` 加 `currency` 字段、`PricingSnapshot.currency` 从字面量拓宽为 string（币种从数据源带出，网关不假设）；顺手删除 `TraceRequest.cost_usd` / `Metrics.total_cost_usd` / `Metrics.baseline_cost_usd` 字段与 `traces.cost_usd` DB 列——回归 eval 需求文档"eval 负责聚合"原则，成本由消费方用 `pricing × usage` 现算。
 
 **现象**：
-`data/mom.config.json.pricing_table` 目前为空，每次新增 advisor slot 或换 aggregator 模型都要人肉查 provider 定价填字段，否则 `src/cost/pricing.ts` 打 `event=pricing_missing` warn、trace 的 `cost_usd` 被记为 0（ISS-009 重构后每条 TraceRequest 内嵌 pricing / cost）。已确认当前 provider `apiproxy.paigod.work/v1/models` 响应里带 `price.{input_price, output_price, cached_price}`（per-token USD），可用作数据源。
+`data/mom.config.json.pricing_table` 目前为空，每次新增 advisor slot 或换 aggregator 模型都要人肉查 provider 定价填字段，否则 `src/cost/pricing.ts` 打 `event=pricing_missing` warn、trace 的 `pricing` 快照为 null（ISS-009 重构后每条 TraceRequest 内嵌 pricing / cost，eval 侧算不出成本）。已确认当前 provider `apiproxy.paigod.work/v1/models` 响应里带 `price.{input_price, output_price, cached_price}`（per-token 数值），可用作数据源。**实测数字量级为 CNY**（如 `deepseek/deepseek-v4-flash` input=¥1/M tokens、`zai-org/glm-5.2` input=¥8/M tokens 均与国产模型官方人民币档一致）；`/v1/models` 响应本身**不带 currency 字段**——币种是数据源的隐性属性，需要脚本侧显式声明并回填进 `ModelPricing`，让 orchestrator 冻结成 `PricingSnapshot.currency`。
 
 **后果**：
 - 成本分账在无 pricing 时静默降级为 0；ISS-009 交付的 `/trace/requests` 接口对 eval 侧价值受损（pricing 快照全 null，无法算成本）
@@ -361,20 +363,33 @@ Phase 2 完成后主链路已跑通，但 `fanout_mode` / `cache` / `pricing_tab
 - 人工填价无法覆盖"provider 侧价格变动"场景
 
 **初步判断**：
-已确认——provider `/v1/models` 明确暴露价格字段；结构在不同 provider 间可能不同，同步器需要处理"字段命名 / 单位换算 / 缺失字段"三类差异。
+已确认——provider `/v1/models` 明确暴露价格字段；结构在不同 provider 间可能不同，同步器需要处理"字段命名 / 单位换算 / 缺失字段 / 币种标注"四类差异。
 
-**方案讨论**：（待定）
+**方案讨论**：
 - 方案 A：一次性运维脚本 `scripts/sync-pricing.mjs`，手动执行拉取并写入 `data/mom.config.json`
 - 方案 B：网关启动时可选自动同步（`sync_pricing_on_boot: true`），只补齐缺失项、不覆盖手改
 - 方案 C：Phase 4 dashboard-api 暴露 `POST /api/pricing/sync`，前端 SettingsPage 加"同步价格"按钮
 - 边界约束（**已由 decision 006 定死**）：pricing 冻结点是请求时深拷贝 `momConfig.pricing_table[selected_model]`。同步器只负责把 provider `/v1/models` 的价格落到 `data/mom.config.json.pricing_table`，orchestrator 读取路径不变
 
+**最终选择**：
+- **方案 A（一次性脚本）**——B 会把网关启动路径与 provider 可用性绑死，还要新增顶层配置字段；C 依赖 Phase 4 未开工的 dashboard-api。价格变化频率极低，手动跑一次脚本是正确的操作频率。
+- 顺手改造 pricing 的币种表达：`ModelPricing` 加 `currency: string`（币种是数据源属性，跟随每个 model 走）；`PricingSnapshot.currency` 从字面量 `'USD'` 拓宽为 `string`，由 `snapshotPricing` 从 `ModelPricing.currency` 忠实带出。回归 eval 需求文档"gateway 是观察的唯一真相源"原则：网关不假设币种，只如实回显 provider 的单位。
+- 顺手删掉 `TraceRequest.cost_usd` / `Metrics.total_cost_usd` / `Metrics.baseline_cost_usd`：eval 需求文档从未要求 `cost_usd`，decision 006 里是"贴心服务"、且字段名硬编码币种在多币种场景下会撒谎；`SUM(pricing × usage)` 由 eval / dashboard 层现算，符合"eval 负责聚合"原则；DB 层 `traces.cost_usd` 列一同删除，本地 `mom.db` 只有测试数据，直接重建，无迁移。
+- 脚本行为：`--currency <str>`（默认 `CNY`）+ 默认只补齐缺失项 / `--overwrite` 覆盖 / `--dry-run` 打印 / 未知 model 跳过报警；`cache_write` 按 Anthropic 惯例 `input × 1.25` 估算（provider `/v1/models` 无此字段）。
+
 **关联**：
 -> data/mom.config.json（pricing_table 字段）
+-> scripts/sync-pricing.mjs（新增；一次性同步脚本）
 -> src/cost/pricing.ts（消费方；ISS-009 后新增 snapshotPricing 供 orchestrator 冻结）
--> src/types/mom.ts（ModelPricing 类型 + PricingSnapshot 类型）
--> decisions/006-eval-trace-request-api.md §不在本期范围 项 1
+-> src/types/mom.ts（ModelPricing 加 currency；PricingSnapshot.currency 拓宽为 string；TraceRequest.cost_usd 删除；Metrics.total_cost_usd / baseline_cost_usd 删除）
+-> src/storage/db.ts（traces 表删除 cost_usd 列）
+-> src/storage/traces.ts（INSERT / row 组装同步）
+-> src/orchestrator/orchestrator.ts（三处 cost_usd 写入删除）
+-> docs/006API.md（TraceRequest 契约同步：pricing.currency 从 provider 数据源带出、删除 cost_usd 示例）
+-> decisions/006-eval-trace-request-api.md §不在本期范围 项 1（本 issue 交付即闭环）
+-> decisions/006-eval-trace-request-api.md §不在本期范围 项 4（本 issue 顺手将 currency 从字面量拓宽为跟数据源）
 -> PLAN.md（Phase 3 §6 "pricing 热更"，Phase 5 SettingsPage pricing_table 编辑器）
+-> 004CHANGELOG.md [2026-07-11-3]
 
 ---
 

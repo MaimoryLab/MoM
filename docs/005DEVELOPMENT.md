@@ -6,6 +6,57 @@
 
 ---
 
+## [2026-07-11-1] ISS-010：pricing sync 脚本 + 币种从数据源带出 + 去掉 cost_usd 字段
+
+### 环境要求
+
+沿用 [2026-07-10-1]。新增依赖：无。脚本用 `undici` 走 provider `/v1/models`。
+
+### pricing_table 灌入（新姿势，取代旧内联脚本）
+
+```bash
+npm run sync-pricing              # 默认 currency=CNY，只补齐缺失项，写入 data/mom.config.json
+npm run sync-pricing -- --dry-run # 只打印将写入什么，不落盘
+npm run sync-pricing -- --overwrite    # 强制覆盖已有条目（谨慎使用，会覆盖手改的价格）
+npm run sync-pricing -- --currency USD # 换 provider 时传入对应币种；paigod 默认 CNY
+```
+
+- 脚本从 `.env` 读 `PROVIDER_BASE_URL` / `PROVIDER_API_KEY` / `PROVIDER_AUTH_STYLE`
+- `cache_write` 按 Anthropic 惯例估算为 `input * 1.25`（provider `/v1/models` 未暴露该字段）
+- 本地 pricing_table 里已存在但 provider 不再列出的模型条目**不会**被删除，仅打印 `SKIP unknown-to-provider`
+
+### `ModelPricing` / `PricingSnapshot` 结构变化
+
+`ModelPricing` 从 4 字段升为 5 字段：新增 `currency: string`（ISO 4217；数据源属性）。`PricingSnapshot.currency` 从字面量 `'USD'` 拓宽为 `string`，由 `snapshotPricing` 从 `ModelPricing.currency` 忠实带出——网关不再假设币种。
+
+### 删除的字段（DB / API 契约同步破坏性变更）
+
+- `TraceRequest.cost_usd` 删除；SQLite `traces` 表 `cost_usd` 列删除
+- `Metrics.total_cost_usd` / `Metrics.baseline_cost_usd` 删除（Phase 4/6 未开工，届时按需重新设计）
+- eval / dashboard 层用 `pricing × usage` 现算成本（`SUM(json_extract(data, '$.usage.input_tokens') * json_extract(data, '$.pricing.input_per_million') / 1e6) + ...`），符合 eval 需求文档"eval 负责聚合"原则
+
+**本地 `mom.db` 需要删掉重建**（列数变了；ISS-009 之前的迁移策略已明确：Phase 3 主链路刚合并、无生产数据）：
+
+```bash
+rm -f mom.db
+npm run dev   # initDB 会自动重建
+```
+
+### 自检自测关键片段
+
+```bash
+npm run typecheck         # 期望退出码 0
+npm run build             # 期望退出码 0
+npm run sync-pricing -- --dry-run  # 期望列出 provider 覆盖到的模型 pricing
+# 编辑器打开 data/mom.config.json 确认 pricing_table 全部条目带 currency=CNY
+```
+
+启动网关后跑一次 `curl` 打 `/v1/messages` 应看到：
+- 日志里 `event=pricing_missing` warn **消失**
+- SQLite `traces` 表里 `SELECT json_extract(data, '$.pricing.currency') FROM traces LIMIT 5;` 返回 `CNY`
+
+---
+
 ## [2026-07-10-1] Phase 3：trigger + fanout cache + cache_control + cost + trace + SDK 解耦
 
 ### 环境要求
