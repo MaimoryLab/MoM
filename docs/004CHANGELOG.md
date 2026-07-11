@@ -1,3 +1,49 @@
+## [2026-07-10-3] feat(orchestrator): Phase 3 trigger + fanout cache + cost + trace + SDK decouple
+
+### 改动
+- 新增 `src/orchestrator/trigger.ts`：`isNewUserTurn(messages)` 严格判定最后一条 user 是否含任何 `tool_result` block；`computeTriggerReason(fanoutMode, isNewTurn, cacheHit)` 纯标签函数，输出 6 种 `TriggerReason` 枚举之一
+- 新增 `src/cache/cache-key.ts`：`computeFanoutCacheKey(messages, momConfig)` 三段哈希 `settingsHash|slotsHash|sig`，slot 顺序保留（不 sort）；`selectSignatureMessages` 按 fanout_mode 决定取样范围（user_turn 截到最后真实 user；per_iteration 全量）；user_turn 首请求即 tool_result 时 fallback 到全量
+- 新增 `src/cache/fanout-cache.ts`：Map-based TTL + LRU，零第三方依赖；懒过期检查；`cloneAsCacheHit` 复用时将 usage 归零 / cache_hit=true / latency=0 / reference 原文保留
+- 新增 `src/cache/cache-decorator.ts`：`applyAdvisorCacheControl` system_and_3 布局；system 转 SystemBlock[]（第 1 个 marker）；跳过合成 `ADVISORY_INSTRUCTION` marker 后挑最后 3 条 message 的最后一个 block 打 `cache_control: {type:'ephemeral'}`
+- 新增 `src/cost/pricing.ts`：`calculateCost(model, usage, table, log?)` 四段单价加总（input/output/cache_write/cache_read），单位 USD per million tokens；缺项 warn+返回 0；`sumUsage` 汇总 4 字段
+- 新增 `src/storage/traces.ts`：`saveTrace` INSERT + 冗余常用列；`getTraceById` / `getRecentTraces`；行反序列化到 `Trace`
+- 扩展 `src/gateway/sse.ts`：`createSSEParser()` 增量分帧器（按 `event:` / `data:` / 空行累积，收到空行 emit `RawSSEEvent`）
+- 重写 `src/provider/stream-forward.ts`：签名从 `passthroughStream(req, reply, provider)` 改为 `passthroughStream(req, output: NodeJS.WritableStream, provider, {onEvent?, log?})`；手动 `data` 监听同时写 output + 喂 parser + 回调 onEvent；observer 异常吞掉不影响主转发；SSE header + hijack 上提到 `messages-handler`
+- 重写 `src/orchestrator/orchestrator.ts`：`createOrchestrator(runtime): Orchestrator` 工厂，闭包持有 fanout cache；`nonStreaming(body, log): Response` 和 `streaming(body, output, log): void` 两入口，都接受最小 `Logger`（`{info, warn, error}`）；主链路"cache key → cache.get → miss 补跑 → cost → trace"；透传路径也写 trace（`mom_triggered=false / trigger_reason='mom_off'`）；`saveTrace` 抛错一律 `log.error` 后吞掉
+- 扩展 `src/orchestrator/fanout.ts`：新增 `fanoutAdvisorsWithCache(messages, momConfig, provider, cache, key)`，`fanoutAdvisors` 原始函数保留供纯 fanout 场景使用
+- 改写 `src/aggregator/aggregator-runtime.ts`：`runAggregatorStreaming` 签名从 `reply: FastifyReply` 改为 `output: NodeJS.WritableStream + {onEvent?, log?}`；返回 `{references_appended}` 供 trace 组装
+- 改写 `src/gateway/messages-handler.ts`：使用 `createOrchestrator(runtime)`，拆分 non-streaming / streaming 两分支；streaming 分支上提 SSE header + hijack + 兜底 error 帧
+- 改写 `src/advisor/advisor-runtime.ts`：请求前过 `applyAdvisorCacheControl`；system 字段从 string 换成 SystemBlock[]；respect `advisor.system_prompt` 覆盖
+- 类型扩展 `src/types/mom.ts`：新增 `TriggerReason` 联合类型、`Logger` 最小接口
+- ISS-007 顺手解决：3 处 Fastify 耦合（orchestrator.ts / aggregator-runtime.ts / stream-forward.ts）全部消除，业务层与 Fastify 完全解耦（Fastify 仅剩 messages-handler.ts + server.ts）
+- 单元测试新增 39 例：`test/trigger.test.ts` / `test/cache-key.test.ts` / `test/fanout-cache.test.ts` / `test/cache-decorator.test.ts` / `test/pricing.test.ts`；全 56 例通过
+- e2e 手动验证：mock provider + 6 条 curl 覆盖 `user_turn` / `skipped_tool_iteration` / `tool_iteration_cache_miss` / `mom_off` / streaming 五种 trace；SQLite 落盘 6 条，成本分账 μUSD 级精确；`settings_snapshot` 字段核对无 provider 秘钥泄漏
+
+### 涉及文件
+- src/orchestrator/trigger.ts：新增
+- src/orchestrator/fanout.ts：扩展 fanoutAdvisorsWithCache
+- src/orchestrator/orchestrator.ts：整体重写为 createOrchestrator 工厂 + 两入口 + trace 组装
+- src/cache/cache-key.ts：新增
+- src/cache/fanout-cache.ts：新增
+- src/cache/cache-decorator.ts：新增
+- src/cost/pricing.ts：新增
+- src/storage/traces.ts：新增
+- src/gateway/sse.ts：新增 createSSEParser
+- src/gateway/messages-handler.ts：接 createOrchestrator + 拆 non-streaming/streaming
+- src/provider/stream-forward.ts：签名改为 NodeJS.WritableStream + 可选 onEvent observer
+- src/aggregator/aggregator-runtime.ts：runAggregatorStreaming 改为 NodeJS.WritableStream
+- src/advisor/advisor-runtime.ts：接入 applyAdvisorCacheControl
+- src/types/mom.ts：新增 TriggerReason / Logger
+- test/{trigger,cache-key,fanout-cache,cache-decorator,pricing}.test.ts：新增
+
+### 关联
+-> ISS-005（Phase 3 收尾）
+-> ISS-006（trigger/cache 解耦落地）
+-> ISS-007（SDK 解耦顺手完成）
+-> decisions/005-trigger-cache-decoupling.md
+
+---
+
 ## [2026-07-10-2] docs(api): add 006API.md; assess MoM SDK decoupling
 
 ### 改动

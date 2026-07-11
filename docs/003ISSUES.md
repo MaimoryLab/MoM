@@ -220,10 +220,12 @@ PLAN Phase 3 初稿把 `fanout_mode: user_turn` 描述为"tool iteration 复用 
 
 ## [ISS-007] MoM 业务逻辑对 Fastify 有 3 处遗留耦合，无法作为独立 SDK 复用
 
-**状态**：[暂缓]
+**状态**：[已解决]
 **优先级**：[P3 轻微]
 **类型**：[技术债]
 **发现日期**：2026-07-10
+**解决日期**：2026-07-10
+**解决方案**：随 Phase 3 顺手做——`orchestrate(body, reply, runtime, log)` 拆成 `createOrchestrator(runtime): { nonStreaming(body, log), streaming(body, output, log) }` 工厂（同时闭包持有 fanout cache）；`runAggregatorStreaming` 参数 `FastifyReply` 换成 `NodeJS.WritableStream + {onEvent?, log?}`；`passthroughStream` 内部 SSE header/hijack 上提到 `messages-handler.ts`，签名改为 `NodeJS.WritableStream + {onEvent?, log?}`；新增最小 `Logger` 接口（`{info, warn, error}`）取代 `FastifyBaseLogger`。业务层（orchestrator / advisor / aggregator / provider / cache / cost / storage / config）完全无 Fastify 依赖，Fastify 只剩 `src/gateway/*`。
 
 **现象**：
 用户团队已有独立运行的网关消息处理项目，希望复用 MoM 的多模型 fan-out + reference 拼接能力时，只 import `src/orchestrator/*` + `src/advisor/*` + `src/aggregator/*` 三个子树无法运行——签名里仍然带 `FastifyReply` / `FastifyBaseLogger`。`git grep -n "FastifyReply\|FastifyBaseLogger" src/` 结果，业务层耦合集中在 3 处（详见 docs/006API.md §3.1）：
@@ -246,11 +248,53 @@ PLAN Phase 3 初稿把 `fanout_mode: user_turn` 描述为"tool iteration 复用 
 3. 若 Phase 3 因时间压力未能顺手做，本 issue 转 [讨论中] → [进行中]，独立开一个 refactor commit
 
 **关联**：
--> src/orchestrator/orchestrator.ts:12
--> src/aggregator/aggregator-runtime.ts:49
--> src/provider/stream-forward.ts:8
--> docs/006API.md §3（解耦评估与改法细节）
--> 004CHANGELOG.md [2026-07-10-2]
+-> src/orchestrator/orchestrator.ts（重写为 createOrchestrator 工厂 + 两入口）
+-> src/aggregator/aggregator-runtime.ts（runAggregatorStreaming 改 output）
+-> src/provider/stream-forward.ts（passthroughStream 改 NodeJS.WritableStream + onEvent）
+-> src/gateway/messages-handler.ts（承接 SSE header + hijack + 兜底 error 帧）
+-> src/types/mom.ts（新增 Logger 接口）
+-> docs/006API.md §2 §3（清单更新为已解耦形态）
+-> 004CHANGELOG.md [2026-07-10-3]
+
+---
+
+## [ISS-008] Phase 3 触发粒度 + Fanout 缓存 + Cache 装饰 + 成本分账 + Trace 落盘尚未实现
+
+**状态**：[已解决]
+**优先级**：[P0 致命]
+**类型**：[功能异常]
+**发现日期**：2026-07-10
+**解决日期**：2026-07-10
+**解决方案**：按 PLAN.md Phase 3 与 decisions/005 落地，新增 `src/orchestrator/trigger.ts` / `src/cache/*` / `src/cost/pricing.ts` / `src/storage/traces.ts`；扩展 `src/gateway/sse.ts` 增量分帧器；重写 `src/orchestrator/orchestrator.ts` 为 `createOrchestrator` 工厂 + 两入口，主链路"cache key → cache.get → miss 补跑 → cost → trace"，透传路径也写 `mom_off` trace；`applyAdvisorCacheControl` 在 advisor 请求前按 system_and_3 布局 4 个 `cache_control` marker。ISS-007 同步顺手解决。39 例新单测 + e2e 6 条 curl 验证 5 种 trigger_reason（含关键 `tool_iteration_cache_miss` 降级修复路径）与 μUSD 级成本分账。
+
+**现象**：
+Phase 2 完成后主链路已跑通，但 `fanout_mode` / `cache` / `pricing_table` / trace 落盘 4 个 Phase 3 目标字段悬空；PLAN Phase 3 章节已经收敛（初稿的 shouldFanout 决策问题已在 ISS-006 与 decisions/005 中解决）。
+
+**后果**：
+- 无 cache → 每次 tool iteration 都全量重跑 advisor（Anthropic prompt caching 未开启则代价放大 3-4×）
+- 无 trace → Dashboard（Phase 4-5）无法展示效果
+- 无成本分账 → `pricing_table` 配置无意义
+- ISS-007 的 3 处 Fastify 耦合还挂着 → SDK 复用路径卡住
+
+**初步判断**：
+已确认，属于计划性交付。宏观架构问题已在 ISS-006 与 decisions/005 中解决，本 issue 只覆盖执行落地。
+
+**关联**：
+-> src/orchestrator/trigger.ts（新增）
+-> src/orchestrator/orchestrator.ts（重写）
+-> src/orchestrator/fanout.ts（新增 fanoutAdvisorsWithCache）
+-> src/cache/cache-key.ts / fanout-cache.ts / cache-decorator.ts（新增）
+-> src/cost/pricing.ts（新增）
+-> src/storage/traces.ts（新增）
+-> src/gateway/sse.ts（新增 createSSEParser）
+-> src/gateway/messages-handler.ts（拆分 non-streaming/streaming）
+-> src/provider/stream-forward.ts（改 NodeJS.WritableStream + onEvent）
+-> src/aggregator/aggregator-runtime.ts（runAggregatorStreaming 改 output）
+-> src/advisor/advisor-runtime.ts（接入 cache-decorator）
+-> src/types/mom.ts（新增 TriggerReason / Logger）
+-> test/{trigger,cache-key,fanout-cache,cache-decorator,pricing}.test.ts（新增）
+-> decisions/005-trigger-cache-decoupling.md
+-> 004CHANGELOG.md [2026-07-10-3]
 
 <!--
 新增条目模板：

@@ -6,6 +6,283 @@
 
 ---
 
+## [2026-07-10-1] Phase 3：trigger + fanout cache + cache_control + cost + trace + SDK 解耦
+
+### 环境要求
+
+沿用 [2026-07-09-2]（Node ≥ 22.13、无第三方 sqlite/dotenv/p-limit/lru-cache 依赖）。新增依赖：无。所有 Phase 3 新增能力（cache / trigger / cost / trace）均以纯函数或 Map-based 数据结构实现。
+
+Git worktree 隔离场景下，**每个 worktree 都要单独 `npm install`**——worktree 共享 git 历史但不共享 `node_modules`；跑 `npm run dev` 前先在该 worktree 根目录执行一次 `npm install`。
+
+### 关键新配置字段
+
+`data/mom.config.json` 需确保以下字段填齐（首次启动 `DEFAULT_MOM_CONFIG` 会写入默认值）：
+- `fanout_mode`: `user_turn`（默认）| `per_iteration`
+- `cache.ttl`: `5m` | `1h`；`cache.max_entries`: 建议 100–1000
+- `pricing_table`: `{ [modelName]: { input, output, cache_write, cache_read } }`，单位 USD per million tokens；缺失项 log warn + 该模型 cost 计 0
+
+Fanout cache 位于**进程内 Map**（`src/cache/fanout-cache.ts`），跨进程重启不保留；相邻请求想命中同一 key 必须在同一进程内连续发送。
+
+### 单元测试（纯逻辑，56 例）
+
+```bash
+npm test
+# 覆盖：view-transformer / reference-builder / trigger / cache-key / fanout-cache / cache-decorator / pricing
+# 关键断言：
+#   - fanout cache 在 slot 顺序改变时 key 变（避免"复用即错位"）
+#   - user_turn 模式下 tool iteration 与前一次真实 user 命中同 key
+#   - cache-decorator system_and_3 布局跳过合成 ADVISORY_INSTRUCTION marker
+#   - Map-based LRU 淘汰最旧、touch on get 刷新
+```
+
+### 手动验证（对应 PLAN.md Phase 3 验证清单）
+
+前置：`.env` 里 `PROVIDER_*` 已配好，`data/mom.config.json` 的 `mom_mode: always`、`advisor.slots` 3 个可用模型、`aggregator.model` 1 个不冲突的模型；`pricing_table` 若为空，见下方「pricing_table 灌入」小节先补齐。启动网关：
+
+```bash
+# 若 3000 被占用，用 MOM_PORT 换端口
+MOM_PORT=3010 npm run dev
+# 期望："MoM gateway listening on 3010"
+```
+
+网关不需要重启的验证按 V1 → V5 顺序连发（同一进程内 cache 才能命中）；V6 需要改配置重启，放最后。所有 curl 都发到网关本身，不是 provider。
+
+---
+
+**V1（`user_turn` MISS + fanout，全链路）**
+
+目的：确认新 user turn 触发一次完整 fanout，advisor 与 aggregator 都真跑。
+
+```bash
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"cache-probe-hello"}]}],"max_tokens":80}' \
+  -o /dev/null -w "V1 HTTP %{http_code}\n"
+```
+
+期望：`HTTP 200`。网关日志两条：
+- `event=fanout_miss` / `trigger_reason=user_turn` / `is_new_turn=true` / `slot_count=3` / `failures=[]` / `duration_ms` 数千到数万毫秒（advisor 真跑）
+- `event=aggregator_complete` / `trigger_reason=user_turn` / `cache_hit=false`
+
+---
+
+**V2（`skipped_tool_iteration` HIT，缓存命中）**
+
+目的：同一 turn 后追加 assistant tool_use + user tool_result，`user_turn` 模式截前缀签名，应命中 V1 建的缓存。**必须在同一 gateway 进程内，且紧接在 V1 之后**。
+
+```bash
+cat > /tmp/v2.json <<'EOF'
+{"model":"any","max_tokens":80,"messages":[
+  {"role":"user","content":[{"type":"text","text":"cache-probe-hello"}]},
+  {"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"probe","input":{}}]},
+  {"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}
+]}
+EOF
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  --data-binary @/tmp/v2.json \
+  -o /dev/null -w "V2 HTTP %{http_code}\n"
+```
+
+期望：`HTTP 200`。网关日志：
+- `event=fanout_hit` / `trigger_reason=skipped_tool_iteration` / `is_new_turn=false` / `duration_ms=0` 或 `1`（advisor 未真跑）
+- `event=aggregator_complete` / `cache_hit=true`
+- 总耗时约等于单次 aggregator 调用（数秒），显著低于 V1
+
+---
+
+**V3（不同 user 内容，MISS 且新 key）**
+
+目的：改 user 文本触发新签名，缓存重新 set。
+
+```bash
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"7*6=?"}]}],"max_tokens":80}' \
+  -o /dev/null -w "V3 HTTP %{http_code}\n"
+```
+
+期望：`HTTP 200`。网关 `event=fanout_miss` / `trigger_reason=user_turn`，`duration_ms` 数千到数万毫秒。
+
+---
+
+**V4（`tool_iteration_cache_miss`，关键降级修复）**
+
+目的：首请求即 tool_result（模拟进程重启后 tool iteration 冷启 / 首请求即带 tool_result），期望 orchestrator 补跑 fanout 并写缓存，aggregator 拿到非空 references；如果这里退化到 aggregator 空 references，就是 ISS-005 修的关键 bug 复发。
+
+```bash
+cat > /tmp/v4.json <<'EOF'
+{"model":"any","max_tokens":200,"messages":[
+  {"role":"user","content":[{"type":"text","text":"a fresh unseen prompt 1234abcd"}]},
+  {"role":"assistant","content":[{"type":"tool_use","id":"tool_x","name":"search","input":{"q":"something"}}]},
+  {"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_x","content":"result-body"}]}
+]}
+EOF
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  --data-binary @/tmp/v4.json \
+  -o /dev/null -w "V4 HTTP %{http_code}\n"
+```
+
+期望：`HTTP 200`。网关 `event=fanout_miss` / `trigger_reason=tool_iteration_cache_miss` / `is_new_turn=false` / `failures=[]`（advisor 真跑）。
+
+---
+
+**V5（streaming 主链路）**
+
+目的：`stream:true` 时 aggregator 侧走 SSE 转发 + trace observer 组装。
+
+```bash
+curl -sSN -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"用一句话简述冒泡排序"}]}],"max_tokens":200,"stream":true}' \
+  -o /tmp/v5.sse -w "V5 HTTP %{http_code}\n"
+
+# 检查 SSE 事件类型齐全
+for e in message_start content_block_start content_block_delta content_block_stop message_delta message_stop; do
+  c=$(grep -c "^event: $e" /tmp/v5.sse)
+  echo "$e: $c"
+done
+```
+
+期望：`HTTP 200`；六种事件各出现 ≥ 1 次，`content_block_delta` 数十次以上。网关日志末尾 `event=aggregator_stream_complete`。
+
+---
+
+**V6（`mom_off`，透传，需重启）**
+
+目的：`mom_mode !== 'always'` 走 Phase 1 透传，无 fanout / aggregator 事件，但仍落一条 trace（`mom_triggered=false / trigger_reason=mom_off`）供 Phase 4 metrics 用作分母。
+
+```bash
+# 1) Ctrl+C 停掉当前 gateway，或
+pkill -f "tsx watch --env-file=.env src/index.ts"; sleep 1
+
+# 2) 切模式（tsx watch 不监听 data/，必须手动重启）
+node -e "
+const {readFileSync,writeFileSync}=require('node:fs');
+const c=JSON.parse(readFileSync('data/mom.config.json','utf8'));
+c.mom_mode='off';
+writeFileSync('data/mom.config.json', JSON.stringify(c,null,2)+'\n');
+"
+
+# 3) 重启
+MOM_PORT=3010 npm run dev &  # 或在新窗口跑非后台版
+sleep 2
+
+# 4) 发一条请求（这里 model 字段必须是 provider 侧存在的真实模型名，因为要透传）
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -d '{"model":"<provider 已有的模型名>","messages":[{"role":"user","content":[{"type":"text","text":"say hi"}]}],"max_tokens":50}' \
+  -o /dev/null -w "V6 HTTP %{http_code}\n"
+```
+
+期望：`HTTP 200`。网关日志只有 `incoming request` + `request completed`，**无** `fanout_*` / `aggregator_*` 事件。
+
+---
+
+跑完 V6 后测试完成，把 `mom_mode` 改回 `always` 并重启网关，以恢复常态：
+
+```bash
+pkill -f "tsx watch --env-file=.env src/index.ts"; sleep 1
+node -e "
+const {readFileSync,writeFileSync}=require('node:fs');
+const c=JSON.parse(readFileSync('data/mom.config.json','utf8'));
+c.mom_mode='always';
+writeFileSync('data/mom.config.json', JSON.stringify(c,null,2)+'\n');
+"
+```
+
+### 数据库校验
+
+V1–V6 全部跑完后，检查 trace 表。
+
+```bash
+# 1) 全量列表 + 分布
+node -e "
+const {DatabaseSync}=require('node:sqlite');
+const db=new DatabaseSync('mom.db');
+console.log('total:', db.prepare('SELECT COUNT(*) c FROM traces').get().c);
+console.log('--- rows ---');
+for (const r of db.prepare('SELECT trigger_reason, mom_triggered, ROUND(total_cost_usd, 6) cost, total_latency_ms FROM traces ORDER BY timestamp').all())
+  console.log(JSON.stringify(r));
+console.log('--- counts by trigger_reason ---');
+for (const r of db.prepare('SELECT trigger_reason, COUNT(*) c FROM traces GROUP BY trigger_reason').all())
+  console.log(JSON.stringify(r));
+"
+
+# 2) settings_snapshot 无 provider 秘钥泄漏
+node -e "
+const {DatabaseSync}=require('node:sqlite');
+const {data}=new DatabaseSync('mom.db').prepare('SELECT data FROM traces LIMIT 1').get();
+const t=JSON.parse(data);
+if (JSON.stringify(t.settings_snapshot).includes('api_key')) throw new Error('LEAK');
+console.log('ok keys:', Object.keys(t.settings_snapshot).sort());
+"
+```
+
+期望：
+- 总数 ≥ 6（V1–V6 各一条；V5 streaming 也会落）
+- `trigger_reason` 分组覆盖 `user_turn` / `skipped_tool_iteration` / `tool_iteration_cache_miss` / `mom_off` 四种（V3、V5 也归 `user_turn`，故此值可能出现多次）
+- 命中 trace 的 `cost` 显著低于对应 MISS trace（advisor usage 归零）
+- `mom_off` trace `cost=0` / `mom_triggered=0`
+- 泄漏检查输出的 keys 集合 = `MoMConfig` 字段（`advisor` / `aggregation_mode` / `aggregator` / `cache` / `comparison` / `cost_tradeoff` / `fanout_mode` / `judge` / `mom_mode` / `pricing_table` / `reference_max_tokens`），**不含** `provider`
+
+### pricing_table 灌入
+
+首次启动 `pricing_table` 为空，网关每次请求会打 `event=pricing_missing` warn 且相关模型 `cost=0`。当前 provider（`apiproxy.paigod.work`）的 `/v1/models` 响应里带 `price.{input_price, output_price, cached_price}`（per-token USD），一次性灌入 config 的临时脚本：
+
+```bash
+node -e '
+const fs = require("node:fs");
+const https = require("node:https");
+const key = require("fs").readFileSync(".env","utf8").match(/PROVIDER_API_KEY=(.+)/)[1].trim();
+const base = require("fs").readFileSync(".env","utf8").match(/PROVIDER_BASE_URL=(.+)/)[1].trim();
+https.get(base + "/v1/models", {headers:{authorization:"Bearer "+key}}, res => {
+  let buf = ""; res.on("data", d => buf += d);
+  res.on("end", () => {
+    const json = JSON.parse(buf);
+    const config = JSON.parse(fs.readFileSync("data/mom.config.json","utf8"));
+    const wanted = [
+      ...config.advisor.slots, config.aggregator.model,
+      config.judge?.model, config.comparison?.baseline_model,
+    ].filter(Boolean);
+    const pricing = {};
+    for (const id of wanted) {
+      const m = json.data.find(x => x.id === id);
+      if (!m || !m.price) { console.warn("no price for", id); continue; }
+      pricing[id] = {
+        input:       +(m.price.input_price  * 1e6).toFixed(4),
+        output:      +(m.price.output_price * 1e6).toFixed(4),
+        cache_write: +(m.price.input_price  * 1e6 * 1.25).toFixed(4),
+        cache_read:  +(m.price.cached_price * 1e6).toFixed(4),
+      };
+    }
+    config.pricing_table = pricing;
+    fs.writeFileSync("data/mom.config.json", JSON.stringify(config,null,2)+"\n");
+    console.log("pricing_table updated:", Object.keys(pricing));
+  });
+});
+'
+```
+
+灌完重启网关，之后请求日志不再有 `pricing_missing` warn，trace `total_cost_usd` 变为正数。
+
+**未追踪的演进项**：这段脚本目前是运维一次性操作，需沉淀为 `scripts/sync-pricing.mjs` 并接入 Dashboard「同步价格」按钮；provider 侧 `price` 字段结构非跨 provider 通用，多 provider 演进时需要写适配层。数据源永远落到 `data/mom.config.json`，网关运行时不现拉 provider（避免延迟与可用性耦合）。后续会在 003ISSUES.md 单独开条目追踪。
+
+### 成本分账（Phase 3 精算示例）
+
+以固定 usage `input_tokens=10, output_tokens=5`（每个 advisor）+ `input_tokens=10, output_tokens=5`（aggregator）为例，`pricing_table` 中 `adv-a/b/c` 单价 `1/2/3` input、`5/10/15` output（USD/M tokens），`agg-x` 单价 `0.5` input / `2` output：
+
+- 非命中 trace `total_cost_usd = 3 * (10 * slot_input + 5 * slot_output) / 1_000_000 + (10 * 0.5 + 5 * 2) / 1_000_000`
+- 命中 trace `total_cost_usd` 只等于 aggregator 部分（advisor usage 归零）
+- `mom_off` trace `total_cost_usd = 0`（透传路径不知道 provider 内 usage）
+
+### trace 表结构演进
+
+当前 traces 表列结构与 JSON payload 属 Phase 3 初版，Phase 4 dashboard-api 前需按新格式重构。此前落盘的 trace 记录可能因缺字段无法回溯分析（cache 命中细节、references 快照、cost 分层等）。后续会在 003ISSUES.md 单独开条目追踪。
+
+---
+
 ## [2026-07-09-3] Phase 2：advisor fan-out + concat aggregator（`mom_mode: always`）
 
 ### 环境要求

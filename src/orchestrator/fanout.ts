@@ -1,6 +1,8 @@
 import type { AnthropicMessage } from '../types/anthropic.js';
 import type { AdvisorResult, MoMConfig, ProviderConfig } from '../types/mom.js';
 import { runAdvisor } from '../advisor/advisor-runtime.js';
+import type { FanoutCache } from '../cache/fanout-cache.js';
+import { cloneAsCacheHit } from '../cache/fanout-cache.js';
 
 const DEFAULT_FANOUT_CONCURRENCY = 8;
 
@@ -35,4 +37,25 @@ export async function fanoutAdvisors(
   return promisePool(momConfig.advisor.slots, DEFAULT_FANOUT_CONCURRENCY, (slot) =>
     runAdvisor(slot, messages, momConfig, provider),
   );
+}
+
+export interface FanoutWithCacheResult {
+  results: AdvisorResult[];
+  cache_hit: boolean;
+}
+
+export async function fanoutAdvisorsWithCache(
+  messages: AnthropicMessage[],
+  momConfig: MoMConfig,
+  provider: ProviderConfig,
+  cache: FanoutCache,
+  key: string,
+): Promise<FanoutWithCacheResult> {
+  const cached = cache.get(key);
+  if (cached) {
+    return { results: cloneAsCacheHit(cached), cache_hit: true };
+  }
+  const results = await fanoutAdvisors(messages, momConfig, provider);
+  cache.set(key, results);
+  return { results, cache_hit: false };
 }

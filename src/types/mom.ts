@@ -155,6 +155,20 @@ export interface FanoutCacheValue {
   created_at: number;
 }
 
+export type TriggerReason =
+  | 'mom_off'
+  | 'user_turn'
+  | 'skipped_tool_iteration'
+  | 'tool_iteration_cache_miss'
+  | 'per_iteration'
+  | 'fanout_cache_hit';
+
+export interface Logger {
+  info(obj: Record<string, unknown>, msg?: string): void;
+  warn(obj: Record<string, unknown>, msg?: string): void;
+  error(obj: Record<string, unknown>, msg?: string): void;
+}
+
 export const DEFAULT_MOM_CONFIG: MoMConfig = {
   mom_mode: 'off',
   fanout_mode: 'user_turn',
