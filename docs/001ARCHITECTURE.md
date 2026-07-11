@@ -70,7 +70,7 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协�
 ## 3. 调用方向约束
 
 - Gateway 层只调用 Orchestrator 层与 Config 层；不感知 provider 协议细节
-- Orchestrator 层（`src/orchestrator/*` + `src/advisor/*` + `src/aggregator/*` + `src/cache/*` + `src/cost/*`）以 `RuntimeConfig` + 最小 `Logger` 接口为唯一依赖入口，读取 Storage 层 `saveTrace` 落 trace；不依赖 Fastify、不读 config.json
+- Orchestrator 层（`src/orchestrator/*` + `src/advisor/*` + `src/aggregator/*` + `src/cache/*` + `src/cost/*`）以 `RuntimeConfig` + 最小 `Logger` 接口为唯一依赖入口，读取 Storage 层 `saveTraceRequest` 落 trace；不依赖 Fastify、不读 config.json
 - Provider 层只负责 HTTP 与 SSE 转发，签名接 `NodeJS.WritableStream` + 可选 `onEvent` 观察者，只依赖 `ProviderConfig`；不依赖 Fastify、不读 SQLite、不读 config.json
 - Config 层：`src/config/provider-env.ts` 从 `process.env` 加载；`src/config/mom-config-file.ts` 从 `data/mom.config.json` 加载并原子写回；`src/config.ts` 组装 `RuntimeConfig` 并跑护栏（`assertRecursionGuard` + `assertModeRequirements`）
 - Storage 层只负责 traces / metrics_cache 表的 CRUD，与配置完全解耦
@@ -106,27 +106,30 @@ assertRecursionGuard(MoMConfig) + assertModeRequirements(MoMConfig)
 
 **链路 A：非流式请求（`mom_mode !== 'always'`）— 透传**
 ```
-Claude Code POST /v1/messages
+Claude Code POST /v1/messages（可带 X-Session-ID header）
   → Fastify router
   → createMessagesHandler(runtime) 闭包（内含 createOrchestrator(runtime)）
   → validateMessagesRequest()
-  → orchestrator.nonStreaming(body, log) 判 mom_mode !== 'always'
+  → extractSessionId(req) 从 X-Session-ID header 读；缺失即 null
+  → orchestrator.nonStreaming(body, sessionId, log) 判 mom_mode !== 'always'
+  → gateway_request_id = randomUUID()
   → passthroughCall(req, provider) (undici)
   → provider POST /v1/messages
-  → persistPassthroughTrace（mom_off，Phase 3 起）
+  → persistPassthroughTrace 落一条 role='passthrough' TraceRequest（session_id / gateway_request_id / started_at / finished_at / status / pricing 快照 / cost_usd / error 全字段落盘）
   → JSON response 直接 reply.send()
 ```
 
 **链路 B：流式请求（`mom_mode !== 'always'`）— 透传 SSE**
 ```
-Claude Code POST /v1/messages {stream:true}
+Claude Code POST /v1/messages {stream:true}（可带 X-Session-ID header）
   → messages-handler.handleStreaming()：SSE header + reply.hijack()
-  → orchestrator.streaming(body, reply.raw, log) 判 mom_mode !== 'always'
+  → orchestrator.streaming(body, sessionId, reply.raw, log) 判 mom_mode !== 'always'
+  → gateway_request_id = randomUUID()
   → passthroughStream(req, reply.raw, provider, {onEvent: StreamCollector, log})
   → undici request()
   → res.body.on('data') 手动 write 到 reply.raw（字节级转发）+ 旁路喂 onEvent
   → provider SSE 逐字节转发到 Claude Code
-  → persistPassthroughTrace（mom_off，Phase 3 起）
+  → persistPassthroughTrace 落一条 role='passthrough' TraceRequest（响应汇总由 StreamCollector 抽取；status 视 response 是否成型判定）
 ```
 
 **链路 C：错误落地**
@@ -140,9 +143,11 @@ Streaming 场景 → 错误编码为 SSE `event: error` 帧后 end()
 
 **链路 D：非流式请求（`mom_mode === 'always'`）— MoM 主链路**
 ```
-Claude Code POST /v1/messages
+Claude Code POST /v1/messages（可带 X-Session-ID header）
   → messages-handler.handleNonStreaming()
-  → orchestrator.nonStreaming(body, log)  // 由 createOrchestrator(runtime) 构造，闭包持有 FanoutCache
+  → extractSessionId(req) → sessionId (or null)
+  → orchestrator.nonStreaming(body, sessionId, log)  // 由 createOrchestrator(runtime) 构造，闭包持有 FanoutCache
+      → gateway_request_id = randomUUID()
       → isNewUserTurn(messages) + computeFanoutCacheKey(messages, mom)
       → cache.get(key)：
           HIT  → advisorResults = cloneAsCacheHit(cached)（usage=0、cache_hit=true）
@@ -150,36 +155,39 @@ Claude Code POST /v1/messages
                    → 对每个 slot：convertToAdvisorView(messages)
                      → applyAdvisorCacheControl(system_and_3 marker 布局)
                      → passthroughCall(request, provider)
-                     → AdvisorResult；失败以 [Reference N failed] 占位继续，绝不抛
+                     → AdvisorResult（含 started_at / finished_at / selected_model / response_summary）；失败以 [Reference N failed] 占位继续，绝不抛
                  cache.set(key, advisorResults)
       → computeTriggerReason(fanout_mode, isNewTurn, cacheHit) → TriggerReason（6 种标签之一）
+      → persistAdvisorTraces 落 N 条 role='advisor' TraceRequest（每个 slot 一条；status=success/error/cache_hit；pricing 快照 + cost_usd）
   → runAggregatorNonStreaming(body, advisorResults, mom, provider)
       → buildConcatReferences → appendReferencesToLastUser（仅改最后一条 message，前缀引用不变）
       → passthroughCall(aggregator request, provider)
-  → 组装 Trace（advisor+aggregator usage、cost 分账、trigger_reason 标签、settings_snapshot: MoMConfig）
-  → saveTrace(trace)（抛错则 log.error 吞掉，不影响响应）
+  → persistAggregatorTrace 落 1 条 role='aggregator' TraceRequest（同 gateway_request_id 共享 session_id）
+  → 若 aggregator 抛错：在 orchestrator catch 中先落一条 status='error' 的 aggregator TraceRequest 再重抛，保证 N 条 advisor + 1 条 aggregator 记录完整
+  → saveTraceRequest 抛错则 log.error 吞掉，不影响响应
   → reply.send(response)
 ```
 
 **链路 E：流式请求（`mom_mode === 'always'`）— MoM 主链路 + SSE 转发**
 ```
-Claude Code POST /v1/messages {stream:true}
+Claude Code POST /v1/messages {stream:true}（可带 X-Session-ID header）
   → messages-handler.handleStreaming()：设置 SSE header + reply.hijack()
-  → orchestrator.streaming(body, reply.raw, log)
-      → 同链路 D 的 fanout stage（触发标签 + cache 查询 + 补跑）
+  → orchestrator.streaming(body, sessionId, reply.raw, log)
+      → 同链路 D 的 fanout stage（触发标签 + cache 查询 + 补跑）+ persistAdvisorTraces
       → runAggregatorStreaming(body, advisorResults, mom, provider, output, {onEvent, log})
           → 构造 aggregator request（stream=true）
           → passthroughStream(req, output, provider, {onEvent, log})
              主链路：res.body.on('data') 手动 write 到 output（字节级转发）
              旁路（onEvent 非空时）：同一 data 喂给 SSE 增量分帧器 → JSON.parse → StreamCollector
-          → StreamCollector 累积 message_start / content_block_delta / message_delta 组装 AnthropicMessagesResponse
-      → 组装 Trace（同链路 D）+ saveTrace（此时 reply 已 end，落盘完全异步）
+          → 内部 catch 错误后仍 return timing（started_at / finished_at / error?）
+      → StreamCollector 累积 message_start / content_block_delta / message_delta 组装 AnthropicMessagesResponse
+      → persistAggregatorTrace（此时 reply 已 end，落盘完全异步；response=null 时 status='error'）
 ```
 
-**链路 F：透传路径也写 trace（`mom_mode !== 'always'`）**
+**链路 F：透传路径 TraceRequest 落盘（`mom_mode !== 'always'`）**
 ```
-非流式：passthroughCall 完成后 → persistPassthroughTrace(mom_triggered=false, trigger_reason='mom_off')
-流式：  passthroughStream 接受 onEvent → StreamCollector 抽取 response → 落 mom_off trace
+非流式：runPassthroughNonStreaming → try { passthroughCall } catch (throw 前落 error TraceRequest) → persistPassthroughTrace(role='passthrough', trigger_reason='mom_off')
+流式：  runPassthroughStreaming → try { passthroughStream } finally { persistPassthroughTrace }
         （SSE header/hijack 在 messages-handler 层已上提，透传/主链路统一）
 ```
 
@@ -202,13 +210,15 @@ Claude Code POST /v1/messages {stream:true}
 - **定价表**：不硬编码，作为 `MoMConfig.pricing_table` 存于 `data/mom.config.json`，Dashboard 可编辑（Phase 4 起）
 - **Aggregator 字节级透传原则**（Phase 2 起）：`appendReferencesToLastUser` 只克隆最后一条 user message，前缀所有 message 保持原对象引用不变，保证 Claude Code 侧 cache_control 前缀命中
 - **Advisor 失败容忍**（Phase 2 起）：单个 advisor 失败以 `[Reference N — slot failed: reason]` 占位符继续拼接，aggregator 请求不中断；aggregator 自身失败按 handler 层的 ProviderError 走原样透出
-- **Trace 快照范围**（Phase 2 起）：`Trace.settings_snapshot: MoMConfig`——不快照 `provider.api_key` / `base_url` / `auth_style`（避免秘钥旅行到 SQLite）
+- **Trace 快照范围**（Phase 2 起）：`TraceRequest.settings_snapshot: MoMConfig`——不快照 `provider.api_key` / `base_url` / `auth_style`（避免秘钥旅行到 SQLite）
 - **AdvisorResult 语义**（Phase 2 起）：`usage` 是本次真实调用产生的 token 数；命中缓存时 `usage` 全部为 0、`cache_hit = true`、`latency_ms ≈ 0`
-- **成本汇总语义**（Phase 3 起）：`trace.total_cost_usd` = advisor + aggregator + judge；`baseline_cost_usd` 独立字段
+- **Trace 粒度**（ISS-009 起）：一条 `TraceRequest` = 一次网关→provider 上游 HTTP 调用。MoM `always` 模式下 1 次入口请求 = N advisor + 1 aggregator = N+1 条 TraceRequest，共享同一 `session_id` + `gateway_request_id`；透传模式 1 条
+- **Session 关联键**（ISS-011 起）：`X-Session-ID` HTTP header（由 eval 侧生成 UUID 保证任务内共享）；缺失即 `session_id = null`；不读 body.metadata，不生成兜底 uuid
+- **Pricing 请求时冻结**（ISS-009 起）：每条 TraceRequest 内嵌 `pricing: PricingSnapshot` — 是发起上游调用瞬间从 `momConfig.pricing_table[selected_model]` 深拷贝的快照；`cost_usd` 用该快照 × usage 现算并落盘。pricing_table 变动后历史成本可复现
 - **Trigger 语义**（Phase 3 起）：`trigger_reason` 是叙述性标签，六种枚举——`mom_off` / `user_turn` / `skipped_tool_iteration` / `tool_iteration_cache_miss` / `per_iteration` / `fanout_cache_hit`；主链路控制流永远"cache 查询 → 命中即复用、未命中就补跑"，无"跳过 advisor"分支
 - **Fanout cache key**（Phase 3 起）：`sha256(settings)|sha256(slots-in-original-order)|sha256(canonicalJSON(signatureMessages))`；user_turn 模式下 signatureMessages 截到最后一条真实 user message（含）；per_iteration 模式下签名全 messages；slot 顺序改变即 key 变
 - **Fanout cache 结构**（Phase 3 起）：Map-based TTL + LRU（`get`/`set` 时先 delete 再 set 利用 Map 插入顺序），懒过期检查；TTL preset `5m` / `1h`
 - **Advisor cache_control 布局**（Phase 3 起）：system_and_3——`system` 转 `SystemBlock[]` 挂第 1 个 `cache_control: ephemeral`，倒数 3 条非合成 ADVISORY_INSTRUCTION marker 的 message 各挂 1 个（在其最后一个 content block 上）
 - **Streaming trace observer**（Phase 3 起）：`passthroughStream` 可选 `onEvent(evt: SSEEvent) => void`；主链路仍字节级 pipe 到 output，旁路增量分帧 + JSON.parse 后回调；observer 内部异常一律 `log.warn` 吞掉，不影响主转发
-- **透传路径也写 trace**（Phase 3 起）：`mom_mode !== 'always'` 请求也落一条 `mom_triggered=false / trigger_reason='mom_off'` 的 trace，给 Phase 4 metrics `mom_trigger_rate` 一个分母
-- **Trace 落盘失败容忍**（Phase 3 起）：`saveTrace` 抛错一律 `log.error` 后吞掉，不打断响应
+- **透传路径也写 trace**（Phase 3 起）：`mom_mode !== 'always'` 请求也落一条 `role='passthrough' / trigger_reason='mom_off'` 的 TraceRequest，给 Phase 4 metrics `mom_trigger_rate` 一个分母
+- **Trace 落盘失败容忍**（Phase 3 起）：`saveTraceRequest` 抛错一律 `log.error` 后吞掉，不打断响应

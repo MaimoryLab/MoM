@@ -296,6 +296,123 @@ Phase 2 完成后主链路已跑通，但 `fanout_mode` / `cache` / `pricing_tab
 -> decisions/005-trigger-cache-decoupling.md
 -> 004CHANGELOG.md [2026-07-10-3]
 
+---
+
+## [ISS-009] Trace 落盘 schema 从"入口聚合"重构为"每次上游调用一条"
+
+**状态**：[进行中]
+**优先级**：[P1 严重]
+**类型**：[技术债]
+**发现日期**：2026-07-11
+
+**现象**：
+当前 Phase 3 落地的 `Trace` 类型（`src/types/mom.ts:115-130`）与 `traces` 表 schema（`src/storage/db.ts:3-15`）是"以一次入口 HTTP 请求为单位的一条聚合记录"——把 MoM `always` 模式下的 N 个 advisor + 1 个 aggregator 压成一条 trace 里的 `advisor_results: AdvisorResult[]` + `aggregator_result: AggregatorResult` 嵌套结构。缺失关键字段：
+1. `session_id`（eval 侧关联键，来自 `X-Session-ID` header）
+2. `started_at` / `finished_at` / `duration_ms`（上游调用级时间戳，当前只有入口聚合 `timestamp` + `total_latency_ms`）
+3. `client_model` / `selected_model`（客户端指定 vs 实际转发到 provider 的模型区分）
+4. `pricing`（请求时冻结的单价快照，当前 `total_cost_usd` 现算，pricing_table 变化后历史不可复现）
+5. `provider`（provider host 标识）
+6. `role`（`advisor` / `aggregator` / `passthrough`，SQL 层可查）
+7. `gateway_request_id`（同一入口请求的 N+1 条上游调用关联键）
+
+**后果**：
+1. **eval 对接受阻**：需求文档要求的 `GET /trace/requests?session_id=<uuid>` 依赖 `session_id` 列 + 上游级明细，当前 schema 全部缺失
+2. **成本不可复现**：`pricing_table` 变动后所有历史 trace 的成本随之漂移，违反需求文档"价格随请求冻结"约束
+3. **advisor 明细不可 SQL 查询**：`advisor_results` 是 JSON 数组嵌套在 `data` 列，dashboard / eval 侧要重复解 JSON 才能算"某个 slot 花了多少钱"
+4. **Phase 4 dashboard-api 迁移成本**：Phase 4 一旦按当前 schema 开工，后期改起来撕开更多
+
+**初步判断**：
+已确认。粒度错配是根因：Phase 3 落盘用"一次入口 HTTP = 一条 trace"，与需求文档"一次 HTTP 调用（上游）= 一条 TraceRequest"粒度不同。方案讨论已收敛，见 decision 006。
+
+**方案讨论**：（已收敛，详见 decisions/006）
+方案 A：一条 trace = 一次入口 HTTP，加 session_id 列即可 — 否定：永久丢失 advisor 级明细
+方案 B：入口 envelope + 上游 upstream 都落 — 否定：违反"一次 = 一条"需求文档约束
+方案 C（**采纳**）：一条 TraceRequest = 一次网关→provider 上游调用；N+1 条共享 `session_id` + `gateway_request_id`；旧 schema 直接切换不双列并存
+
+**关联**：
+-> src/types/mom.ts（Trace 类型重构 → TraceRequest；AdvisorResult / AggregatorResult 保留供内存流转，但不再是 Trace 顶级字段）
+-> src/storage/db.ts（SCHEMA 重写：新增 session_id / gateway_request_id / started_at / finished_at / duration_ms / role / client_model / selected_model / status 列，`session_id` 加索引）
+-> src/storage/traces.ts（saveTrace 签名改 saveTraceRequest；新增 getTraceRequestsBySessionId）
+-> src/orchestrator/orchestrator.ts（每次 provider 调用落一条；透传路径落一条；不再有 persistMoMTrace 聚合逻辑）
+-> src/orchestrator/fanout.ts（advisor 侧要能上报 started_at / finished_at + selected_model + status，扩 AdvisorResult 或者返回一个上游 trace payload）
+-> src/aggregator/aggregator-runtime.ts（aggregator 侧同上）
+-> src/cost/pricing.ts（新增 snapshotPricing(model, pricingTable): PricingSnapshot | null）
+-> test/trace-request.test.ts（新增）
+-> decisions/006-eval-trace-request-api.md
+
+---
+
+## [ISS-010] pricing_table 手工维护不可持续，需从 provider `/v1/models` 自动同步
+
+**状态**：[讨论中]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-11
+
+**现象**：
+`data/mom.config.json.pricing_table` 目前为空，每次新增 advisor slot 或换 aggregator 模型都要人肉查 provider 定价填字段，否则 `src/cost/pricing.ts` 打 `event=pricing_missing` warn、trace 的 `cost_usd` 被记为 0（ISS-009 重构后每条 TraceRequest 内嵌 pricing / cost）。已确认当前 provider `apiproxy.paigod.work/v1/models` 响应里带 `price.{input_price, output_price, cached_price}`（per-token USD），可用作数据源。
+
+**后果**：
+- 成本分账在无 pricing 时静默降级为 0；ISS-009 交付的 `/trace/requests` 接口对 eval 侧价值受损（pricing 快照全 null，无法算成本）
+- 新加模型时容易忘记补 pricing 字段
+- 人工填价无法覆盖"provider 侧价格变动"场景
+
+**初步判断**：
+已确认——provider `/v1/models` 明确暴露价格字段；结构在不同 provider 间可能不同，同步器需要处理"字段命名 / 单位换算 / 缺失字段"三类差异。
+
+**方案讨论**：（待定）
+- 方案 A：一次性运维脚本 `scripts/sync-pricing.mjs`，手动执行拉取并写入 `data/mom.config.json`
+- 方案 B：网关启动时可选自动同步（`sync_pricing_on_boot: true`），只补齐缺失项、不覆盖手改
+- 方案 C：Phase 4 dashboard-api 暴露 `POST /api/pricing/sync`，前端 SettingsPage 加"同步价格"按钮
+- 边界约束（**已由 decision 006 定死**）：pricing 冻结点是请求时深拷贝 `momConfig.pricing_table[selected_model]`。同步器只负责把 provider `/v1/models` 的价格落到 `data/mom.config.json.pricing_table`，orchestrator 读取路径不变
+
+**关联**：
+-> data/mom.config.json（pricing_table 字段）
+-> src/cost/pricing.ts（消费方；ISS-009 后新增 snapshotPricing 供 orchestrator 冻结）
+-> src/types/mom.ts（ModelPricing 类型 + PricingSnapshot 类型）
+-> decisions/006-eval-trace-request-api.md §不在本期范围 项 1
+-> PLAN.md（Phase 3 §6 "pricing 热更"，Phase 5 SettingsPage pricing_table 编辑器）
+
+---
+
+## [ISS-011] Eval 对接接口 `GET /trace/requests?session_id=<uuid>` 尚未实现
+
+**状态**：[进行中]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-11
+
+**现象**：
+Eval / Dashboard 侧对接需求文档（2026-07-10）要求：
+```
+GET /trace/requests?session_id=<uuid>
+→ { session_id, requests: TraceRequest[] }   // 按 started_at 升序；空数组不是 404
+```
+当前网关只有 `POST /v1/messages` / `GET /healthz` / `GET /dashboard/*` 三条路由（见 `docs/006API.md §1.1`），无 `/trace/*` 命名空间。
+
+**后果**：
+- Eval 侧无法查询任务级 trace 明细，成本 / cache 命中 / 模型分布聚合完全阻塞
+- 需求文档已提出，交付延后会影响 eval 侧联调节奏
+
+**初步判断**：
+已确认，属于计划性交付。Schema 与响应格式已在 decision 006 定死。
+
+**方案讨论**：（已收敛，详见 decisions/006）
+- 路径独立命名空间 `/trace/*`（与 Phase 4 `/api/*` 并行不合并）
+- `session_id` 只信 header `X-Session-ID`，缺失即 `null`；接口查询时若 `session_id = null` 不能被查出
+- 空数组返回 200，非 404（eval 侧可能查到还没落盘的 session）
+- `session_id` 非 UUID 格式或缺失 → 400 `invalid_request_error`
+
+**关联**：
+-> src/gateway/trace-api.ts（新增；registerTraceAPI(server, deps)）
+-> src/gateway/server.ts（挂载 /trace/requests）
+-> src/storage/traces.ts（新增 getTraceRequestsBySessionId）
+-> src/gateway/messages-handler.ts（读取 X-Session-ID header 并传入 orchestrator）
+-> src/orchestrator/orchestrator.ts（接受 sessionId 参数，落盘 TraceRequest.session_id）
+-> test/trace-api.test.ts（新增）
+-> decisions/006-eval-trace-request-api.md
+-> docs/006API.md（新增 §1.4 /trace/* 命名空间）
+
 <!--
 新增条目模板：
 

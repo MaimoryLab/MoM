@@ -71,6 +71,12 @@ export interface RuntimeConfig {
   mom: MoMConfig;
 }
 
+export interface ResponseSummary {
+  id: string | null;
+  stop_reason: AnthropicMessagesResponse['stop_reason'];
+  stop_sequence: string | null;
+}
+
 export interface AdvisorResult {
   slot: string;
   success: boolean;
@@ -79,6 +85,10 @@ export interface AdvisorResult {
   latency_ms: number;
   cache_hit: boolean;
   error?: string;
+  started_at: number;
+  finished_at: number;
+  selected_model: string;
+  response_summary: ResponseSummary | null;
 }
 
 export interface AggregatorResult {
@@ -87,6 +97,10 @@ export interface AggregatorResult {
   usage: Usage;
   latency_ms: number;
   references_appended: string;
+  started_at: number;
+  finished_at: number;
+  error?: string;
+  response_summary: ResponseSummary | null;
 }
 
 export interface JudgeResult {
@@ -112,21 +126,86 @@ export interface BaselineResult {
   latency_ms: number;
 }
 
-export interface Trace {
-  id: string;
-  timestamp: number;
-  request: AnthropicMessagesRequest;
-  response: AnthropicMessagesResponse | null;
-  mom_triggered: boolean;
-  trigger_reason: string;
-  advisor_results: AdvisorResult[];
-  aggregator_result: AggregatorResult | null;
-  judge_result: JudgeResult | null;
-  baseline_result: BaselineResult | null;
-  total_cost_usd: number;
-  baseline_cost_usd: number | null;
-  total_latency_ms: number;
+/**
+ * A single upstream HTTP call to a provider — the atomic trace record.
+ *
+ * MoM `always` mode: one incoming gateway request → N advisor + 1 aggregator upstream calls → N+1 TraceRequests
+ * sharing the same `session_id` and `gateway_request_id`. Passthrough mode: one TraceRequest per gateway request.
+ */
+export interface TraceRequest {
+  /** Trace record identity (uuid). */
+  request_id: string;
+  /** Value of `X-Session-ID` header from the incoming gateway request; null if header absent. */
+  session_id: string | null;
+  /** Gateway-side uuid identifying the incoming request that spawned this upstream call. */
+  gateway_request_id: string;
+  /** Role of this upstream call in the MoM flow. */
+  role: 'advisor' | 'aggregator' | 'passthrough';
+  /** Client-side `request.model` (what eval sent to the gateway). */
+  client_model: string;
+  /** Model actually forwarded to provider. For advisor = slot; for aggregator = aggregator.model; for passthrough = client_model. */
+  selected_model: string;
+  /** Provider host (from PROVIDER_BASE_URL). */
+  provider: string;
+  /** Epoch ms when the upstream call started. */
+  started_at: number;
+  /** Epoch ms when the upstream call finished (success or error). */
+  finished_at: number;
+  /** finished_at - started_at (redundant convenience). */
+  duration_ms: number;
+  /** Terminal status of this upstream call. */
+  status: 'success' | 'error' | 'cache_hit';
+  /** Token usage; all zero for cache_hit records. */
+  usage: TraceUsage;
+  /** Pricing snapshot deep-cloned from `momConfig.pricing_table[selected_model]` at the moment of dispatch. */
+  pricing: PricingSnapshot | null;
+  /** Cost in USD computed at dispatch time using `pricing` × `usage`. Zero for cache_hit and passthrough. */
+  cost_usd: number;
+  /** Populated only when status === 'error'. */
+  error: TraceError | null;
+  /** Snapshot of the incoming request metadata (not the full messages array). */
+  request_summary: RequestSummary;
+  /** Snapshot of the provider response metadata; null for cache_hit and errors. */
+  response_summary: ResponseSummary | null;
+  /** Trigger reason for this upstream call — reuses Phase 3 enum. */
+  trigger_reason: TriggerReason;
+  /** True only for advisor + cache_hit combination. */
+  cache_hit: boolean;
+  /** Business-config snapshot at dispatch time (MoMConfig only — never provider secrets). */
   settings_snapshot: MoMConfig;
+}
+
+export interface TraceUsage {
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+}
+
+export interface PricingSnapshot {
+  currency: 'USD';
+  input_per_million: number;
+  cache_read_per_million: number | null;
+  cache_write_per_million: number;
+  output_per_million: number;
+  reasoning_per_million: number | null;
+  /** Human-readable pointer to the pricing source, e.g. "mom.config.json@<mtime iso>". */
+  source: string;
+}
+
+export interface TraceError {
+  type: string;
+  message: string;
+  http_status: number | null;
+}
+
+export interface RequestSummary {
+  max_tokens: number;
+  temperature: number | null;
+  stream: boolean;
+  message_count: number;
+  tool_use_count: number;
 }
 
 export interface UsageBreakdown {

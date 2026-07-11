@@ -24,22 +24,33 @@ export function createMessagesHandler(runtime: RuntimeConfig) {
       return;
     }
 
+    const sessionId = extractSessionId(req);
     if (body.stream === true) {
-      await handleStreaming(body, reply, orchestrator, req);
+      await handleStreaming(body, sessionId, reply, orchestrator, req);
       return;
     }
-    await handleNonStreaming(body, reply, orchestrator, req);
+    await handleNonStreaming(body, sessionId, reply, orchestrator, req);
   };
+}
+
+function extractSessionId(req: FastifyRequest): string | null {
+  const raw = req.headers['x-session-id'];
+  if (typeof raw === 'string' && raw.length > 0) return raw;
+  if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'string') {
+    return raw[0];
+  }
+  return null;
 }
 
 async function handleNonStreaming(
   body: AnthropicMessagesRequest,
+  sessionId: string | null,
   reply: FastifyReply,
   orchestrator: Orchestrator,
   req: FastifyRequest,
 ): Promise<void> {
   try {
-    const response = await orchestrator.nonStreaming(body, req.log);
+    const response = await orchestrator.nonStreaming(body, sessionId, req.log);
     reply.send(response);
   } catch (err) {
     if (err instanceof ProviderError) {
@@ -72,6 +83,7 @@ async function handleNonStreaming(
 
 async function handleStreaming(
   body: AnthropicMessagesRequest,
+  sessionId: string | null,
   reply: FastifyReply,
   orchestrator: Orchestrator,
   req: FastifyRequest,
@@ -81,7 +93,7 @@ async function handleStreaming(
   reply.raw.setHeader('connection', 'keep-alive');
   reply.hijack();
   try {
-    await orchestrator.streaming(body, reply.raw, req.log);
+    await orchestrator.streaming(body, sessionId, reply.raw, req.log);
   } catch (err) {
     if (!reply.raw.writableEnded) {
       const message = err instanceof Error ? err.message : String(err);

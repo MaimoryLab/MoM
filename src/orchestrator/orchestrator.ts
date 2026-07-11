@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  AnthropicMessage,
   AnthropicMessagesRequest,
   AnthropicMessagesResponse,
   ContentBlock,
+  ContentBlockDeltaEvent,
   SSEEvent,
   Usage,
 } from '../types/anthropic.js';
@@ -12,11 +14,14 @@ import type {
   Logger,
   MoMConfig,
   ProviderConfig,
+  RequestSummary,
+  ResponseSummary,
   RuntimeConfig,
-  Trace,
+  TraceRequest,
+  TraceUsage,
   TriggerReason,
 } from '../types/mom.js';
-import { passthroughCall } from '../provider/provider-client.js';
+import { passthroughCall, ProviderError } from '../provider/provider-client.js';
 import { passthroughStream } from '../provider/stream-forward.js';
 import { fanoutAdvisorsWithCache } from './fanout.js';
 import {
@@ -27,18 +32,25 @@ import { computeFanoutCacheKey } from '../cache/cache-key.js';
 import type { FanoutCache } from '../cache/fanout-cache.js';
 import { createFanoutCache, parseTTL } from '../cache/fanout-cache.js';
 import { computeTriggerReason, isNewUserTurn } from './trigger.js';
-import { calculateCost } from '../cost/pricing.js';
-import { saveTrace } from '../storage/traces.js';
+import {
+  calculateCostFromSnapshot,
+  snapshotPricing,
+  toTraceUsage,
+} from '../cost/pricing.js';
+import { saveTraceRequest } from '../storage/traces.js';
 
 const EMPTY_USAGE: Usage = { input_tokens: 0, output_tokens: 0 };
+const PRICING_SOURCE = 'mom.config.json';
 
 export interface Orchestrator {
   nonStreaming(
     body: AnthropicMessagesRequest,
+    sessionId: string | null,
     log: Logger,
   ): Promise<AnthropicMessagesResponse>;
   streaming(
     body: AnthropicMessagesRequest,
+    sessionId: string | null,
     output: NodeJS.WritableStream,
     log: Logger,
   ): Promise<void>;
@@ -50,89 +62,169 @@ export function createOrchestrator(runtime: RuntimeConfig): Orchestrator {
     max_entries: mom.cache.max_entries,
     ttl_ms: parseTTL(mom.cache.ttl),
   });
+  const providerHost = extractHost(provider.base_url);
   return {
-    nonStreaming: (body, log) =>
-      orchestrateNonStreaming(body, provider, mom, cache, log),
-    streaming: (body, output, log) =>
-      orchestrateStreaming(body, output, provider, mom, cache, log),
+    nonStreaming: (body, sessionId, log) =>
+      orchestrateNonStreaming(body, sessionId, provider, providerHost, mom, cache, log),
+    streaming: (body, sessionId, output, log) =>
+      orchestrateStreaming(
+        body,
+        sessionId,
+        output,
+        provider,
+        providerHost,
+        mom,
+        cache,
+        log,
+      ),
   };
 }
+
+function extractHost(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
+
 async function orchestrateNonStreaming(
   body: AnthropicMessagesRequest,
+  sessionId: string | null,
   provider: ProviderConfig,
+  providerHost: string,
   mom: MoMConfig,
   cache: FanoutCache,
   log: Logger,
 ): Promise<AnthropicMessagesResponse> {
-  const startedAt = Date.now();
+  const gatewayRequestId = randomUUID();
   if (mom.mom_mode !== 'always') {
-    const response = await passthroughCall(body, provider);
-    persistPassthroughTrace(body, response, startedAt, mom, log);
-    return response;
+    return runPassthroughNonStreaming(
+      body,
+      sessionId,
+      gatewayRequestId,
+      provider,
+      providerHost,
+      mom,
+      log,
+    );
   }
-  const { advisorResults, triggerReason, cacheHit } = await runFanoutStage(
+  const { advisorResults, triggerReason } = await runFanoutStage(
     body,
     provider,
     mom,
     cache,
     log,
   );
-  const aggregatorResult = await runAggregatorNonStreaming(
-    body,
+  persistAdvisorTraces(
     advisorResults,
+    body,
+    sessionId,
+    gatewayRequestId,
+    providerHost,
     mom,
-    provider,
+    triggerReason,
+    log,
   );
+  const aggregatorStartedAt = Date.now();
+  let aggregatorResult;
+  try {
+    aggregatorResult = await runAggregatorNonStreaming(
+      body,
+      advisorResults,
+      mom,
+      provider,
+    );
+  } catch (err) {
+    const finishedAt = Date.now();
+    const errorAggregator: AggregatorResult = {
+      model: mom.aggregator.model,
+      response: null,
+      usage: EMPTY_USAGE,
+      latency_ms: finishedAt - aggregatorStartedAt,
+      references_appended: '',
+      started_at: aggregatorStartedAt,
+      finished_at: finishedAt,
+      response_summary: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
+    persistAggregatorTrace(
+      errorAggregator,
+      body,
+      sessionId,
+      gatewayRequestId,
+      providerHost,
+      mom,
+      triggerReason,
+      log,
+    );
+    throw err;
+  }
   log.info(
     {
       event: 'aggregator_complete',
       model: aggregatorResult.model,
       duration_ms: aggregatorResult.latency_ms,
       trigger_reason: triggerReason,
-      cache_hit: cacheHit,
     },
     'aggregator complete',
   );
-  persistMoMTrace({
-    body,
-    response: aggregatorResult.response,
-    advisorResults,
+  persistAggregatorTrace(
     aggregatorResult,
-    triggerReason,
-    startedAt,
+    body,
+    sessionId,
+    gatewayRequestId,
+    providerHost,
     mom,
+    triggerReason,
     log,
-  });
+  );
   return aggregatorResult.response as AnthropicMessagesResponse;
 }
+
 async function orchestrateStreaming(
   body: AnthropicMessagesRequest,
+  sessionId: string | null,
   output: NodeJS.WritableStream,
   provider: ProviderConfig,
+  providerHost: string,
   mom: MoMConfig,
   cache: FanoutCache,
   log: Logger,
 ): Promise<void> {
-  const startedAt = Date.now();
+  const gatewayRequestId = randomUUID();
   if (mom.mom_mode !== 'always') {
-    const collected = createStreamCollector();
-    await passthroughStream(body, output, provider, {
-      onEvent: collected.onEvent,
+    await runPassthroughStreaming(
+      body,
+      sessionId,
+      gatewayRequestId,
+      output,
+      provider,
+      providerHost,
+      mom,
       log,
-    });
-    persistPassthroughTrace(body, collected.build(), startedAt, mom, log);
+    );
     return;
   }
-  const { advisorResults, triggerReason, cacheHit } = await runFanoutStage(
+  const { advisorResults, triggerReason } = await runFanoutStage(
     body,
     provider,
     mom,
     cache,
     log,
   );
+  persistAdvisorTraces(
+    advisorResults,
+    body,
+    sessionId,
+    gatewayRequestId,
+    providerHost,
+    mom,
+    triggerReason,
+    log,
+  );
   const collected = createStreamCollector();
-  const aggregatorStartedAt = Date.now();
-  const { references_appended } = await runAggregatorStreaming(
+  const streamTiming = await runAggregatorStreaming(
     body,
     advisorResults,
     mom,
@@ -145,8 +237,18 @@ async function orchestrateStreaming(
     model: mom.aggregator.model,
     response,
     usage: response?.usage ?? EMPTY_USAGE,
-    latency_ms: Date.now() - aggregatorStartedAt,
-    references_appended,
+    latency_ms: streamTiming.finished_at - streamTiming.started_at,
+    references_appended: streamTiming.references_appended,
+    started_at: streamTiming.started_at,
+    finished_at: streamTiming.finished_at,
+    response_summary: response
+      ? {
+          id: response.id,
+          stop_reason: response.stop_reason,
+          stop_sequence: response.stop_sequence,
+        }
+      : null,
+    ...(streamTiming.error !== undefined ? { error: streamTiming.error } : {}),
   };
   log.info(
     {
@@ -154,21 +256,111 @@ async function orchestrateStreaming(
       model: aggregatorResult.model,
       duration_ms: aggregatorResult.latency_ms,
       trigger_reason: triggerReason,
-      cache_hit: cacheHit,
     },
     'aggregator stream complete',
   );
-  persistMoMTrace({
-    body,
-    response,
-    advisorResults,
+  persistAggregatorTrace(
     aggregatorResult,
-    triggerReason,
-    startedAt,
+    body,
+    sessionId,
+    gatewayRequestId,
+    providerHost,
     mom,
+    triggerReason,
     log,
-  });
+  );
 }
+
+// ---------------------- passthrough ----------------------
+
+async function runPassthroughNonStreaming(
+  body: AnthropicMessagesRequest,
+  sessionId: string | null,
+  gatewayRequestId: string,
+  provider: ProviderConfig,
+  providerHost: string,
+  mom: MoMConfig,
+  log: Logger,
+): Promise<AnthropicMessagesResponse> {
+  const startedAt = Date.now();
+  try {
+    const response = await passthroughCall(body, provider);
+    const finishedAt = Date.now();
+    persistPassthroughTrace({
+      body,
+      response,
+      sessionId,
+      gatewayRequestId,
+      providerHost,
+      startedAt,
+      finishedAt,
+      status: 'success',
+      error: null,
+      mom,
+      log,
+    });
+    return response;
+  } catch (err) {
+    const finishedAt = Date.now();
+    persistPassthroughTrace({
+      body,
+      response: null,
+      sessionId,
+      gatewayRequestId,
+      providerHost,
+      startedAt,
+      finishedAt,
+      status: 'error',
+      error: toTraceError(err),
+      mom,
+      log,
+    });
+    throw err;
+  }
+}
+
+async function runPassthroughStreaming(
+  body: AnthropicMessagesRequest,
+  sessionId: string | null,
+  gatewayRequestId: string,
+  output: NodeJS.WritableStream,
+  provider: ProviderConfig,
+  providerHost: string,
+  mom: MoMConfig,
+  log: Logger,
+): Promise<void> {
+  const startedAt = Date.now();
+  const collected = createStreamCollector();
+  let streamError: unknown = null;
+  try {
+    await passthroughStream(body, output, provider, {
+      onEvent: collected.onEvent,
+      log,
+    });
+  } catch (err) {
+    streamError = err;
+  } finally {
+    const finishedAt = Date.now();
+    const response = collected.build();
+    persistPassthroughTrace({
+      body,
+      response,
+      sessionId,
+      gatewayRequestId,
+      providerHost,
+      startedAt,
+      finishedAt,
+      status: streamError ? 'error' : 'success',
+      error: streamError ? toTraceError(streamError) : null,
+      mom,
+      log,
+    });
+  }
+  if (streamError) throw streamError;
+}
+
+// ---------------------- fanout stage ----------------------
+
 interface FanoutStageOutput {
   advisorResults: AdvisorResult[];
   triggerReason: TriggerReason;
@@ -213,6 +405,216 @@ async function runFanoutStage(
   );
   return { advisorResults, triggerReason, cacheHit: cache_hit };
 }
+
+// ---------------------- trace persistence ----------------------
+
+function persistAdvisorTraces(
+  results: AdvisorResult[],
+  body: AnthropicMessagesRequest,
+  sessionId: string | null,
+  gatewayRequestId: string,
+  providerHost: string,
+  mom: MoMConfig,
+  triggerReason: TriggerReason,
+  log: Logger,
+): void {
+  const requestSummary = summarizeRequest(body);
+  for (const r of results) {
+    const status: TraceRequest['status'] = r.cache_hit
+      ? 'cache_hit'
+      : r.success
+      ? 'success'
+      : 'error';
+    const pricing = snapshotPricing(r.selected_model, mom.pricing_table, PRICING_SOURCE);
+    if (!pricing && !r.cache_hit) {
+      log.warn(
+        { event: 'pricing_missing', model: r.selected_model, role: 'advisor' },
+        `no pricing entry for model "${r.selected_model}"`,
+      );
+    }
+    const usage = toTraceUsage(r.usage);
+    const trace: TraceRequest = {
+      request_id: randomUUID(),
+      session_id: sessionId,
+      gateway_request_id: gatewayRequestId,
+      role: 'advisor',
+      client_model: body.model,
+      selected_model: r.selected_model,
+      provider: providerHost,
+      started_at: r.started_at,
+      finished_at: r.finished_at,
+      duration_ms: r.finished_at - r.started_at,
+      status,
+      usage,
+      pricing,
+      cost_usd: calculateCostFromSnapshot(usage, pricing),
+      error: r.error
+        ? { type: 'advisor_error', message: r.error, http_status: null }
+        : null,
+      request_summary: requestSummary,
+      response_summary: r.response_summary,
+      trigger_reason: triggerReason,
+      cache_hit: r.cache_hit,
+      settings_snapshot: structuredClone(mom),
+    };
+    writeTrace(trace, log);
+  }
+}
+
+function persistAggregatorTrace(
+  result: AggregatorResult,
+  body: AnthropicMessagesRequest,
+  sessionId: string | null,
+  gatewayRequestId: string,
+  providerHost: string,
+  mom: MoMConfig,
+  triggerReason: TriggerReason,
+  log: Logger,
+): void {
+  const failed = result.error !== undefined || result.response === null;
+  const status: TraceRequest['status'] = failed ? 'error' : 'success';
+  const errorMessage =
+    result.error ??
+    (result.response === null ? 'aggregator produced no response' : undefined);
+  const pricing = snapshotPricing(result.model, mom.pricing_table, PRICING_SOURCE);
+  if (!pricing) {
+    log.warn(
+      { event: 'pricing_missing', model: result.model, role: 'aggregator' },
+      `no pricing entry for model "${result.model}"`,
+    );
+  }
+  const usage = toTraceUsage(result.usage);
+  const trace: TraceRequest = {
+    request_id: randomUUID(),
+    session_id: sessionId,
+    gateway_request_id: gatewayRequestId,
+    role: 'aggregator',
+    client_model: body.model,
+    selected_model: result.model,
+    provider: providerHost,
+    started_at: result.started_at,
+    finished_at: result.finished_at,
+    duration_ms: result.finished_at - result.started_at,
+    status,
+    usage,
+    pricing,
+    cost_usd: calculateCostFromSnapshot(usage, pricing),
+    error: errorMessage
+      ? { type: 'aggregator_error', message: errorMessage, http_status: null }
+      : null,
+    request_summary: summarizeRequest(body),
+    response_summary: result.response_summary,
+    trigger_reason: triggerReason,
+    cache_hit: false,
+    settings_snapshot: structuredClone(mom),
+  };
+  writeTrace(trace, log);
+}
+
+interface PersistPassthroughInput {
+  body: AnthropicMessagesRequest;
+  response: AnthropicMessagesResponse | null;
+  sessionId: string | null;
+  gatewayRequestId: string;
+  providerHost: string;
+  startedAt: number;
+  finishedAt: number;
+  status: 'success' | 'error';
+  error: { type: string; message: string; http_status: number | null } | null;
+  mom: MoMConfig;
+  log: Logger;
+}
+
+function persistPassthroughTrace(input: PersistPassthroughInput): void {
+  const {
+    body, response, sessionId, gatewayRequestId, providerHost,
+    startedAt, finishedAt, status, error, mom, log,
+  } = input;
+  const pricing = snapshotPricing(body.model, mom.pricing_table, PRICING_SOURCE);
+  const usage = toTraceUsage(response?.usage ?? EMPTY_USAGE);
+  const trace: TraceRequest = {
+    request_id: randomUUID(),
+    session_id: sessionId,
+    gateway_request_id: gatewayRequestId,
+    role: 'passthrough',
+    client_model: body.model,
+    selected_model: body.model,
+    provider: providerHost,
+    started_at: startedAt,
+    finished_at: finishedAt,
+    duration_ms: finishedAt - startedAt,
+    status,
+    usage,
+    pricing,
+    cost_usd: calculateCostFromSnapshot(usage, pricing),
+    error,
+    request_summary: summarizeRequest(body),
+    response_summary: response
+      ? { id: response.id, stop_reason: response.stop_reason, stop_sequence: response.stop_sequence }
+      : null,
+    trigger_reason: 'mom_off',
+    cache_hit: false,
+    settings_snapshot: structuredClone(mom),
+  };
+  writeTrace(trace, log);
+}
+
+function writeTrace(trace: TraceRequest, log: Logger): void {
+  try {
+    saveTraceRequest(trace);
+  } catch (err) {
+    log.error(
+      {
+        event: 'trace_save_failed',
+        request_id: trace.request_id,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      'failed to save trace',
+    );
+  }
+}
+
+function summarizeRequest(body: AnthropicMessagesRequest): RequestSummary {
+  return {
+    max_tokens: body.max_tokens,
+    temperature: body.temperature ?? null,
+    stream: body.stream === true,
+    message_count: body.messages.length,
+    tool_use_count: countToolUseBlocks(body.messages),
+  };
+}
+
+function countToolUseBlocks(messages: AnthropicMessage[]): number {
+  let n = 0;
+  for (const m of messages) {
+    if (typeof m.content === 'string') continue;
+    for (const b of m.content) {
+      if (b.type === 'tool_use' || b.type === 'tool_result') n++;
+    }
+  }
+  return n;
+}
+
+function toTraceError(err: unknown): {
+  type: string;
+  message: string;
+  http_status: number | null;
+} {
+  if (err instanceof ProviderError) {
+    return {
+      type: 'provider_error',
+      message: err.providerBody.slice(0, 500),
+      http_status: err.statusCode,
+    };
+  }
+  if (err instanceof Error) {
+    return { type: 'gateway_error', message: err.message, http_status: null };
+  }
+  return { type: 'gateway_error', message: String(err), http_status: null };
+}
+
+// ---------------------- stream collector ----------------------
+
 interface StreamCollector {
   onEvent: (evt: SSEEvent) => void;
   build: () => AnthropicMessagesResponse | null;
@@ -238,12 +640,14 @@ function createStreamCollector(): StreamCollector {
           contentBuffers[evt.index] =
             evt.content_block.type === 'text' ? evt.content_block.text : '';
           return;
-        case 'content_block_delta':
-          if (evt.delta.type === 'text_delta') {
+        case 'content_block_delta': {
+          const delta = (evt as ContentBlockDeltaEvent).delta;
+          if (delta.type === 'text_delta') {
             contentBuffers[evt.index] =
-              (contentBuffers[evt.index] ?? '') + evt.delta.text;
+              (contentBuffers[evt.index] ?? '') + delta.text;
           }
           return;
+        }
         case 'content_block_stop': {
           const block = contentBlocks[evt.index];
           if (block && block.type === 'text') {
@@ -275,88 +679,3 @@ function createStreamCollector(): StreamCollector {
     },
   };
 }
-interface PersistMoMTraceInput {
-  body: AnthropicMessagesRequest;
-  response: AnthropicMessagesResponse | null;
-  advisorResults: AdvisorResult[];
-  aggregatorResult: AggregatorResult;
-  triggerReason: TriggerReason;
-  startedAt: number;
-  mom: MoMConfig;
-  log: Logger;
-}
-
-function persistMoMTrace(input: PersistMoMTraceInput): void {
-  const {
-    body, response, advisorResults, aggregatorResult, triggerReason, startedAt, mom, log,
-  } = input;
-  const advisorCost = advisorResults.reduce(
-    (acc, r) => acc + calculateCost(r.slot, r.usage, mom.pricing_table, log),
-    0,
-  );
-  const aggregatorCost = calculateCost(
-    aggregatorResult.model,
-    aggregatorResult.usage,
-    mom.pricing_table,
-    log,
-  );
-  const trace: Trace = {
-    id: randomUUID(),
-    timestamp: startedAt,
-    request: body,
-    response,
-    mom_triggered: true,
-    trigger_reason: triggerReason,
-    advisor_results: advisorResults,
-    aggregator_result: aggregatorResult,
-    judge_result: null,
-    baseline_result: null,
-    total_cost_usd: advisorCost + aggregatorCost,
-    baseline_cost_usd: null,
-    total_latency_ms: Date.now() - startedAt,
-    settings_snapshot: structuredClone(mom),
-  };
-  writeTrace(trace, log);
-}
-
-function persistPassthroughTrace(
-  body: AnthropicMessagesRequest,
-  response: AnthropicMessagesResponse | null,
-  startedAt: number,
-  mom: MoMConfig,
-  log: Logger,
-): void {
-  const trace: Trace = {
-    id: randomUUID(),
-    timestamp: startedAt,
-    request: body,
-    response,
-    mom_triggered: false,
-    trigger_reason: 'mom_off',
-    advisor_results: [],
-    aggregator_result: null,
-    judge_result: null,
-    baseline_result: null,
-    total_cost_usd: 0,
-    baseline_cost_usd: null,
-    total_latency_ms: Date.now() - startedAt,
-    settings_snapshot: structuredClone(mom),
-  };
-  writeTrace(trace, log);
-}
-
-function writeTrace(trace: Trace, log: Logger): void {
-  try {
-    saveTrace(trace);
-  } catch (err) {
-    log.error(
-      {
-        event: 'trace_save_failed',
-        trace_id: trace.id,
-        error: err instanceof Error ? err.message : String(err),
-      },
-      'failed to save trace',
-    );
-  }
-}
-

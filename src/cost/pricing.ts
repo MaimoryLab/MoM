@@ -1,10 +1,60 @@
 import type { Usage } from '../types/anthropic.js';
-import type { Logger, ModelPricing } from '../types/mom.js';
+import type {
+  Logger,
+  ModelPricing,
+  PricingSnapshot,
+  TraceUsage,
+} from '../types/mom.js';
 
 const MILLION = 1_000_000;
 
 function nonNegativeInt(v: number | undefined): number {
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+export function snapshotPricing(
+  model: string,
+  pricingTable: Record<string, ModelPricing>,
+  source: string,
+): PricingSnapshot | null {
+  const rate = pricingTable[model];
+  if (!rate) return null;
+  return {
+    currency: 'USD',
+    input_per_million: rate.input,
+    cache_read_per_million: rate.cache_read,
+    cache_write_per_million: rate.cache_write,
+    output_per_million: rate.output,
+    reasoning_per_million: null,
+    source,
+  };
+}
+
+export function toTraceUsage(usage: Usage): TraceUsage {
+  return {
+    input_tokens: nonNegativeInt(usage.input_tokens),
+    cache_read_tokens: nonNegativeInt(usage.cache_read_input_tokens),
+    cache_creation_tokens: nonNegativeInt(usage.cache_creation_input_tokens),
+    output_tokens: nonNegativeInt(usage.output_tokens),
+    reasoning_tokens: 0,
+  };
+}
+
+export function calculateCostFromSnapshot(
+  usage: TraceUsage,
+  pricing: PricingSnapshot | null,
+): number {
+  if (!pricing) return 0;
+  const cacheReadPerM = pricing.cache_read_per_million ?? 0;
+  const reasoningPerM = pricing.reasoning_per_million ?? 0;
+  return (
+    (usage.input_tokens * pricing.input_per_million +
+      usage.cache_read_tokens * cacheReadPerM +
+      usage.cache_creation_tokens * pricing.cache_write_per_million +
+      usage.output_tokens * pricing.output_per_million +
+      usage.reasoning_tokens * reasoningPerM) /
+    MILLION
+  );
 }
 
 export function calculateCost(
