@@ -51,6 +51,12 @@ export async function fanoutAdvisorsWithCache(
   cache: FanoutCache,
   key: string,
 ): Promise<FanoutWithCacheResult> {
+  if (momConfig.fanout_mode === 'off') {
+    return {
+      results: await fanoutAdvisors(messages, momConfig, provider),
+      cache_hit: false,
+    };
+  }
   const cached = cache.get(key);
   if (cached) {
     return { results: cloneAsCacheHit(cached), cache_hit: true };

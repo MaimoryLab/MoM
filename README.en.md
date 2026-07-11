@@ -94,6 +94,8 @@ A ready-to-run fan-out example (replace `<...>` with real model names from your 
 
 Effective values for `mom_mode` today: `always` fans out on every user turn (recommended default); `off` passes traffic through unchanged (`auto` is a declared value but currently behaves like `off`). An empty `pricing_table` makes trace `pricing` snapshots `null` — eval-side cost accounting cannot compute, but **the gateway keeps working**. Prefer running the sync step below on first boot. Field-by-field notes live in [`docs/005DEVELOPMENT.md`](docs/005DEVELOPMENT.md).
 
+`fanout_mode` controls the local advisor-result cache: `user_turn` reuses results within the same real user turn, `per_iteration` caches by the full message sequence, and `off` bypasses all cache reads and writes so every iteration calls the advisors. Restart the gateway after changing it.
+
 ### 3. Sync pricing on first boot (recommended)
 
 `data/mom.config.json.pricing_table` starts empty. Before the first real run, invoke the sync script — it fetches the provider's `/v1/models`, converts per-token prices to per-1M-tokens, and writes them into `pricing_table`. From then on trace `pricing.currency` / `input_per_million` / ... are populated and eval-side cost math works:

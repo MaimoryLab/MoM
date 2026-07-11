@@ -4,6 +4,7 @@ import type {
   AnthropicMessagesResponse,
 } from '../types/anthropic.js';
 import type { ProviderConfig, TraceError, TraceErrorType } from '../types/mom.js';
+import { normalizeAnthropicResponse } from './anthropic-normalize.js';
 
 export class ProviderError extends Error {
   statusCode: number;
@@ -71,5 +72,5 @@ export async function passthroughCall(
   if (res.statusCode < 200 || res.statusCode >= 300) {
     throw new ProviderError(res.statusCode, text, req.model);
   }
-  return JSON.parse(text) as AnthropicMessagesResponse;
+  return normalizeAnthropicResponse(JSON.parse(text) as AnthropicMessagesResponse);
 }

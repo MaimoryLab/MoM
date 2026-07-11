@@ -6,6 +6,23 @@
 
 ---
 
+## [2026-07-12-2] provider thinking block normalization
+
+- 普通与流式 provider 响应均过滤缺失有效 `signature` 的 thinking blocks；signed thinking 原样保留。
+- SSE 过滤后会重映射后续 content block index，避免下游收到不连续索引。
+- 验证：`npm run typecheck` 通过，`npm test` 97/97 通过；覆盖 unsigned/signed thinking 与 SSE index remap。
+
+---
+
+## [2026-07-12-1] `fanout_mode=off` 完全关闭本地 fanout cache
+
+- `mom_mode=always` 仍执行 advisor fan-out 与 aggregator；仅跳过 fanout cache 的 `get` / `set`。
+- 每个请求和 tool iteration 都真实调用 advisors，日志为 `event=fanout_cache_off` / `trigger_reason=fanout_cache_off` / `cache_hit=false`。
+- 修改 `data/mom.config.json` 后需重启；运行中的进程不会热加载 JSON 配置。
+- 验证：`npm run typecheck` 通过，`npm test` 97/97 通过；包含 cache 方法一旦被调用就抛错的回归测试。
+
+---
+
 ## [2026-07-11-1] ISS-010：pricing sync 脚本 + 币种从数据源带出 + 去掉 cost_usd 字段
 
 ### 环境要求
@@ -68,7 +85,7 @@ Git worktree 隔离场景下，**每个 worktree 都要单独 `npm install`**—
 ### 关键新配置字段
 
 `data/mom.config.json` 需确保以下字段填齐（首次启动 `DEFAULT_MOM_CONFIG` 会写入默认值）：
-- `fanout_mode`: `user_turn`（默认）| `per_iteration`
+- `fanout_mode`: `off`（完全绕过本地 fanout cache）| `user_turn`（默认）| `per_iteration`
 - `cache.ttl`: `5m` | `1h`；`cache.max_entries`: 建议 100–1000
 - `pricing_table`: `{ [modelName]: { input, output, cache_write, cache_read } }`，单位 USD per million tokens；缺失项 log warn + 该模型 cost 计 0
 

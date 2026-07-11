@@ -50,6 +50,11 @@ describe('isNewUserTurn', () => {
 });
 
 describe('computeTriggerReason', () => {
+  it('off: always reports cache disabled regardless of turn or cache state', () => {
+    assert.equal(computeTriggerReason('off', true, false), 'fanout_cache_off');
+    assert.equal(computeTriggerReason('off', false, false), 'fanout_cache_off');
+    assert.equal(computeTriggerReason('off', true, true), 'fanout_cache_off');
+  });
   it('user_turn: new turn + cache miss', () => {
     assert.equal(computeTriggerReason('user_turn', true, false), 'user_turn');
   });

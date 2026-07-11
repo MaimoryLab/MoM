@@ -5,7 +5,7 @@ import type {
 } from './anthropic.js';
 
 export type MoMMode = 'off' | 'always' | 'auto';
-export type FanoutMode = 'user_turn' | 'per_iteration';
+export type FanoutMode = 'off' | 'user_turn' | 'per_iteration';
 export type AggregationMode = 'concat' | 'judge';
 export type AuthStyle = 'bearer' | 'x-api-key';
 export type CacheTTLPreset = '5m' | '1h';
@@ -242,6 +242,7 @@ export interface FanoutCacheValue {
 
 export type TriggerReason =
   | 'mom_off'
+  | 'fanout_cache_off'
   | 'user_turn'
   | 'skipped_tool_iteration'
   | 'tool_iteration_cache_miss'

@@ -386,7 +386,7 @@ async function runFanoutStage(
   log: Logger,
 ): Promise<FanoutStageOutput> {
   const isNewTurn = isNewUserTurn(body.messages);
-  const key = computeFanoutCacheKey(body.messages, mom);
+  const key = mom.fanout_mode === 'off' ? '' : computeFanoutCacheKey(body.messages, mom);
   const stageStart = Date.now();
   const { results: advisorResults, cache_hit } = await fanoutAdvisorsWithCache(
     body.messages,
@@ -400,9 +400,15 @@ async function runFanoutStage(
     isNewTurn,
     cache_hit,
   );
+  const event =
+    mom.fanout_mode === 'off'
+      ? 'fanout_cache_off'
+      : cache_hit
+        ? 'fanout_hit'
+        : 'fanout_miss';
   log.info(
     {
-      event: cache_hit ? 'fanout_hit' : 'fanout_miss',
+      event,
       fanout_mode: mom.fanout_mode,
       is_new_turn: isNewTurn,
       trigger_reason: triggerReason,
@@ -412,7 +418,11 @@ async function runFanoutStage(
         .filter((r) => !r.success)
         .map((r) => ({ slot: r.slot, error: r.error })),
     },
-    cache_hit ? 'fanout cache hit' : 'fanout complete',
+    mom.fanout_mode === 'off'
+      ? 'fanout cache disabled'
+      : cache_hit
+        ? 'fanout cache hit'
+        : 'fanout complete',
   );
   return { advisorResults, triggerReason, cacheHit: cache_hit };
 }

@@ -1,3 +1,15 @@
+## [2026-07-12-2] fix(provider): normalize invalid thinking blocks
+
+- 非流式 provider 响应删除缺失有效 `signature` 的 thinking blocks，保留可安全回传的 signed thinking。
+- 流式 SSE 同步过滤 unsigned thinking 的 start/delta/stop，并重映射后续 content block index，保持下游索引连续。
+- 新增普通响应与 SSE normalization 回归测试。
+
+## [2026-07-12-1] feat(cache): allow `fanout_mode=off`
+
+- `FanoutMode` 新增 `off`：保持 MoM fan-out/aggregation 主链路不变，完全绕过进程内 fanout cache 的读取和写入。
+- 新增 `fanout_cache_off` 日志事件与 trace trigger reason，测试时可明确验证未使用缓存。
+- 新增 off 模式回归测试并更新中英文 README、开发与 API 文档。
+
 ## [2026-07-11-3] feat(scripts): add sync-pricing + drop cost_usd, carry currency from data source [ISS-010]
 
 ### 改动

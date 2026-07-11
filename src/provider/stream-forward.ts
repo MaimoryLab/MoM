@@ -8,6 +8,7 @@ import {
   toTraceError,
 } from './provider-client.js';
 import { createSSEParser, formatSSEEvent } from '../gateway/sse.js';
+import { createAnthropicSSENormalizer } from './anthropic-normalize.js';
 
 export interface PassthroughStreamOptions {
   onEvent?: (evt: SSEEvent) => void;
@@ -65,7 +66,8 @@ export async function passthroughStream(
     throw providerErr;
   }
 
-  const parser = onEvent ? createSSEParser() : null;
+  const parser = createSSEParser();
+  const normalizer = createAnthropicSSENormalizer();
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -78,38 +80,37 @@ export async function passthroughStream(
       };
 
       const onData = (chunk: Buffer): void => {
-        // 主链路：字节级转发到 output
-        output.write(chunk);
-        // 旁路：observer 增量解析，异常吞掉
-        if (parser && onEvent) {
-          try {
-            const events = parser.push(chunk);
-            for (const raw of events) {
-              if (raw.data === '') continue;
-              try {
-                const parsed = JSON.parse(raw.data) as SSEEvent;
-                onEvent(parsed);
-              } catch (err) {
-                log?.warn(
-                  {
-                    event: 'sse_parse_error',
-                    raw_event: raw.event,
-                    raw_data_preview: raw.data.slice(0, 200),
-                    error: err instanceof Error ? err.message : String(err),
-                  },
-                  'failed to parse sse data as JSON',
-                );
-              }
+        try {
+          const events = parser.push(chunk);
+          for (const raw of events) {
+            if (raw.data === '') continue;
+            try {
+              const parsed = JSON.parse(raw.data) as SSEEvent;
+              const normalized = normalizer.normalize(parsed);
+              if (normalized === null) continue;
+              output.write(formatSSEEvent(raw.event, normalized));
+              onEvent?.(normalized as SSEEvent);
+            } catch (err) {
+              output.write(formatSSEEvent(raw.event, raw.data));
+              log?.warn(
+                {
+                  event: 'sse_parse_error',
+                  raw_event: raw.event,
+                  raw_data_preview: raw.data.slice(0, 200),
+                  error: err instanceof Error ? err.message : String(err),
+                },
+                'failed to parse sse data as JSON',
+              );
             }
-          } catch (err) {
-            log?.warn(
-              {
-                event: 'sse_observer_error',
-                error: err instanceof Error ? err.message : String(err),
-              },
-              'sse observer failed, main forwarding unaffected',
-            );
           }
+        } catch (err) {
+          log?.warn(
+            {
+              event: 'sse_normalize_error',
+              error: err instanceof Error ? err.message : String(err),
+            },
+            'failed to normalize provider SSE',
+          );
         }
       };
 
