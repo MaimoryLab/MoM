@@ -40,7 +40,7 @@ Configuration lives in two clearly-separated places:
 - **`.env`** (deployment / secrets): provider credentials, listening port, data file paths
 - **`data/mom.config.json`** (business config): MoM trigger mode, advisor slots, aggregator model, pricing table, etc. Never holds secrets.
 
-Set up `.env` first:
+### 1. `.env` (provider secrets)
 
 ```bash
 cp .env.example .env
@@ -48,7 +48,51 @@ cp .env.example .env
 # PROVIDER_AUTH_STYLE defaults to "bearer"; use "x-api-key" for the official Anthropic API.
 ```
 
-`data/mom.config.json` is generated on first startup with `DEFAULT_MOM_CONFIG`. Edit it directly with `vi`, or through the Dashboard form once Phase 5 ships. The Dashboard never edits secrets — secrets live in `.env` only.
+### 2. `data/mom.config.json` (business config)
+
+On first startup MoM writes `DEFAULT_MOM_CONFIG` — a safe empty shell (`mom_mode=off`, `advisor.slots=[]`, `aggregator.model=""`). You must fill in model names before MoM actually fans out. Edit it directly with `vi` afterwards, or through the Dashboard form once Phase 5 ships. The Dashboard never edits secrets — secrets live in `.env` only.
+
+Model names go in two places:
+
+- `advisor.slots`: array of advisor model names — one entry = one concurrent advisor call (3 slots → fan out 3 times).
+- `aggregator.model`: a single aggregator model name that folds the advisor references into the final response.
+
+Every model name must be a real model id served by the provider you pointed `PROVIDER_BASE_URL` at. Slots may repeat or overlap with the aggregator.
+
+A ready-to-run fan-out example (replace `<...>` with real model names from your provider):
+
+```json
+{
+  "mom_mode": "always",
+  "fanout_mode": "user_turn",
+  "aggregation_mode": "concat",
+  "reference_max_tokens": 4096,
+  "advisor": {
+    "slots": ["<advisor-model-1>", "<advisor-model-2>", "<advisor-model-3>"],
+    "tools_enabled": false
+  },
+  "aggregator": {
+    "model": "<aggregator-model>"
+  },
+  "judge": {
+    "model": ""
+  },
+  "cache": {
+    "ttl": "5m",
+    "max_entries": 1000
+  },
+  "comparison": {
+    "enabled": false,
+    "baseline_model": ""
+  },
+  "pricing_table": {},
+  "cost_tradeoff": {
+    "enabled": false
+  }
+}
+```
+
+Effective values for `mom_mode` today: `always` fans out on every user turn (recommended default); `off` passes traffic through unchanged (`auto` is a declared value but currently behaves like `off`). An empty `pricing_table` just makes cost accounting 0 — behavior is unaffected. Field-by-field notes live in [`docs/005DEVELOPMENT.md`](docs/005DEVELOPMENT.md).
 
 ---
 
