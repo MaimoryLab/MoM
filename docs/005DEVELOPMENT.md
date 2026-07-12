@@ -6,7 +6,219 @@
 
 ---
 
-## [2026-07-10-1] Phase 3：trigger + fanout cache + cache_control + cost + trace + SDK 解耦
+## [2026-07-12-1] Cost 记录 / Fanout Cache / Session 上下文 手动测试指导
+
+### 前置：概念速览（**读一次就能上手手动测试**）
+
+- **一次入口请求 = N+1 条 TraceRequest**（ISS-009 / decision 006）：`mom_mode='always'` 下 N 个 advisor + 1 个 aggregator = N+1 条落盘；透传路径 = 1 条 `role='passthrough'`。所有 N+1 条共享 `gateway_request_id`；`session_id` = HTTP header `X-Session-ID` 回显（缺失即 null）
+- **Advisor 上下文范围**：`convertToAdvisorView(messages)` 会把**整段 messages 历史**（含 tool_use / tool_result，每条 message 被 flatten 成一个 text block）都传给 advisor。**不是**"只给 advisor 最新的 user prompt"——即使是第 20 轮 tool iteration，也是完整 20 轮上下文（advisor 视图形态）
+- **Aggregator 上下文范围**：拿到**原始 messages 数组**（`AnthropicMessagesRequest.messages`，前缀 message 对象引用不变——为了让 Anthropic prompt caching 命中），仅在最后一条 user message 尾部拼接一段 "Expert Panel References:" 文本
+- **Fanout Cache 决策**（decision 005）：查询 → 命中即复用、未命中就补跑；`trigger_reason` 只是叙述性标签
+- **Cache key 三段 hash**：`sha256(settings) | sha256(slots-原顺序) | sha256(canonicalJSON(sigMessages))`
+  - `settings`：`{system_prompt, tools_enabled, reference_max_tokens}` 三项
+  - `slots`：`slots.join('\x00')`—— **保原顺序不排序**（decision 005 方案 C 拍板）
+  - `sigMessages`：`user_turn` 模式截到最后一条真实 user message（含）为止；`per_iteration` 模式取全 messages
+- **Cache hit 时**：advisor 全体 `usage=0 / cost_usd=0 / status='cache_hit' / cache_hit=true`；aggregator **始终真跑**（cache 只作用于 advisor 层）
+- **Pricing 冻结**：每条 TraceRequest 内嵌 `pricing`——发起上游调用瞬间从 `momConfig.pricing_table[selected_model]` 深拷贝；`cost_usd = calculateCostFromSnapshot(usage, pricing)` 落盘即冻结
+- **Cost 计算**：`cost_usd = (input × input_per_million + output × output_per_million + cache_creation × cache_write_per_million + cache_read × cache_read_per_million) / 1_000_000`
+
+### 环境准备
+
+沿用 [2026-07-10-1] 的 Node ≥ 22.13、`.env` 配置、`data/mom.config.json` 结构。
+
+对本次测试而言,关键前置:
+- `pricing_table` 里必须包含 **所有** advisor.slots + aggregator.model 的 4 段单价(input/output/cache_write/cache_read),否则 cost 全部落 0
+- 三种"回归"模式测试都在同一进程内连续发送(fanout cache 是 in-memory Map),重启即清空
+
+### 单元测试
+
+```bash
+npm test
+# 覆盖 109 例(含新增 orchestrator-cost / orchestrator-cost-edge 19 例)
+# 关键新增断言：
+#   - MoM always 非流式 3 advisor + 1 aggregator = 4 条 trace / 共享 gateway_request_id
+#   - Advisor 视图收到完整 messages 历史(flatten 后含 tool_result)
+#   - Aggregator 收到原始 messages + Expert Panel References 追加到最后一条 user
+#   - 4 段 token(input/output/cache_write/cache_read)在 usage/cost 中的严格计价
+#   - cache_hit 时 usage/cost 归零但 pricing 保留
+#   - passthrough 用 client_model 作为 selected_model
+#   - 极端 usage(-1/NaN/undefined) 归零
+#   - Unicode/emoji 内容 cache key 稳定
+#   - per_iteration 模式 tool iteration 总 miss(独立签名)
+#   - null session 三条 trace 共享 gateway_request_id 但无法通过 /trace/requests 查询
+```
+
+### 手动 e2e 测试(需要真实 provider)
+
+前置：
+1. `data/mom.config.json` 配好 `mom_mode='always'`、`advisor.slots`(≥ 2 个可用模型)、`aggregator.model`(非 slot 中的模型)、`pricing_table` 已全部灌入
+2. `.env` PROVIDER_* 已就位
+3. `MOM_PORT=3010 npm run dev` 启动网关(默认单一进程,cache 在内存中)
+
+准备 session_id(**任务级**——同一逻辑任务用一个 uuid):
+```bash
+export S=$(uuidgen | tr '[:upper:]' '[:lower:]')
+echo "session=$S"
+```
+
+---
+
+**M1（同一 session 首次真实 user turn — 全量 miss + 4 段成本被记录）**
+
+```bash
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -H "x-session-id: $S" \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"cost-probe-M1: 用一句话解释三体问题"}]}],"max_tokens":200}' \
+  -o /dev/null -w "M1 HTTP %{http_code}\n"
+```
+
+**M2（同 session tool iteration — 应触发 cache hit,advisor cost=0）**
+
+```bash
+cat > /tmp/m2.json <<EOF
+{"model":"any","max_tokens":200,"messages":[
+  {"role":"user","content":[{"type":"text","text":"cost-probe-M1: 用一句话解释三体问题"}]},
+  {"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"lookup","input":{"q":"three-body"}}]},
+  {"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"partial context: n-body chaos"}]}
+]}
+EOF
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -H "x-session-id: $S" \
+  --data-binary @/tmp/m2.json \
+  -o /dev/null -w "M2 HTTP %{http_code}\n"
+```
+
+**M3（同 session 全新 user turn — 全量 miss + 新 cache key）**
+
+```bash
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -H "x-session-id: $S" \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"cost-probe-M3: 你好呀"}]}],"max_tokens":100}' \
+  -o /dev/null -w "M3 HTTP %{http_code}\n"
+```
+
+**M4（通过 `/trace/requests` API 拉取本 session 全量 trace 明细）**
+
+```bash
+curl -sS "http://localhost:3010/trace/requests?session_id=$S" | jq '.requests | length as $n | "count=\($n)", (.[] | {role, selected_model, status, cache_hit, trigger_reason, cost_usd, usage})'
+```
+
+期望：`count=` 应是 (advisor 数 + 1) × 3 = 9 条(2 slots 时)或 12 条(3 slots 时);
+- M1 那批：`trigger_reason=user_turn`,advisor `cache_hit=false / cost_usd>0`
+- M2 那批 advisor：`trigger_reason=skipped_tool_iteration`,`cache_hit=true / status=cache_hit / cost_usd=0`,`usage.input_tokens=0` 等全部 0
+- M2 aggregator：`cache_hit=false`,`cost_usd>0`(aggregator 永远真跑)
+- M3 那批 advisor：`trigger_reason=user_turn`(**不是** `tool_iteration_cache_miss`——因为最后一条是 user text 而非 tool_result),全量 miss
+
+---
+
+**M5（`X-Session-ID` 缺失 — 无法查 session,但 trace 落盘且共享 gateway_request_id）**
+
+```bash
+# 不带 X-Session-ID header
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"anonymous"}]}],"max_tokens":80}' \
+  -o /dev/null -w "M5 HTTP %{http_code}\n"
+
+# 尝试用一个 bogus uuid 查询(应得空数组,非 404)
+curl -sS "http://localhost:3010/trace/requests?session_id=00000000-0000-0000-0000-000000000000" | jq
+```
+
+期望：M5 请求 HTTP 200;查询 API 返回 `{"session_id": "00000000-...", "requests": []}` 200。数据库中确实落了 trace,但 `session_id=null` → 不出现在按 session 的查询里。
+
+---
+
+**M6（`session_id` 参数校验)**
+
+```bash
+# 缺 session_id
+curl -sS "http://localhost:3010/trace/requests" -w "\n%{http_code}\n"
+# 非 UUID
+curl -sS "http://localhost:3010/trace/requests?session_id=not-a-uuid" -w "\n%{http_code}\n"
+# UUIDv7 应被接受(hex-only 正则,ISS-012)
+curl -sS "http://localhost:3010/trace/requests?session_id=0198e5f1-c000-7abc-8000-abcdef012345" -w "\n%{http_code}\n"
+```
+
+期望：缺参 400 / 非 UUID 400 / UUIDv7 200。
+
+---
+
+**M7（数据库直查——cost 与 SQL 层 sanity）**
+
+```bash
+node -e "
+const {DatabaseSync}=require('node:sqlite');
+const db=new DatabaseSync('mom.db');
+// 本 session 分角色 + 分 cache_hit 汇总
+const rows = db.prepare(\`
+  SELECT role, cache_hit,
+         COUNT(*) as n,
+         ROUND(SUM(cost_usd), 8) as total_cost,
+         ROUND(AVG(duration_ms), 1) as avg_ms
+  FROM traces
+  WHERE session_id = ?
+  GROUP BY role, cache_hit
+\`).all('$S');
+console.table(rows);
+// 拉一条 advisor cache_hit trace,验证 usage 全 0 与 pricing 快照仍存在
+const oneHit = db.prepare(\"SELECT data FROM traces WHERE session_id = ? AND status = 'cache_hit' LIMIT 1\").get('$S');
+if (oneHit) {
+  const t = JSON.parse(oneHit.data);
+  console.log('cache_hit sample:');
+  console.log('  usage:', t.usage);
+  console.log('  cost_usd:', t.cost_usd);
+  console.log('  pricing.source:', t.pricing && t.pricing.source);
+  console.log('  pricing.input_per_million:', t.pricing && t.pricing.input_per_million);
+}
+"
+```
+
+期望：
+- role=advisor cache_hit=1 那行:usage 4 段全 0 / cost=0 / **pricing.input_per_million 非空**(pricing snapshot 依然保留,便于反演单价)
+- role=aggregator cache_hit=0 那行:每次入口请求都有一条 aggregator,cost 正数
+- pricing.source 形如 `mom.config.json@<ISO时间>`(config-source stamping,ISS-012)
+
+---
+
+### 已知问题(**测试期间发现**)
+
+以下问题**已登记但本次未修复**——参见 `003ISSUES.md`：
+
+- **ISS-015**：M1 里若某 slot 502 失败,失败结果**会**被缓存;M2 命中缓存后,那条 slot 的 trace 是 `status='cache_hit'` 但 `error` 非 null,与契约冲突,eval 侧的故障率统计会漏掉
+- **ISS-016**：失败 slot 的 `[Reference N — <slot> failed: ...]` 里 error 是 `[object Object]`(TraceError 对象被模板字符串化)——aggregator 拿到无可读诊断信息的占位符
+- **ISS-017**：`request_summary.tool_use_count` 把 `tool_use` 与 `tool_result` 都算作 1,eval 侧无法区分 agent 发起次数与工具回填次数
+- **ISS-018**：`reasoning_tokens` / `reasoning_per_million` 双向硬编码为 0/null,provider 上报或价格表设置了也读不进来
+- **ISS-019**：cache_hit 且 pricing_table 未配该 model 时,pricing=null → SQL 层用 `cost_usd=0` 无法区分"没配 pricing" vs "cache 命中"
+- **ISS-020**：cache_hit 复用时 `response_summary=null` 是正确的,但相关 origin request 溯源缺乏 hook
+
+### 常见追问 & 回答
+
+**Q1: Advisor 每次都拿到全部上下文吗？还是只有最新 user prompt？**
+
+A: **每次都拿到全部上下文**(整段 messages 数组)。`src/advisor/view-transformer.ts:convertToAdvisorView` 把每条 message 里的 tool_use / tool_result / text 块 flatten 成 text,但**不裁剪历史**。设计意图:advisor 需要看到 agent 走过的完整推理路径。截取只发生在 cache key 签名层——**签名**上截到最后一条真实 user message(user_turn 模式),但真实调用时**用的还是完整 messages**。
+
+**Q2: Aggregator 是否拿到完整上下文？**
+
+A: **是**。`src/aggregator/aggregator-runtime.ts:runAggregatorNonStreaming` 直接 `...original` 请求体的 messages,只在最后一条 user message 尾部追加 "Expert Panel References:" 文本;前缀 message 对象引用严格不变(是 aggregator 层的核心不变量,给 Anthropic prompt caching 用)。所以完整历史 + N 条 advisor references 是 aggregator 的输入。
+
+**Q3: 同 session 多轮请求,cost 如何累加？**
+
+A: 每次入口请求会新生成一个 `gateway_request_id`,落 N+1 条独立的 TraceRequest,每条自带 `cost_usd`。**cost 不在网关层聚合**——由 eval 侧或 dashboard-api(Phase 4)现算(`SUM(cost_usd) WHERE session_id=?`)。cache_hit 的 advisor trace `cost=0`,只有真跑那次的 R1 记录 advisor 真实成本。aggregator 每轮都 `cost>0`(永远真跑)。
+
+**Q4: cache 是分 session 隔离的吗？**
+
+A: **不是**。Fanout cache 是全局单例(orchestrator 工厂内),key 只由 `settings + slots + sigMessages` 决定。不同 session 但完全一样的第一条 user prompt + 相同 slots + 相同 settings → 后进来那个 session 的 advisor 全部命中缓存,`cost=0`。这在测试用例 `orchestrator-cost.test.ts` 的 "multi-session isolation" 里明确验证过。
+
+**Q5: 进程重启后 cache 会保留吗？**
+
+A: **不会**。in-memory Map,重启即清空。同 tool loop 内如果发生重启,下一次 tool iteration 会走 `tool_iteration_cache_miss` 分支 → 补跑 advisor(decision 005 的核心解决点,避免 aggregator 拿空 references 降级)。
+
+---
+
+
 
 ### 环境要求
 
