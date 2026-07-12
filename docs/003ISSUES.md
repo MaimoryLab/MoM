@@ -744,6 +744,236 @@ const isNewTurn = mom.fanout_mode === 'off' ? false : isNewUserTurn(body.message
 -> docs/001ARCHITECTURE.md §6 "Trigger 语义"
 -> src/types/mom.ts:TriggerReason(新增枚举)
 -> af33818 commit
+## [ISS-015] 缓存复用会把上一轮失败的 advisor `TraceError` 沿着 cache_hit 一路带过来
+
+**状态**：[发现]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-12
+
+**现象**：
+`src/orchestrator/fanout.ts:fanoutAdvisorsWithCache` 无差别地把 `fanoutAdvisors` 的返回值 `cache.set(key, results)`——包含 `success=false / error=<TraceError>` 的失败 slot 也进了缓存。下一次 tool iteration 命中 cache 后，`cloneAsCacheHit` 只把 `usage/latency_ms` 归零、`cache_hit=true`，其余字段（`success/error/reference`）原样复制。落盘时 `persistAdvisorTraces` 走：
+```
+status = r.cache_hit ? 'cache_hit' : r.success ? 'success' : 'error'
+```
+因此 R1 中 502 失败的 slot 到 R2 变成 `status='cache_hit'` **同时** `error: { type: 'provider_error', http_status: 502, ... }` 非空——这两个字段语义相互矛盾，违反 006API.md §1.4 契约"`error` 仅在 `status='error'` 时填"。
+
+实测证据（探针 test 输出，MVP 主链路 R1+R2）：
+```
+role=advisor slot=adv-fail status=error     cache_hit=false err=provider_error   # R1
+role=advisor slot=adv-ok   status=success   cache_hit=false err=-                # R1
+role=aggregator            status=success   cache_hit=false                      # R1
+role=aggregator            status=success   cache_hit=false                      # R2
+role=advisor slot=adv-ok   status=cache_hit cache_hit=true  err=-                # R2
+role=advisor slot=adv-fail status=cache_hit cache_hit=true  err=provider_error   # R2 ← 冲突！
+```
+
+**后果**：
+1. **契约违反**：eval 侧 `WHERE status='cache_hit'` 期望 `error IS NULL` 的行；如果按 006API.md 编排 SQL 会遇到反常规矛盾行
+2. **eval 端故障率被低估**：eval 若基于 `WHERE status='error'` 统计 provider 故障率，只会看到 R1 那一条 error trace，看不到 R2+ 由缓存复用带下去的失败——一次 502 会在 5 分钟 TTL 内持续被"复述"为 cache_hit 但未被计入故障率
+3. **aggregator 质量降级不可观察**：一旦 R1 有 slot 失败，R2+ 每次 tool iteration 复用缓存时 aggregator 拿到的 references 里都有 `[Reference N — <slot> failed: ...]` 占位符——不是错，但用户没有告警窗口
+
+**初步判断**：
+已确认。两个正交问题合成一个后果：
+- (a) `fanoutAdvisorsWithCache` 应过滤"包含 error 的 result 集"或至少不缓存失败结果
+- (b) `cloneAsCacheHit` 复用时应显式清空 `error` 字段（若坚持缓存），或在 orchestrator 层的 `persistAdvisorTraces` 分支 `status='cache_hit'` 时强制 `error=null`
+
+**方案讨论**：（待定）
+- 方案 A：不缓存"任一 slot 失败"的整批 fanout 结果——最保守，第二次进来必然重跑，失败 slot 恢复后正常
+- 方案 B：cache 只保留成功 slot 的 result，失败 slot 每次 iteration 都补跑（部分缓存）
+- 方案 C：cloneAsCacheHit 时清 error+status 归 'cache_hit'，落盘契约保持一致；语义上把失败 slot 的失败降级为"我们记得它失败过、但不再重试"——对可用性不友好
+- 当前倾向：方案 A，最简单且契约干净；进程重启时的 TTL 抖动本来已经会补跑，多一层"失败也补跑"不额外增加复杂度
+
+**关联**：
+-> src/orchestrator/fanout.ts:fanoutAdvisorsWithCache
+-> src/cache/fanout-cache.ts:cloneAsCacheHit
+-> src/orchestrator/orchestrator.ts:persistAdvisorTraces
+-> test/orchestrator-cost.test.ts / orchestrator-cost-edge.test.ts（新增的探针路径展示此 bug）
+-> docs/006API.md §1.4（契约声明 `error` 仅在 `status='error'` 时填）
+
+---
+
+## [ISS-016] `buildConcatReferences` 把 `TraceError` 对象直接模板字符串化,输出 `[object Object]`
+
+**状态**：[发现]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-12
+
+**现象**：
+ISS-012 起 `AdvisorResult.error` 从 `string` 收窄为 `TraceError | null` 结构化对象。但 `src/aggregator/reference-builder.ts:buildConcatReferences` 未同步更新:
+```ts
+if (!r.success) {
+  return `${label} failed: ${r.error ?? 'unknown error'}]`;
+}
+```
+`r.error` 现在是 `{ type, message, http_status }` 对象，模板字符串会调用 `toString()` → `[object Object]`。
+
+实测证据（探针 test 输出，R1 失败 slot）:
+```
+[Reference 1 — adv-fail failed: [object Object]]
+[Reference 2 — adv-ok]
+analysis-body-adv-ok
+```
+预期应该是可读的 `provider_error: <http_status>: <message>`。
+
+**后果**：
+1. **aggregator 侧输入退化**：aggregator 收到 `[Reference 1 — adv-fail failed: [object Object]]` 无法从中提取"哪个 provider、什么错误、状态码"，不能用作 debug 信号
+2. **通过 ISS-015 恶化**：R2+ tool iteration cache hit 复用后，`[object Object]` 占位符持续被写到 aggregator 请求里，一次事故永久污染 5 分钟 TTL 内的所有 aggregator 请求
+3. **契约类型漂移隐蔽**：TypeScript 编译期没有捕获——`TraceError` 是 object，`?? 'unknown error'` 分支只有在 error 严格为 null/undefined 时才走 fallback
+
+**初步判断**：
+已确认。根因是 ISS-012 收窄 `error` 类型时，reference-builder 未随之更新为提取 `message` / `http_status`。
+
+**方案讨论**：（待定）
+- 方案 A：`buildConcatReferences` 里改为读 `r.error?.message ?? 'unknown error'`——最小修，仍保留 http_status 到 log/trace 层
+- 方案 B：拼一个 `<type> (<http_status>): <message>` 的可读结构——更多信息，但会让 aggregator 视野变复杂
+- 当前倾向：方案 A（保守可读）
+
+**关联**：
+-> src/aggregator/reference-builder.ts:23（`r.error ?? 'unknown error'`）
+-> src/types/mom.ts:TraceError（结构化定义）
+-> decisions/006（ISS-012 修改 error 类型的 decision 未 grep 到 reference-builder）
+-> test/reference-builder.test.ts（现有单测未覆盖失败 slot 的实际 error 对象）
+
+---
+
+## [ISS-017] `TraceRequest.request_summary.tool_use_count` 把 tool_use 与 tool_result 都算作"tool_use",eval 无法区分
+
+**状态**：[发现]
+**优先级**：[P3 轻微]
+**类型**：[功能异常]
+**发现日期**：2026-07-12
+
+**现象**：
+`src/orchestrator/orchestrator.ts:countToolUseBlocks` 同时把 `tool_use`（assistant 发起）与 `tool_result`（user 回填）都计入 `tool_use_count`：
+```ts
+if (b.type === 'tool_use' || b.type === 'tool_result') n++;
+```
+006API.md §1.4 里 `tool_use_count` 语义模糊（既不写"含 tool_result"也不排除）；实际 eval 侧读到"这轮请求含 5 个 tool_use"时通常理解为"agent 发起了 5 次工具调用"，而不是"3 次调用+2 次结果"。
+
+**后果**：
+- eval 侧统计 tool 交互深度会翻倍
+- 若客户端 messages 里 tool_use 与 tool_result 数量不对称（例如末尾 tool_use 尚未回填），计数会与直觉不符
+- 影响面小，因为该字段目前无消费方；但一旦 dashboard/eval pipeline 开始展示"平均 tool 深度"就会误导
+
+**初步判断**：
+已确认。属实现走样：文档命名是 `tool_use_count`，实现却混合两种事件类型。
+
+**方案讨论**：（待定）
+- 方案 A：只计 `tool_use`，`tool_result` 单独出一个 `tool_result_count` 字段
+- 方案 B：`request_summary` 加一个 `tool_result_count` 但 tool_use_count 保持只算 tool_use（更精确、字段兼容性变化）
+- 方案 C：文档反过来接受当前实现语义为"tool 相关 block 总数"，重命名字段
+- 当前倾向：方案 A（字段清晰，语义与命名严格一致；trace 落盘量增加可忽略）
+
+**关联**：
+-> src/orchestrator/orchestrator.ts:countToolUseBlocks
+-> src/types/mom.ts:RequestSummary
+-> docs/006API.md §1.4（`tool_use_count` 语义补充定义）
+
+---
+
+## [ISS-018] `TraceRequest.pricing.reasoning_per_million` 与 `TraceUsage.reasoning_tokens` 双向硬编码为 null / 0,provider 若上报 reasoning 无路径接入
+
+**状态**：[发现]
+**优先级**：[P3 轻微]
+**类型**：[技术债]
+**发现日期**：2026-07-12
+
+**现象**：
+- `src/cost/pricing.ts:snapshotPricing` 一律把 `reasoning_per_million: null` 硬编码，忽略 `ModelPricing` 字段
+- `src/cost/pricing.ts:toTraceUsage` 一律把 `reasoning_tokens: 0` 硬编码，忽略 provider 上报字段
+- `src/types/mom.ts:Usage` 里也没有 `reasoning_output_tokens` 字段（Anthropic 官方也不区分——但部分兼容 provider 如 OpenAI o1 系列会额外报出 `reasoning_tokens`）
+
+Reference: docs/006API.md §1.4 里 `reasoning_tokens` / `reasoning_per_million` 均标注"上游若不报则 0/null"，暗示了未来支持接入的可能性——但当前实现是**硬编码封死**，即使 provider 上报也读不进来。
+
+**后果**：
+- MVP 单 provider（Anthropic 兼容）场景无实际影响
+- 未来若 provider 侧 `/v1/models` 暴露 reasoning 价格，或 provider 上报 usage 里含 `reasoning_output_tokens`，都需要三处联动修改
+- 冻结 Pricing schema 时未对齐 usage schema，语义上"pricing 字段存在但 usage 永远为 0"给 eval 一种"这里能计价"的错觉
+
+**初步判断**：
+已确认。属于 Phase 3 硬编码，无 upstream 数据源，属于计划性预留。当前无消费方，属"约定性字段"，暂无实质 bug；但 eval 侧看到 pricing 字段时可能会以为已支持。
+
+**方案讨论**：（待定）
+- 方案 A：文档里显式声明"reasoning 字段是预留、当前始终为 0/null"（改文档不改代码）
+- 方案 B：`snapshotPricing` 从 `ModelPricing` 读 reasoning 价（要扩 ModelPricing 类型 + pricing_table 数据源）；`toTraceUsage` 从 Anthropic Usage 扩展字段读——但 `Usage` 类型也没有该字段
+- 当前倾向：方案 A（保持"未来 provider 支持时统一改"）
+
+**关联**：
+-> src/cost/pricing.ts:snapshotPricing / toTraceUsage
+-> src/types/mom.ts:PricingSnapshot / TraceUsage / Usage / ModelPricing
+-> docs/006API.md §1.4（补充"reasoning 字段为预留"说明）
+
+---
+
+## [ISS-019] `snapshotPricing` 语义不一致:advisor cache_hit 时跳过 pricing 快照(记 null),导致 eval 反演单价失败
+
+**状态**：[发现]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-12
+
+**现象**：
+`src/orchestrator/orchestrator.ts:persistAdvisorTraces` 里有个"cache_hit 时不 warn 但仍 snapshot pricing"的分支：
+```ts
+const pricing = snapshotPricing(r.selected_model, mom.pricing_table, pricingSource);
+if (!pricing && !r.cache_hit) {
+  log.warn({event:'pricing_missing', ...})
+}
+```
+逻辑正确：cache_hit 时也会尝试 `snapshotPricing`，pricing_table 命中就返回 snapshot。
+
+**但**：`persistPassthroughTrace` 里 pricing_table 未命中时 `pricing = null`；跨路径行为一致但 006API.md §"pricing 请求时冻结"暗含"pricing 快照与 usage 独立"——目前实现是"pricing_table 无该 model → pricing=null → cost=0"是一致的（`calculateCostFromSnapshot(usage, null) = 0`）。**这不是 bug**，但……
+
+**真正的问题**：当 `pricing_table` 里包含某 model 但 usage 全 0（cache_hit 或异常）时，pricing 快照被保留 → eval 侧能反演单价 ✓；当 `pricing_table` 里**不包含**某 model 且 cache_hit 时，pricing 快照为 null → eval 侧**既没法反演单价、也不知道成本是"该 slot 命中缓存"还是"没配 pricing"**。两种情况在 SQL 层用 `cost_usd=0` 区分不了。
+
+实测通过 orchestrator-cost.test.ts 的 "cache hit → advisor traces status=cache_hit, usage=0, cost=0, but pricing snapshot preserved" 用例验证——**只有 pricing_table 已配置该 model 时** pricing 才被保留。
+
+**后果**：
+- eval 侧无法准确区分"该 slot 没配 pricing" vs "该 slot 命中缓存"这两种"cost=0"来源
+- 影响面小（eval 侧一般会保证 pricing_table 齐全）；主要是可观察性完整度问题
+
+**初步判断**：
+已确认。属边界完整性问题：`status='cache_hit'` 已经是可观察信号，可能不需要额外冗余。
+
+**方案讨论**：（待定）
+- 方案 A：什么都不改，eval 侧用 `status='cache_hit'` 与 `pricing IS NULL` 组合判断——文档里显式说明该判断法（改文档）
+- 方案 B：cache_hit 时始终保留 pricing 快照（若 pricing_table 缺失，保留一个 stub 结构说明"缺失"）——语义不干净
+- 当前倾向：方案 A（属可观察性文档化，不改行为）
+
+**关联**：
+-> src/orchestrator/orchestrator.ts:persistAdvisorTraces（cache_hit 语义分支）
+-> docs/006API.md §1.4（补充 cache_hit + pricing 组合判断说明）
+
+---
+
+## [ISS-020] `AdvisorResult` 通过 fanout cache 复用时`response_summary` 被强制 null,但 selected_model / cache_hit 时的其他字段可能对齐不精确
+
+**状态**：[发现]
+**优先级**：[P3 轻微]
+**类型**：[技术债]
+**发现日期**：2026-07-12
+
+**现象**：
+`src/cache/fanout-cache.ts:cloneAsCacheHit` 里对 `response_summary` 强制置 null:
+```ts
+response_summary: null,
+```
+这是"缓存命中并未真发上游、没有真实 response_summary"的正确语义。但同时:
+- `started_at = finished_at = Date.now()`—— 缓存命中时时间戳被"重置"为当前时刻,这样导致同一 gateway_request_id 下 N+1 条 trace 的 started_at 分布很紧,不是问题
+- `error` 字段原样保留(见 ISS-015)——需要清空
+
+**后果**：
+- 无直接功能问题;response_summary 的 null 语义正确
+- 但如果未来引入"缓存命中时能反演出 R1 的原始 response id",dashboard/eval 就要挂另一个字段(`origin_request_id` / `origin_finished_at`)
+
+**初步判断**：
+已确认。属可观察性预留问题;主要作为 ISS-015 的关联记录。
+
+**关联**：
+-> src/cache/fanout-cache.ts:cloneAsCacheHit
+-> 与 ISS-015 合并考虑
 
 <!--
 新增条目模板：
