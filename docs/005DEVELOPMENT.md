@@ -6,6 +6,178 @@
 
 ---
 
+## [2026-07-12-5] fanout_mode=off + thinking normalization 手动测试指导
+
+### 概念速览(**这轮新增**)
+
+- **`fanout_mode='off'`(af33818)**:显式关掉 fanout cache。每次入口请求都真跑 N 个 advisor + 1 个 aggregator,`trigger_reason='fanout_cache_off'`。用于 A/B 对照 / debug 抽风缓存行为
+- **thinking normalization(af33818)**:provider 返回的 `thinking` block 若 `signature` 缺失 / 空 → 从响应中过滤;流式帧同时过滤 `content_block_start/delta/stop` 并重映射后续 index 保持连续
+- **`cost_usd` 字段删除(af68b46)**:`TraceRequest` 不再存 cost。`pricing`(含 `currency`)+ `usage` 落盘,eval 侧现算 `cost = pricing × usage`。数据库表 schema 也删了 `cost_usd` 列——早期 SQL 查询语句会失败(见 ISS-026)
+- **`ModelPricing.currency` 字段(af68b46)**:pricing_table 每条 model 带 currency,orchestrator 不假设 USD;sync-pricing 脚本默认 CNY
+
+### 单元测试
+
+```bash
+npm test
+# 123 例(97 基线 + 本轮新增 26 例):
+#   - anthropic-normalize-edge:16 例(unsigned 边界 / index remap / SSE 集成)
+#   - stream-forward-chunking:4 例(1..4096 字节 chunk 无重复无丢失)
+#   - fanout-off:5 例(R1+R2 双真跑 / trigger_reason / cache 未污染 / off vs user_turn 对比)
+```
+
+### 手动 e2e 测试(基于 [2026-07-12-1] 的 M1–M7 之后追加)
+
+前置沿用 [2026-07-12-1]。切换 `data/mom.config.json` 的 `fanout_mode` 需要重启网关(`tsx watch` 不监听 data/)。
+
+---
+
+**M8(`fanout_mode='off'` 全量真跑对比 `user_turn` 缓存路径)**
+
+```bash
+# 1) 把 fanout_mode 改成 off,重启
+node -e "
+const {readFileSync,writeFileSync}=require('node:fs');
+const c=JSON.parse(readFileSync('data/mom.config.json','utf8'));
+c.fanout_mode='off';
+writeFileSync('data/mom.config.json', JSON.stringify(c,null,2)+'\n');
+"
+MOM_PORT=3010 npm run dev &
+sleep 2
+
+# 2) 用同一 session 发一次 R1
+export S1=$(uuidgen | tr '[:upper:]' '[:lower:]')
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -H "x-session-id: $S1" \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"off-mode probe M8"}]}],"max_tokens":80}' \
+  -o /dev/null -w "M8-R1 HTTP %{http_code}\n"
+
+# 3) 发一次 tool iteration R2
+cat > /tmp/m8-r2.json <<EOF
+{"model":"any","max_tokens":80,"messages":[
+  {"role":"user","content":[{"type":"text","text":"off-mode probe M8"}]},
+  {"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"probe","input":{}}]},
+  {"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}
+]}
+EOF
+curl -sS -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -H "x-session-id: $S1" \
+  --data-binary @/tmp/m8-r2.json \
+  -o /dev/null -w "M8-R2 HTTP %{http_code}\n"
+
+# 4) 查 trace:R1 + R2 每轮都是 N advisor + 1 aggregator,全部 trigger_reason='fanout_cache_off',cache_hit 全 false
+curl -sS "http://localhost:3010/trace/requests?session_id=$S1" | \
+  jq '.requests | group_by(.trigger_reason) | map({trigger_reason: .[0].trigger_reason, n: length})'
+# 期望:{ trigger_reason: "fanout_cache_off", n: (N+1)*2 }
+```
+
+**M9(切回 `user_turn` 对比 provider 调用次数)**
+
+```bash
+pkill -f "tsx watch --env-file=.env src/index.ts"; sleep 1
+node -e "
+const {readFileSync,writeFileSync}=require('node:fs');
+const c=JSON.parse(readFileSync('data/mom.config.json','utf8'));
+c.fanout_mode='user_turn';
+writeFileSync('data/mom.config.json', JSON.stringify(c,null,2)+'\n');
+"
+MOM_PORT=3010 npm run dev &
+sleep 2
+
+# 同 M8 的两次请求,新 session
+export S2=$(uuidgen | tr '[:upper:]' '[:lower:]')
+curl -sS -X POST http://localhost:3010/v1/messages -H 'content-type: application/json' -H "x-session-id: $S2" \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"off-mode probe M8"}]}],"max_tokens":80}' \
+  -o /dev/null -w "M9-R1 HTTP %{http_code}\n"
+curl -sS -X POST http://localhost:3010/v1/messages -H 'content-type: application/json' -H "x-session-id: $S2" \
+  --data-binary @/tmp/m8-r2.json \
+  -o /dev/null -w "M9-R2 HTTP %{http_code}\n"
+
+curl -sS "http://localhost:3010/trace/requests?session_id=$S2" | \
+  jq '.requests | group_by(.trigger_reason) | map({trigger_reason: .[0].trigger_reason, n: length})'
+# 期望:R2 的 advisor 全部 trigger_reason='skipped_tool_iteration' / cache_hit=true / status='cache_hit';R2 aggregator 是 'skipped_tool_iteration' / cache_hit=false / status='success'(aggregator 永远真跑)
+```
+
+**M10(thinking normalization 端到端 — 需要 provider 侧启用 thinking)**
+
+如果 provider 支持 extended thinking(如 Claude 3.7+),发一条:
+
+```bash
+curl -sSN -X POST http://localhost:3010/v1/messages \
+  -H 'content-type: application/json' \
+  -H "x-session-id: $(uuidgen | tr '[:upper:]' '[:lower:]')" \
+  -d '{"model":"any","messages":[{"role":"user","content":[{"type":"text","text":"用一句话给我一个 42 的哲学解释"}]}],"max_tokens":600,"stream":true,"thinking":{"type":"enabled","budget_tokens":300}}' \
+  -o /tmp/m10.sse -w "M10 HTTP %{http_code}\n"
+
+# 检查:如果 provider 返回的 thinking block 缺 signature,应该被过滤掉
+grep -c "^event: content_block_start" /tmp/m10.sse
+grep -c "\"type\":\"thinking\"" /tmp/m10.sse  # 剩下的 thinking 都是 signed
+grep -c "thinking_delta" /tmp/m10.sse         # 若过滤掉,应为 0(或很少)
+```
+
+期望:客户端拿到的字节序不含"内部推理内容",thinking_delta 数量为 0 或对应 signed thinking 的量。
+
+**M11(现算 cost — 没有 cost_usd 列了)**
+
+```bash
+node -e "
+const {DatabaseSync}=require('node:sqlite');
+const db=new DatabaseSync('mom.db');
+// 现算 pricing × usage
+const rows = db.prepare(\`
+  SELECT session_id, role, status, cache_hit, data
+  FROM traces
+  WHERE session_id = ?
+\`).all('$S1');
+let total = 0;
+for (const r of rows) {
+  const t = JSON.parse(r.data);
+  if (!t.pricing) continue;
+  const u = t.usage;
+  const p = t.pricing;
+  const cost = (u.input_tokens * p.input_per_million
+             + u.output_tokens * p.output_per_million
+             + u.cache_creation_tokens * p.cache_write_per_million
+             + u.cache_read_tokens * (p.cache_read_per_million ?? 0))
+             / 1_000_000;
+  total += cost;
+  console.log(\`  role=\${t.role.padEnd(12)} slot=\${t.selected_model.padEnd(10)} cost=\${cost.toFixed(8)} currency=\${p.currency}\`);
+}
+console.log('session total:', total);
+"
+```
+
+期望:每条 trace 现算 cost 与在 fanout=off 场景下一致(每条 advisor 都是真实数字);currency 字段来自 pricing_table 的 `--currency`(默认 CNY,可能是 USD)。
+
+---
+
+### 已知问题(本轮发现)
+
+以下问题**登记但未修复**——见 `003ISSUES.md` ISS-021..027:
+- **ISS-021 [P2]**:passthroughStream 主链路已不是字节级 pipe(af33818 改成 parse→normalize→重编码)
+- **ISS-022 [P3]**:delta/stop 未见 start 时 pass-through
+- **ISS-023/024 [P3]**:off 模式下 `selectSignatureMessages` / `isNewTurn` 存在无用计算
+- **ISS-025 [P3]**:SSE parse 失败 fallback 压掉 multi-line data
+- **ISS-026 [P3]**:005DEVELOPMENT.md `[2026-07-10-1]` 仍写 `total_cost_usd` SQL 会报错(建议直接跑 M11 现算方式)
+- **ISS-027 [P3]**:001ARCHITECTURE.md 未列 `fanout_cache_off` 第 7 种 trigger_reason
+
+以及 PR #11 待合入的 **ISS-015..020**(af33818 未解决,预期):
+- **ISS-015 [P1]**:fanout cache 缓存失败 slot 导致 tool iteration cache_hit 后 error 沿用
+- **ISS-016 [P1]**:`buildConcatReferences` `[object Object]` 占位符(reference-builder.ts:23 未改)
+- **ISS-017 [P3]**:`tool_use_count` 混算 tool_use + tool_result
+- **ISS-018 [P3]**:`reasoning_tokens` 硬编码 0
+- **ISS-019 [P2]**:af68b46 部分解决(cost_usd 删除后,`pricing IS NULL` 直接区分)——**可考虑关闭**
+- **ISS-020 [P3]**:cache_hit response_summary=null 但 origin 溯源缺 hook
+
+### 复核结论
+
+**af33818(cache-off + thinking normalize)**:未解决 ISS-015..020,预期(改动轴不同)。**引入 ISS-021..025 五条新问题**,其中 ISS-021 P2 需要与 001ARCHITECTURE 承诺对齐决策
+**af68b46(sync-pricing + drop cost_usd)**:**部分解决 ISS-019**(cost_usd 字段消失,`pricing IS NULL` 天然区分 pricing 缺失)——待 PR #11 合并后可关闭该条
+
+---
+
+## [2026-07-12-4] provider thinking block normalization
 
 ## [2026-07-12-3] provider thinking block normalization
 

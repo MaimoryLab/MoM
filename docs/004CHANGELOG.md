@@ -1,3 +1,38 @@
+## [2026-07-12-5] test(orchestrator): fanout_mode=off + anthropic-normalize coverage; issue triage on af33818/af68b46 [ISS-021..027]
+
+### 改动
+- 新增 `test/anthropic-normalize-edge.test.ts`(16 例):normalizeAnthropicResponse 三种"unsigned"边界(undefined / "" / null)、连续多个 unsigned thinking、message_start 内 content 过滤、SSE normalizer 交错 index 重映射、delta/stop 落在 dropped index / kept index 的行为、非 record / 非 string type 事件的健壮性、独立实例隔离
+- 新增 `test/stream-forward-chunking.test.ts`(4 例):1 / 5 / 300 / 4096 字节 chunk 切片下 SSE 帧无重复无丢失,验证 af33818 从字节级 pipe 改为 parse→normalize→重编码后 chunk-boundary 语义仍然正确
+- 新增 `test/fanout-off.test.ts`(5 例):R1+R2 tool iteration 双真跑 / trigger_reason 落 `fanout_cache_off` / cache 未被写 / off vs user_turn 3 轮 provider 调用次数对比 (9 vs 5) / 现算 cost (pricing × usage) 正确
+- 复核结论(未闭环):af33818 未解决 ISS-015..020(PR #11 待合入的 P1/P2/P3 议题——本次改动轴不同,预期);af68b46 部分解决 ISS-019(cost_usd 字段删除后,`pricing IS NULL` 直接区分 cache_hit vs pricing 缺失)
+- 003ISSUES.md 新增 7 条问题(ISS-021..027):
+  - **ISS-021 [P2]**:passthroughStream 主链路从字节级 pipe 变为 parse→normalize→重编码,破坏 001ARCHITECTURE 承诺
+  - **ISS-022 [P3]**:content_block_delta/stop 在无对应 start 时 pass-through,index 连续性弱保证
+  - **ISS-023 [P3]**:`selectSignatureMessages` `!== 'user_turn'` 全捕获,off 模式冗余分支
+  - **ISS-024 [P3]**:off 模式下 `isNewTurn` 依然计算,微小无用工作
+  - **ISS-025 [P3]**:SSE parse 失败 fallback 把 multi-line data 压成单行
+  - **ISS-026 [P3]**:docs/005DEVELOPMENT.md 仍写 `total_cost_usd`(af68b46 已删),SQL 示例会报错
+  - **ISS-027 [P3]**:docs/001ARCHITECTURE.md §6 未反映 `fanout_cache_off` 第 7 种 trigger_reason 枚举
+- 手动测试步骤 M8–M11 加入 `docs/005DEVELOPMENT.md` 顶部新章节 `[2026-07-12-2]`:fanout_mode=off 场景 curl 覆盖 + 流式 thinking normalization 验证
+- 全 123 例测试通过(原 97 + 新 26),typecheck 无 diff
+- 本次 PR 不改代码逻辑,只加测试 + 文档 + issues
+
+### 涉及文件
+- test/anthropic-normalize-edge.test.ts:新增 16 例
+- test/stream-forward-chunking.test.ts:新增 4 例
+- test/fanout-off.test.ts:新增 5 例
+- docs/003ISSUES.md:追加 ISS-021..027
+- docs/004CHANGELOG.md:本条
+- docs/005DEVELOPMENT.md:顶部新增 [2026-07-12-2] 章节
+
+### 关联
+-> ISS-021 / ISS-022 / ISS-023 / ISS-024 / ISS-025 / ISS-026 / ISS-027
+-> af33818(cache-off + thinking normalize commit)
+-> af68b46(cost_usd 删除,ISS-010 sync-pricing)
+
+---
+
+## [2026-07-12-4] fix(provider): normalize invalid thinking blocks
 
 ## [2026-07-12-3] fix(provider): normalize invalid thinking blocks
 
