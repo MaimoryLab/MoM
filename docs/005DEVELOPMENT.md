@@ -6,6 +6,24 @@
 
 ---
 
+
+## [2026-07-12-3] provider thinking block normalization
+
+- 普通与流式 provider 响应均过滤缺失有效 `signature` 的 thinking blocks；signed thinking 原样保留。
+- SSE 过滤后会重映射后续 content block index，避免下游收到不连续索引。
+- 验证：`npm run typecheck` 通过，`npm test` 97/97 通过；覆盖 unsigned/signed thinking 与 SSE index remap。
+
+---
+
+## [2026-07-12-2] `fanout_mode=off` 完全关闭本地 fanout cache
+
+- `mom_mode=always` 仍执行 advisor fan-out 与 aggregator；仅跳过 fanout cache 的 `get` / `set`。
+- 每个请求和 tool iteration 都真实调用 advisors，日志为 `event=fanout_cache_off` / `trigger_reason=fanout_cache_off` / `cache_hit=false`。
+- 修改 `data/mom.config.json` 后需重启；运行中的进程不会热加载 JSON 配置。
+- 验证：`npm run typecheck` 通过，`npm test` 97/97 通过；包含 cache 方法一旦被调用就抛错的回归测试。
+
+---
+
 ## [2026-07-12-1] Cost 记录 / Fanout Cache / Session 上下文 手动测试指导
 
 ### 前置：概念速览（**读一次就能上手手动测试**）
@@ -218,7 +236,58 @@ A: **不会**。in-memory Map,重启即清空。同 tool loop 内如果发生重
 
 ---
 
+## [2026-07-11-1] ISS-010：pricing sync 脚本 + 币种从数据源带出 + 去掉 cost_usd 字段
 
+### 环境要求
+
+沿用 [2026-07-10-1]。新增依赖：无。脚本用 `undici` 走 provider `/v1/models`。
+
+### pricing_table 灌入（新姿势，取代旧内联脚本）
+
+```bash
+npm run sync-pricing              # 默认 currency=CNY，只补齐缺失项，写入 data/mom.config.json
+npm run sync-pricing -- --dry-run # 只打印将写入什么，不落盘
+npm run sync-pricing -- --overwrite    # 强制覆盖已有条目（谨慎使用，会覆盖手改的价格）
+npm run sync-pricing -- --currency USD # 换 provider 时传入对应币种；paigod 默认 CNY
+```
+
+- 脚本从 `.env` 读 `PROVIDER_BASE_URL` / `PROVIDER_API_KEY` / `PROVIDER_AUTH_STYLE`
+- `cache_write` 按 Anthropic 惯例估算为 `input * 1.25`（provider `/v1/models` 未暴露该字段）
+- 本地 pricing_table 里已存在但 provider 不再列出的模型条目**不会**被删除，仅打印 `SKIP unknown-to-provider`
+
+### `ModelPricing` / `PricingSnapshot` 结构变化
+
+`ModelPricing` 从 4 字段升为 5 字段：新增 `currency: string`（ISO 4217；数据源属性）。`PricingSnapshot.currency` 从字面量 `'USD'` 拓宽为 `string`，由 `snapshotPricing` 从 `ModelPricing.currency` 忠实带出——网关不再假设币种。
+
+### 删除的字段（DB / API 契约同步破坏性变更）
+
+- `TraceRequest.cost_usd` 删除；SQLite `traces` 表 `cost_usd` 列删除
+- `Metrics.total_cost_usd` / `Metrics.baseline_cost_usd` 删除（Phase 4/6 未开工，届时按需重新设计）
+- eval / dashboard 层用 `pricing × usage` 现算成本（`SUM(json_extract(data, '$.usage.input_tokens') * json_extract(data, '$.pricing.input_per_million') / 1e6) + ...`），符合 eval 需求文档"eval 负责聚合"原则
+
+**本地 `mom.db` 需要删掉重建**（列数变了；ISS-009 之前的迁移策略已明确：Phase 3 主链路刚合并、无生产数据）：
+
+```bash
+rm -f mom.db
+npm run dev   # initDB 会自动重建
+```
+
+### 自检自测关键片段
+
+```bash
+npm run typecheck         # 期望退出码 0
+npm run build             # 期望退出码 0
+npm run sync-pricing -- --dry-run  # 期望列出 provider 覆盖到的模型 pricing
+# 编辑器打开 data/mom.config.json 确认 pricing_table 全部条目带 currency=CNY
+```
+
+启动网关后跑一次 `curl` 打 `/v1/messages` 应看到：
+- 日志里 `event=pricing_missing` warn **消失**
+- SQLite `traces` 表里 `SELECT json_extract(data, '$.pricing.currency') FROM traces LIMIT 5;` 返回 `CNY`
+
+---
+
+## [2026-07-10-1] Phase 3：trigger + fanout cache + cache_control + cost + trace + SDK 解耦
 
 ### 环境要求
 
@@ -229,7 +298,7 @@ Git worktree 隔离场景下，**每个 worktree 都要单独 `npm install`**—
 ### 关键新配置字段
 
 `data/mom.config.json` 需确保以下字段填齐（首次启动 `DEFAULT_MOM_CONFIG` 会写入默认值）：
-- `fanout_mode`: `user_turn`（默认）| `per_iteration`
+- `fanout_mode`: `off`（完全绕过本地 fanout cache）| `user_turn`（默认）| `per_iteration`
 - `cache.ttl`: `5m` | `1h`；`cache.max_entries`: 建议 100–1000
 - `pricing_table`: `{ [modelName]: { input, output, cache_write, cache_read } }`，单位 USD per million tokens；缺失项 log warn + 该模型 cost 计 0
 

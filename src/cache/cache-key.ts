@@ -43,7 +43,7 @@ export function selectSignatureMessages(
   messages: AnthropicMessage[],
   fanoutMode: MoMConfig['fanout_mode'],
 ): AnthropicMessage[] {
-  if (fanoutMode === 'per_iteration') return messages;
+  if (fanoutMode !== 'user_turn') return messages;
   // user_turn: 截到最后一条真实 user message（含）为止
   let lastRealIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {

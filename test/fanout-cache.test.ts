@@ -1,11 +1,19 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AdvisorResult, Usage } from '../src/types/mom.js';
+import type {
+  AdvisorResult,
+  MoMConfig,
+  ProviderConfig,
+  Usage,
+} from '../src/types/mom.js';
+import type { FanoutCache } from '../src/cache/fanout-cache.js';
 import {
   cloneAsCacheHit,
   createFanoutCache,
   parseTTL,
 } from '../src/cache/fanout-cache.js';
+import { fanoutAdvisorsWithCache } from '../src/orchestrator/fanout.js';
+import { DEFAULT_MOM_CONFIG } from '../src/types/mom.js';
 
 const EMPTY_USAGE: Usage = { input_tokens: 0, output_tokens: 0 };
 
@@ -112,5 +120,30 @@ describe('cloneAsCacheHit', () => {
     const cloned = cloneAsCacheHit(failed);
     assert.equal(cloned[0]!.success, false);
     assert.equal(cloned[0]!.error, 'boom');
+  });
+});
+
+describe('fanoutAdvisorsWithCache — off mode', () => {
+  it('does not read or write the cache', async () => {
+    const momConfig: MoMConfig = {
+      ...DEFAULT_MOM_CONFIG,
+      fanout_mode: 'off',
+      advisor: { slots: [], tools_enabled: false },
+    };
+    const provider: ProviderConfig = {
+      base_url: 'http://unused.test',
+      api_key: 'unused',
+      auth_style: 'bearer',
+    };
+    const cache: FanoutCache = {
+      get: () => { throw new Error('cache.get must not be called'); },
+      set: () => { throw new Error('cache.set must not be called'); },
+      delete: () => {},
+      size: () => 0,
+      clear: () => {},
+    };
+
+    const result = await fanoutAdvisorsWithCache([], momConfig, provider, cache, 'unused');
+    assert.deepEqual(result, { results: [], cache_hit: false });
   });
 });

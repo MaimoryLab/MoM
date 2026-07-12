@@ -52,6 +52,18 @@ describe('selectSignatureMessages — per_iteration mode', () => {
   });
 });
 
+describe('selectSignatureMessages — off mode', () => {
+  it('returns full messages unchanged', () => {
+    const messages: AnthropicMessage[] = [
+      { role: 'user', content: 'q' },
+      { role: 'assistant', content: 'a' },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'r' }] },
+    ];
+    const sig = selectSignatureMessages(messages, 'off');
+    assert.equal(sig.length, 3);
+  });
+});
+
 describe('computeFanoutCacheKey', () => {
   it('produces the same key across tool iterations of the same real user turn', () => {
     const base: AnthropicMessage[] = [{ role: 'user', content: 'analyse repo' }];

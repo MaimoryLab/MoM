@@ -23,6 +23,7 @@ export function computeTriggerReason(
   isNewTurn: boolean,
   cacheHit: boolean,
 ): TriggerReason {
+  if (fanoutMode === 'off') return 'fanout_cache_off';
   if (fanoutMode === 'per_iteration') {
     return cacheHit ? 'fanout_cache_hit' : 'per_iteration';
   }

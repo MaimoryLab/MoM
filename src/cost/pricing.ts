@@ -20,7 +20,7 @@ export function snapshotPricing(
   const rate = pricingTable[model];
   if (!rate) return null;
   return {
-    currency: 'USD',
+    currency: rate.currency,
     input_per_million: rate.input,
     cache_read_per_million: rate.cache_read,
     cache_write_per_million: rate.cache_write,

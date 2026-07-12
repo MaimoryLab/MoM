@@ -5,8 +5,8 @@ import type { ModelPricing } from '../src/types/mom.js';
 import { calculateCost, sumUsage } from '../src/cost/pricing.js';
 
 const TABLE: Record<string, ModelPricing> = {
-  'model-a': { input: 3, output: 15, cache_write: 3.75, cache_read: 0.3 },
-  'model-b': { input: 0.5, output: 2, cache_write: 0.625, cache_read: 0.05 },
+  'model-a': { currency: 'CNY', input: 3, output: 15, cache_write: 3.75, cache_read: 0.3 },
+  'model-b': { currency: 'CNY', input: 0.5, output: 2, cache_write: 0.625, cache_read: 0.05 },
 };
 
 describe('calculateCost', () => {

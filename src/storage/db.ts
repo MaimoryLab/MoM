@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS traces (
   finished_at INTEGER NOT NULL,
   duration_ms INTEGER NOT NULL,
   status TEXT NOT NULL,
-  cost_usd REAL NOT NULL,
   trigger_reason TEXT NOT NULL,
   data TEXT NOT NULL
 );

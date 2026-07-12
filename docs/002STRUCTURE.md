@@ -12,6 +12,8 @@ MoM/
 ├── .gitignore
 ├── data/                          # gitignore；业务配置与本地状态存放目录
 │   └── mom.config.json            # MoMConfig 持久化（首次启动自动写入 DEFAULT_MOM_CONFIG）
+├── scripts/                       # 新增 — ISS-010；一次性运维脚本
+│   └── sync-pricing.mjs           # 拉取 provider `/v1/models`，把 per-token 价格换算成 per-1M-tokens ModelPricing 灌进 mom.config.json.pricing_table；`--currency`（默认 CNY）+ `--overwrite` / `--dry-run`
 ├── src/                           # 网关服务（后端）
 │   ├── index.ts                   # 进程入口：initDB → getConfig → startServer(port, runtime)
 │   ├── config.ts                  # 组装 RuntimeConfig（provider + mom）+ 递归护栏 + assertModeRequirements
@@ -26,8 +28,8 @@ MoM/
 │   │   └── sse.ts                 # parseSSELine / formatSSEEvent + createSSEParser（Phase 3 起）增量分帧器
 │   ├── orchestrator/              # Phase 2 / Phase 3
 │   │   ├── orchestrator.ts        # createOrchestrator(runtime) → { nonStreaming(body, sessionId, log), streaming(body, sessionId, output, log) }；主链路 trigger → cache → fanout → cost；每次上游调用后落一条 TraceRequest（advisor N 条 + aggregator 1 条；aggregator 抛错时也补落 error trace）；透传路径落 role='passthrough' TraceRequest
-│   │   ├── trigger.ts             # 新增 — Phase 3；isNewUserTurn / computeTriggerReason（六种 TriggerReason 标签）
-│   │   └── fanout.ts              # promisePool + fanoutAdvisors + fanoutAdvisorsWithCache（命中即复用，未命中真跑再 set）
+│   │   ├── trigger.ts             # 新增 — Phase 3；isNewUserTurn / computeTriggerReason（七种 TriggerReason 标签）
+│   │   └── fanout.ts              # promisePool + fanoutAdvisors + fanoutAdvisorsWithCache（off 时绕过 cache；命中即复用，未命中真跑再 set）
 │   ├── advisor/                   # Phase 2
 │   │   ├── prompts.ts             # ADVISOR_SYSTEM_PROMPT / ADVISORY_INSTRUCTION
 │   │   ├── view-transformer.ts    # convertToAdvisorView / truncateToolResult
@@ -40,10 +42,11 @@ MoM/
 │   │   ├── fanout-cache.ts        # createFanoutCache（Map-based TTL + LRU 手写、零第三方依赖）/ parseTTL / cloneAsCacheHit（ISS-009 起 clone 补 started_at/finished_at=Date.now() / selected_model / response_summary=null）
 │   │   └── cache-decorator.ts     # applyAdvisorCacheControl（system_and_3 布局；跳过合成 ADVISORY_INSTRUCTION marker）
 │   ├── cost/                      # 新增 — Phase 3
-│   │   └── pricing.ts             # calculateCost / sumUsage（4 段 Usage 汇总）+ ISS-009 起 snapshotPricing / calculateCostFromSnapshot / toTraceUsage 三段快照-用纯函数；只放计价纯函数，metrics 聚合归 storage/dashboard-api
+│   │   └── pricing.ts             # calculateCost / sumUsage（4 段 Usage 汇总）+ ISS-009 起 snapshotPricing / calculateCostFromSnapshot / toTraceUsage；ISS-010 起 snapshotPricing 从 ModelPricing.currency 忠实带出币种，不再假设 USD
 │   ├── provider/
-│   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders(provider)
-│   │   └── stream-forward.ts      # 流式 SSE 转发；签名 NodeJS.WritableStream + {onEvent?, log?}（Phase 3 起）；SSE header/hijack 上移到 gateway 层
+│   │   ├── anthropic-normalize.ts # 过滤不可安全回传的 unsigned thinking blocks；SSE content block index 连续重映射
+│   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders(provider)；响应 normalization
+│   │   └── stream-forward.ts      # 流式 SSE parse + normalization + 转发；签名 NodeJS.WritableStream + {onEvent?, log?}
 │   ├── storage/
 │   │   ├── db.ts                  # node:sqlite 单例；DDL 常量内联（traces 表 ISS-009 起 14 列 + 3 个索引 / metrics_cache）
 │   │   └── traces.ts              # 新增 — Phase 3；ISS-009 起 saveTraceRequest / getTraceRequestById / getTraceRequestsBySessionId / getRecentTraceRequests
@@ -53,6 +56,7 @@ MoM/
 │       └── index.ts               # 汇出 anthropic.ts / mom.ts
 ├── test/                          # node --test --import tsx 执行
 │   ├── view-transformer.test.ts   # Phase 2；convertToAdvisorView / truncateToolResult 覆盖
+│   ├── anthropic-normalize.test.ts # unsigned/signed thinking 过滤 + SSE index remap
 │   ├── reference-builder.test.ts  # Phase 2；appendReferencesToLastUser 前缀引用不变量 + concat 拼接
 │   ├── trigger.test.ts            # 新增 — Phase 3；isNewUserTurn 正负例 + computeTriggerReason 六种组合
 │   ├── cache-key.test.ts          # 新增 — Phase 3；tool iteration 同 key / slot 顺序改 key 变 / settingsHash 生效 / per_iteration 差异 / 三段 hash 格式

@@ -5,12 +5,14 @@ import type {
 } from './anthropic.js';
 
 export type MoMMode = 'off' | 'always' | 'auto';
-export type FanoutMode = 'user_turn' | 'per_iteration';
+export type FanoutMode = 'off' | 'user_turn' | 'per_iteration';
 export type AggregationMode = 'concat' | 'judge';
 export type AuthStyle = 'bearer' | 'x-api-key';
 export type CacheTTLPreset = '5m' | '1h';
 
 export interface ModelPricing {
+  /** Currency code (ISO 4217, e.g. "CNY", "USD"). Data-source attribute — the sync script writes it from `--currency`, orchestrator surfaces it verbatim on the snapshot. */
+  currency: string;
   input: number;
   output: number;
   cache_write: number;
@@ -118,7 +120,6 @@ export interface JudgeResult {
   fallback: boolean;
   usage: Usage;
   latency_ms: number;
-  cost_usd: number;
 }
 
 export interface BaselineResult {
@@ -161,8 +162,6 @@ export interface TraceRequest {
   usage: TraceUsage;
   /** Pricing snapshot deep-cloned from `momConfig.pricing_table[selected_model]` at the moment of dispatch. */
   pricing: PricingSnapshot | null;
-  /** Cost in USD computed at dispatch time using `pricing` × `usage`. Zero for cache_hit and passthrough. */
-  cost_usd: number;
   /** Populated only when status === 'error'. */
   error: TraceError | null;
   /** Snapshot of the incoming request metadata (not the full messages array). */
@@ -186,7 +185,8 @@ export interface TraceUsage {
 }
 
 export interface PricingSnapshot {
-  currency: 'USD';
+  /** Currency code carried through from `ModelPricing.currency` — gateway does not assume; it echoes whatever the data source declared. */
+  currency: string;
   input_per_million: number;
   cache_read_per_million: number | null;
   cache_write_per_million: number;
@@ -226,8 +226,6 @@ export interface Metrics {
   window: string;
   request_count: number;
   mom_trigger_count: number;
-  total_cost_usd: number;
-  baseline_cost_usd: number;
   avg_latency_ms: number;
   cache_hit_rate: number;
   total_usage: UsageBreakdown;
@@ -244,6 +242,7 @@ export interface FanoutCacheValue {
 
 export type TriggerReason =
   | 'mom_off'
+  | 'fanout_cache_off'
   | 'user_turn'
   | 'skipped_tool_iteration'
   | 'tool_iteration_cache_miss'

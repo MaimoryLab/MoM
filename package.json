@@ -12,7 +12,8 @@
     "dev": "tsx watch --env-file=.env src/index.ts",
     "start": "node --env-file=.env dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --import tsx test/*.test.ts"
+    "test": "node --test --import tsx test/*.test.ts",
+    "sync-pricing": "node --env-file=.env scripts/sync-pricing.mjs"
   },
   "dependencies": {
     "@fastify/static": "^7.0.4",
