@@ -1,14 +1,40 @@
-## [2026-07-12-2] fix(provider): normalize invalid thinking blocks
+
+## [2026-07-12-3] fix(provider): normalize invalid thinking blocks
 
 - 非流式 provider 响应删除缺失有效 `signature` 的 thinking blocks，保留可安全回传的 signed thinking。
 - 流式 SSE 同步过滤 unsigned thinking 的 start/delta/stop，并重映射后续 content block index，保持下游索引连续。
 - 新增普通响应与 SSE normalization 回归测试。
 
-## [2026-07-12-1] feat(cache): allow `fanout_mode=off`
+## [2026-07-12-2] feat(cache): allow `fanout_mode=off`
 
 - `FanoutMode` 新增 `off`：保持 MoM fan-out/aggregation 主链路不变，完全绕过进程内 fanout cache 的读取和写入。
 - 新增 `fanout_cache_off` 日志事件与 trace trigger reason，测试时可明确验证未使用缓存。
 - 新增 off 模式回归测试并更新中英文 README、开发与 API 文档。
+
+
+## [2026-07-12-1] test(orchestrator): cost/cache accounting e2e coverage and issue triage [ISS-015..020]
+
+### 改动
+- 新增 e2e orchestrator 级 cost / cache-token 会计测试 `test/orchestrator-cost.test.ts`（8 例）：验证 N+1 粒度 / 4 段 usage / cost=pricing×usage 严格计算 / cache_hit 语义 / passthrough 路径 client_model 与 pricing 命中 / advisor 与 aggregator 上下文范围 / `/trace/requests` API 端到端 / multi-session 共享 fanout cache / null session_id 落盘但不可查
+- 新增边界探针测试 `test/orchestrator-cost-edge.test.ts`（11 例）：null session gateway_request_id 关联 / mom_off 流式 SSE usage 抽取 / per_iteration 模式 tool iteration 必 miss / TTL 过期 / usage 极端值 clamp / Unicode/emoji cache key 稳定性 / provider host 抽取 / 多轮 cache 命中率累积 / 全新 user turn 使旧 key 失效
+- 手动 e2e 测试指导写入 `docs/005DEVELOPMENT.md` 顶部 `[2026-07-12-1]` 章节：M1–M7 curl 步骤（session 首轮 miss / tool iteration hit / 新 user turn / /trace/requests 查询 / 缺失 session / UUID 校验 / SQL 直查 cost）+ 概念速览 + FAQ 5 条（advisor/aggregator 上下文范围、cache 隔离、进程重启行为）
+- 003ISSUES.md 新增 6 条问题（本次测试发现，未修复）：
+  - **ISS-015 [P1]**：fanout cache 缓存失败结果 → tool iteration cache_hit 时 `status='cache_hit'` 与 `error != null` 契约冲突，eval 侧故障率被低估
+  - **ISS-016 [P1]**：`buildConcatReferences` 把 `TraceError` 对象模板字符串化输出 `[object Object]`，aggregator 拿到无诊断信息的失败占位符（ISS-012 类型收窄后遗留）
+  - **ISS-017 [P3]**：`request_summary.tool_use_count` 混合 tool_use 与 tool_result
+  - **ISS-018 [P3]**：`reasoning_tokens` / `reasoning_per_million` 双向硬编码 0/null
+  - **ISS-019 [P2]**：cache_hit + pricing_table 未配 model 时 pricing=null → SQL 层用 cost_usd=0 无法区分
+  - **ISS-020 [P3]**：cache_hit 复用时 origin request 溯源缺 hook（ISS-015 关联）
+- 全 109 例测试通过（原 90 + 新 19），typecheck 无 diff；本次 PR 不改代码逻辑
+
+### 涉及文件
+- test/orchestrator-cost.test.ts：新增 e2e 主链路 cost/cache/context 覆盖
+- test/orchestrator-cost-edge.test.ts：新增边界探针
+- docs/003ISSUES.md：追加 ISS-015..020
+- docs/005DEVELOPMENT.md：顶部新增 [2026-07-12-1] 手动测试指导章节 + 概念速览 + FAQ
+
+### 关联
+-> ISS-015 / ISS-016 / ISS-017 / ISS-018 / ISS-019 / ISS-020
 
 ## [2026-07-11-3] feat(scripts): add sync-pricing + drop cost_usd, carry currency from data source [ISS-010]
 
