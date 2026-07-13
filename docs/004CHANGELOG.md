@@ -1,3 +1,22 @@
+## [2026-07-13-3] refactor(config): drop assertRecursionGuard, allow aggregator.model to appear in advisor.slots [ISS-030]
+
+### 改动
+- 删除 `src/config.ts:assertRecursionGuard` 函数与其在 `getConfig()` 中的调用；`aggregator.model` 与 `advisor.slots` 精确同名不再让进程 `exit 1`
+- `ConfigError` 类保留（`assertModeRequirements` + provider/mom-config-file 加载仍用）；`assertModeRequirements` 语义不变
+- 文档同步：`001ARCHITECTURE.md` §3 链路 0 与 §6 关键运行时约定的"递归护栏"条目移除；`002STRUCTURE.md` 中 `src/config.ts` 说明更新；`006API.md` §2.6 签名清单移除 `assertRecursionGuard`；`000README.md` 自检自测示例把"aggregator 递归护栏"替换为"启动期护栏"
+
+### 涉及文件
+- `src/config.ts`：删除 `assertRecursionGuard` 与 `getConfig` 内的调用
+- `docs/001ARCHITECTURE.md`：链路 0 装配步骤 + Config 层描述 + 关键运行时约定移除递归护栏条目
+- `docs/002STRUCTURE.md`：`src/config.ts` 行内说明去掉"递归护栏"
+- `docs/006API.md`：配置装配签名清单去掉 `assertRecursionGuard`
+- `docs/000README.md`：自检自测约定示例替换
+- `docs/003ISSUES.md`：新增 ISS-030
+- `docs/005DEVELOPMENT.md`：不改历史条目（保留 Phase 1 / 配置分层等 dated 段落里的护栏描述作为当期史料）
+- `PLAN.md`：不改历史阶段规格（Phase 1 已完成条目保持不动）
+
+### 关联
+-> ISS-030
 ## [2026-07-13-2] refactor(dashboard): royal-blue 主题 + 展厅字号阶梯 (base 14→18) [ISS-030]
 
 ### 改动

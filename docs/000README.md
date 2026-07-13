@@ -361,7 +361,7 @@ type 沿用 git 惯例：`feat` / `fix` / `refactor` / `chore` / `docs`
   DDL 校验，Claude 必须自己跑一遍并粘贴关键输出；**禁止把新写的验证脚本
   只列在 CHANGELOG 里让用户手跑**。
 - 涉及运行时行为的改动（新增路由、修改 provider passthrough、修改
-  aggregator 递归护栏等），至少启动一次 `npm run dev`，用 `curl` 或
+  启动期护栏等），至少启动一次 `npm run dev`，用 `curl` 或
   `node -e` 打关键路径，进程用完关闭。默认端口冲突时用 `MOM_PORT=<空闲端口>`。
 - **不主动打真实 provider 接口**——避免消耗 token 与真实 API key。需要
   provider 侧路径覆盖的验证由用户在 review PR 时手动执行，Claude 在 PR

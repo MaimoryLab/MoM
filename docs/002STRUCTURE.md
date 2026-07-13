@@ -16,7 +16,7 @@ MoM/
 │   └── sync-pricing.mjs           # 拉取 provider `/v1/models`，把 per-token 价格换算成 per-1M-tokens ModelPricing 灌进 mom.config.json.pricing_table；`--currency`（默认 CNY）+ `--overwrite` / `--dry-run`
 ├── src/                           # 网关服务（后端）
 │   ├── index.ts                   # 进程入口：initDB → getConfig → startServer(port, runtime)
-│   ├── config.ts                  # 组装 RuntimeConfig（provider + mom）+ 递归护栏 + assertModeRequirements
+│   ├── config.ts                  # 组装 RuntimeConfig（provider + mom）+ assertModeRequirements
 │   ├── config/
 │   │   ├── provider-env.ts        # loadProviderConfig — 从 process.env 读 PROVIDER_* + 校验
 │   │   └── mom-config-file.ts     # loadMoMConfig / saveMoMConfig — mom.config.json 读写（原子 rename）
