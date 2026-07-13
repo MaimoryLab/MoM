@@ -1,3 +1,53 @@
+## [2026-07-13-1] fix(dashboard): Pareto legend 5-model split · Overview 分数三卡 · Live 动态排名图 · Combo legend 两行 [ISS-029]
+
+### 改动
+- **ParetoChart 视觉修订**（`web/src/components/charts/ParetoChart.tsx`）
+  - X 轴标签改 `insideBottom` + 负 offset 压回轴线上方，legend 恢复紧贴 x 轴（`paddingTop: 8` + `margin.bottom: 30`，与 ComboChart 对齐）
+  - 5 个非 MoM 模型拆成独立 Scatter，legend 显示全名：Fable 5 (circle) / GPT-5 (square) / Sonnet 4.6 (triangle) / Haiku 4.5 (diamond) / Aggregator only (cross)
+  - Aggregator-only 用 `color.aggregatorOnly`（卡其）区分内部 baseline 与竞品旗舰灰
+- **OverviewPage KPI 分数三卡**（`web/src/pages/OverviewPage.tsx`）
+  - 顶部原有三卡（96% / −68% / +1.2s）保留，新增第二排：Fable 5 (85.5) / MoM (82.4, clay 强调) / Aggregator-only (71.1)
+  - 分数直接读 `mock/benchmarks.ts` 的 `paretoData`，与 Pareto 图完全一致
+- **LivePage 动态排名图**（新增 `web/src/components/charts/RankingChart.tsx` + `web/src/mock/live-ranking.ts`；`web/src/pages/LivePage.tsx` 挂载）
+  - 位置：Judge 雷达 / 成本对比行之下的独立全宽卡片
+  - 数据：最近 10 turn；前 9 turn 为历史 mock，第 10 turn 跟 Prompt Shelf preset 联动切换
+  - 三条折线 MoM / Aggregator-only / Fable 5，同色 stroke 家族与 ComboChart 一致；Y 轴 `reversed`，tick 1/2/3（1 = 最好）
+  - Tooltip 显示当前 turn 的问题标题（中英切换）+ 三家排名；副标题点明"开放型问题绝对分不可比、用相对排名"
+- **ComboChart legend 拆两行**（`web/src/components/charts/ComboChart.tsx`）
+  - 自定义 `TwoRowLegend`：第一行三个 cost 项（柱色），第二行三个 score 项（线色）
+  - 底部 margin 30 → 40 给两行 legend 留位
+- **i18n 键**（`web/src/i18n/dict.ts`）
+  - 新增 `overview.kpi.scoreMoM / scoreMoMHint / scoreFable5 / scoreFable5HintFlagship / scoreBaseline / scoreBaselineHint`
+  - 新增 `live.rankingTitle / rankingSubtitle / rankingAxisX / rankingAxisY`
+  - 中英双语齐
+
+### 涉及文件
+- `web/src/components/charts/ParetoChart.tsx`：X 轴 label 定位 + 5 个 Scatter 拆分 + 卡其色 Aggregator only + 图高 400→360
+- `web/src/components/charts/ComboChart.tsx`：自定义 `TwoRowLegend` + margin.bottom 30→40
+- `web/src/components/charts/RankingChart.tsx`：**新增** 折线图 + 自定义 `RankTooltip`（含中英/turn label/prompt label）
+- `web/src/pages/OverviewPage.tsx`：读 `paretoData` + 第二排 KPI 三卡
+- `web/src/pages/LivePage.tsx`：引入 `RankingChart`，挂到 judge / cost 行之下的独立卡片
+- `web/src/mock/live-ranking.ts`：**新增** 10 turn ranking fixture（9 turn 历史 + 5 preset 各自的第 10 turn）
+- `web/src/i18n/dict.ts`：新增 kpi + ranking 键（zh + en）
+- `docs/003ISSUES.md`：新增 ISS-029
+- `docs/004CHANGELOG.md`：本条
+- `docs/002STRUCTURE.md`：`web/src/components/charts/` 与 `web/src/mock/` 子树补 RankingChart / live-ranking.ts
+- `PLAN.md`：Phase 5 页面 1（Overview）+ 页面 2（Live Compare）描述二次修订
+
+### 自检
+- `npm --prefix web run build`（`tsc -b && vite build`）通过
+- 无代码逻辑改动，全部为前端 mock 视觉；orchestrator / API / storage / tests 未触及
+
+### 关联
+-> ISS-029
+-> web/src/components/charts/ParetoChart.tsx / ComboChart.tsx / RankingChart.tsx
+-> web/src/pages/OverviewPage.tsx / LivePage.tsx
+-> web/src/mock/live-ranking.ts
+-> web/src/i18n/dict.ts
+-> PLAN.md Phase 5 页面 1 & 2
+
+---
+
 ## [2026-07-12-5] test(orchestrator): fanout_mode=off + anthropic-normalize coverage; issue triage on af33818/af68b46 [ISS-021..027]
 
 ### 改动
@@ -32,7 +82,35 @@
 
 ---
 
-## [2026-07-12-4] fix(provider): normalize invalid thinking blocks
+## [2026-07-12-4] docs(dashboard): rewrite PLAN Phase 5/6 and ship 5-page mock-first preview [ISS-028]
+
+### 改动
+- 改写 PLAN.md Phase 5：拆两阶段——5.0 交付 mock 数据驱动的**设计预览版**（当前）+ 5.1 待 Phase 4 API 到位后回填。原三层（Settings / Traces / Metrics）升级为五页（Overview / Live Compare / Pipeline / Cost / Settings），Traces 页被 Live + Pipeline 吸收，Metrics 拆成 Overview（效果 KPI + Pareto + combo）+ Cost（成本 KPI + 每轮堆叠 + cache 矩阵）
+- 改写 PLAN.md Phase 6：改为"Judge 模式 + Baseline **后端**接入"，Dashboard UI 已在 5.0 完成；拆 `runJudge` 结构化整合 + `runJudgeCompare` 5 维打分两条路径
+- 更新 PLAN.md 概览表（Phase 5 状态 `🎨 预览版已交付`）、依赖链表述、目录树的 `web/` 子树、Context 概述里"三层 Dashboard"改为"五页 Dashboard，双语中英可切换"
+- 落地 web/ 预览版：五页 + 双语 i18n + Recharts 图表；`npm --prefix web run build` 通过
+- 视觉体系：奶油底 `#FBF7EE` + clay 主色 `#C96442` + 低饱和三色带（MoM / Baseline / Flagship）
+- 003ISSUES.md 新增 ISS-028（状态 [已解决]）
+- 新增 decisions/007-dashboard-5-page-preview.md（五页拆分 + mock-first + Recharts + 自研 i18n 的完整推理链）
+- 新增 future-plans/001-dashboard-api-shape-reconciliation.md（Phase 5.1 mock 数据换 API 的回填计划）
+- 新增 future-plans/002-dashboard-4k-and-demo-loop.md（4K 兼容 + 展会自动循环 demo 模式）
+- 修正 decisions/README.md 与 future-plans/README.md 中残留的、指向另一个项目文件的"现有列表"，改为本项目实际文件
+
+### 涉及文件
+- PLAN.md：Phase 5 / Phase 6 整节改写，概览表 + 依赖链 + 目录树 + Context 一句话表述
+- web/：新增 `src/{App.tsx,main.tsx,theme.ts,global.css}` / `src/i18n/{dict.ts,context.tsx,format.ts}` / `src/hooks/{useTypewriter.ts,useEventSource.ts}` / `src/pages/{Overview,Live,Pipeline,Cost,Settings}Page.tsx` / `src/components/{layout,primitives,charts}/*` / `src/mock/{benchmarks,live-samples,pipeline-trace,cost,config}.ts`；`package.json` 新增依赖 `recharts@^2.15.4`
+- docs/003ISSUES.md：追加 ISS-028
+- docs/decisions/007-dashboard-5-page-preview.md：新增
+- docs/future-plans/001-dashboard-api-shape-reconciliation.md：新增
+- docs/future-plans/002-dashboard-4k-and-demo-loop.md：新增
+- docs/decisions/README.md：修正"现有决策"列表
+- docs/future-plans/README.md：修正"现有规划"列表
+
+### 关联
+-> ISS-028
+-> decisions/007-dashboard-5-page-preview.md
+
+---
 
 ## [2026-07-12-3] fix(provider): normalize invalid thinking blocks
 

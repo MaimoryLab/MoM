@@ -2,7 +2,7 @@
 
 ## Context
 
-MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 OpenRouter Fusion，实现"多个廉价模型组合逼近旗舰模型能力"。第一版只面向 Claude Code（Anthropic Messages API 协议），只对接一个 provider baseURL（该 provider 侧配多个 model 名），不实现成本权衡功能（另有独立项目后期合并）。目标交付三件事：统一数据结构、MoM 网关本体、可反映效果的 Dashboard（含展示层 / 设置层 / 日志调试层 / 用户展示层）。
+MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 OpenRouter Fusion，实现"多个廉价模型组合逼近旗舰模型能力"。第一版只面向 Claude Code（Anthropic Messages API 协议），只对接一个 provider baseURL（该 provider 侧配多个 model 名），不实现成本权衡功能（另有独立项目后期合并）。目标交付三件事：统一数据结构、MoM 网关本体、可反映效果的 Dashboard（面向展会演示，五页：Overview 总览 / Live Compare 实时对比 / Pipeline 请求流程 / Cost 成本分析 / Settings 设置，双语中英可切换）。
 
 ---
 
@@ -14,10 +14,11 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 | Phase 2 | Advisor 视图 + Fan-out + Concat 拼接 | 📋 待开始 | MoM 核心流程，always 触发、无缓存 |
 | Phase 3 | 触发粒度 + Fanout 缓存 + Cache 装饰 + 成本分账 | 📋 待开始 | user_turn / per_iteration 双模式、advisor 缓存、system_and_3 marker、Trace 落盘 |
 | Phase 4 | Dashboard 后端 API | 📝 略写 | traces / metrics / settings / comparison 四组 API |
-| Phase 5 | Dashboard 前端三层 | 📝 略写 | 设置层 / 日志调试层 / 用户展示层 |
-| Phase 6 | Judge 模式 + 对比展示层 | 📝 略写 | 五类 JSON 结构化整合、并排 baseline 对比 |
+| Phase 5 | Dashboard 前端五页 + 预览版 | 🎨 预览版已交付 | Overview / Live / Pipeline / Cost / Settings，双语 i18n，mock 数据可跑通设计审 |
+| Phase 6 | Judge 模式 + Baseline 后端接入 | 📝 略写 | Judge 5 维雷达打分、baseline 异步对比调用；Dashboard 端已在 Phase 5 预览版实现 UI |
 
-> 依赖链：Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5，Phase 6 可与 4/5 并行。
+> 依赖链：Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5（真数据接入），Phase 6 可与 4 并行。
+> Phase 5 已先以 mock 数据出预览版，锁定 UI 与 API 契约再回填 Phase 4。
 
 ---
 
@@ -106,13 +107,32 @@ mom/
 ├── web/                          # Dashboard 前端（Vite 独立子工程）
 │   ├── src/
 │   │   ├── main.tsx
-│   │   ├── App.tsx
+│   │   ├── App.tsx               # 侧边栏 useState-based 路由
+│   │   ├── global.css            # 奶油底色 + blink keyframe
+│   │   ├── theme.ts              # 色板 / 字体 / 圆角 / 阴影常量集中定义
+│   │   ├── i18n/
+│   │   │   ├── dict.ts           # 中英双语字典（术语保留英文）
+│   │   │   ├── context.tsx       # I18nProvider + useI18n（localStorage 持久化）
+│   │   │   └── format.ts         # 成本 / 延迟 / token 数的双语格式化
+│   │   ├── hooks/
+│   │   │   ├── useTypewriter.ts  # Live/Pipeline 假流式打字机
+│   │   │   └── useEventSource.ts # SSE 接入位（Phase 4 真数据）
 │   │   ├── pages/
-│   │   │   ├── SettingsPage.tsx
-│   │   │   ├── TracesPage.tsx
-│   │   │   ├── MetricsPage.tsx
-│   │   │   └── ComparisonPage.tsx
-│   │   └── lib/api.ts
+│   │   │   ├── OverviewPage.tsx  # Pareto 主图 + Combo 副图 + 3 KPI
+│   │   │   ├── LivePage.tsx      # 预置 prompt shelf / MoM vs Baseline 并排 / Judge 雷达 / 成本条
+│   │   │   ├── PipelinePage.tsx  # user→3 advisor→装配→aggregator→final 动画 + Replay + Diff 抽屉
+│   │   │   ├── CostPage.tsx      # 节省 banner + 4 KPI + 每轮堆叠柱 / 饼图 / cache 命中 / 时间线
+│   │   │   └── SettingsPage.tsx  # 语言 / Provider 只读 / Aggregator / Advisor slots / Judge / Pricing
+│   │   ├── components/
+│   │   │   ├── layout/           # Sidebar / PageShell
+│   │   │   ├── primitives/       # Card / KpiCard / Badge / Button
+│   │   │   └── charts/           # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline
+│   │   └── mock/                 # 预览版伪数据（Phase 4 后端接入后逐步替换）
+│   │       ├── benchmarks.ts     # Pareto + per-benchmark combo
+│   │       ├── live-samples.ts   # 5 个预置 prompt × 中英 × MoM/Baseline/Judge 全套脚本
+│   │       ├── pipeline-trace.ts # 一条 canned trace + 动画时序
+│   │       ├── cost.ts           # 32 turns session 成本 + cache 命中
+│   │       └── config.ts         # Settings 初值 + 模型下拉候选
 │   ├── index.html
 │   └── vite.config.ts
 ├── package.json                  # npm workspaces 根（含 "workspaces": ["web"]）
@@ -452,48 +472,125 @@ Dashboard 前端所需 REST API 全部就位。
 
 ---
 
-## Phase 5: Dashboard 前端三层（略写）
+## Phase 5: Dashboard 前端五页（预览版已交付）
 
 ### 目标
-Vite + React + TS，实现设置层、日志调试层、用户展示层三个页面；对比展示层（Phase 6）留位。
+面向展会演示的 Dashboard。核心叙事："**用更便宜的组合，逼近旗舰模型的效果**"——前三页从三个角度回答"效果"，第四页回答"成本"，第五页负责配置。技术栈 Vite + React 18 + TS；本 phase 的所有数据都写在 `web/src/mock/*.ts`，页面组件直接读 mock、不走网络，也不触达 Phase 2–4 的真实工作流。作用是先把 UI/文案/图表结构与后续 API 契约锁定，Phase 6+ 再逐步换成真接口。
 
-### 初步构想
-- **设置层** `web/src/pages/SettingsPage.tsx` — 表单绑定 `MoMConfig` 所有字段（含 `pricing_table` 编辑器、`advisor.slots` 列表增删、`aggregator.model` / `judge.model` / `comparison.baseline_model` 下拉选择）；保存调 `POST /api/config`；`cost_tradeoff` 字段占位 + "coming soon" disabled；**不显示、不编辑 provider 秘钥字段**，页面顶部只只读展示 provider 状态摘要（`base_url` 与 `auth_style` 遮罩后的值，如 `bearer / dee****`），秘钥编辑请去 `.env`
-- **日志调试层** `web/src/pages/TracesPage.tsx` — 列表 + 详情视图。详情视图分四栏展示：
-  - 左：advisor 输出（每 slot 一列，含全文、usage、latency、cache_hit 标记）
-  - 中：references guidance 拼接后全文（判断字段 `mom_triggered` / `trigger_reason` 显式展示）
-  - 右上：aggregator 请求 messages 快照（可折叠展开每条 message）
-  - 右下：aggregator 响应 + usage + latency + 命中率
-- **用户展示层** `web/src/pages/MetricsPage.tsx` — 时间窗口切换（24h / 7d）、KPI 卡片（total_cost / avg_latency / cache_hit_rate / mom_trigger_rate）、简单折线图（可用 Recharts 或 uPlot；本阶段先只列数字，图后加）
+### 视觉语言（Anthropic 奶油底 · 暖灰调）
+数值以 `web/src/theme.ts` 为准，本节只列该文件里实际用到的常量。
+- 底色 `#FAF9F5`（`color.bg`）+ 卡片纯白 `#FFFFFF` + 大留白；卡片浅描边 `#E8E3D8`（`color.border`），强描边 `#D6CFC0`
+- 主强调色 `#C96442`（`color.mom`，Anthropic 品牌陶橙），用于 MoM 系列、主 CTA 与"运行中"状态；柔化色 `#F5DDD1`（`color.momSoft`）用于高亮底
+- 图表低饱和暖色带：MoM = `#C96442` / Baseline & Flagship 灰 = `#8B8680`（`color.flagship`）/ Aggregator-only 卡其 = `#C4A574`；三个 advisor 分别是 `#B8A88A` / `#A8998C` / `#C9B79C`
+- 语义色：正向 `#6B8E6F`（`color.positive`）、负向 `#B96E5A`（`color.negative`）、信息 `#7A8AA6`（`color.info`）；网格线 `#EDE7DB`，轴标签 `#8A8177`
+- 字体全走 sans（`"Söhne", ui-sans-serif, -apple-system, "PingFang SC", ...`），代码 / token 数字用 `ui-monospace`；没有 serif 分支
+- 圆角常量 `sm 6 / md 10 / lg 14 / xl 20`；阴影用 `rgba(31, 27, 22, .04~.10)` 三档（`shadow.card / raised / hover`）
+- 图表库 **Recharts** 一把梭；无暗色主题（现场大屏白底更稳）
+
+### 五页设计
+
+**1. Overview 总览页（`pages/OverviewPage.tsx` · 静态）**
+数据源是评测组的 benchmark 结果占位，预览版全走 `mock/benchmarks.ts`。回答"MoM 到底达没达到旗舰效果、代价几何"。
+- **KPI 顶部三卡**（读 `heroStats`）：`达到 Fable 5 平均分`（96%，clay 强调）/ `相比 Fable 5 成本`（−68%，positive 绿）/ `延迟（我们说实话）`（+1.2s，negative 红，副文案"这是我们承认的代价"）
+- **KPI 分数三卡**（ISS-029 二修新增，读 `paretoData`）：`Fable 5 平均分`（85.5，旗舰参照）/ `MoM 平均分`（82.4，clay 强调）/ `Aggregator 单跑平均分`（71.1，baseline），跟 Pareto 图数字完全一致
+- **副图 · 分 benchmark Combo**（`components/charts/ComboChart.tsx`）：横轴 6 个 benchmark（MMLU / HumanEval / GSM8K / BBH / MATH / GPQA），主 Y 轴分数三条折线（MoM / Aggregator only / Fable 5），次 Y 轴是**成本**（`$/1k token`）三组柱——不是 token 消耗；Legend 用自定义 `TwoRowLegend` 拆两行（ISS-029 二修）——第一行 3 个 cost 项，第二行 3 个 score 项
+- **主图 · Pareto 效果-成本气泡图**（`components/charts/ParetoChart.tsx`）：横轴 `$ / 1M 输出 token`（线性 0–20，非对数），纵轴 avg score（60–90）；散点六个 = MoM / Aggregator only / Fable 5 / GPT-5 / Sonnet 4.6 / Haiku 4.5，**每个非 MoM 模型都是独立 Scatter**（ISS-029 二修），legend 列全部名字，shape 分别 star (MoM) / circle (Fable5) / square (GPT-5) / triangle (Sonnet4.6) / diamond (Haiku4.5) / cross (Aggregator only)；Aggregator-only 走 `color.aggregatorOnly` 卡其色区分内部 baseline 与竞品旗舰灰；背景一根 clay 虚线连出 Pareto frontier 折线（Haiku → AggOnly → MoM → GPT-5 → Fable 5，全部非被支配点）；X 轴 label 走 `insideBottom` 压回轴线上方，与 Combo 图 legend spacing 对齐（`paddingTop: 8` + `margin.bottom: 30`）；tooltip 显示 `score X.X · cost $Y.YY/1M`
+- 不含 `Wins / Ties / Losses` 卡；不含"MoM → Flagship 差值标注"
+
+**2. Live Compare 实时对比页（`pages/LivePage.tsx` · mock 打字机）**
+"实时"是指打字机动画的实时——真正的 SSE 尚未接入。预览版从 `mock/live-samples.ts` 里读 5 个预置 prompt 的完整脚本（中英各一套，含 MoM/Baseline 长文本、latency/tokens/costUsd、advisor previews、5 维 judge 分）。
+- **顶部 Prompt Shelf**（`PromptShelf`，Card 内嵌）：5 个预置按 `PRESET_ORDER` 排 — `binarySearch` / `cap` / `refactor` / `race` / `urlShort`（"Rust 二分查找 / CAP 定理 / 重构代码片段 / 排查竞态问题 / 设计短链服务"）；下方一个 checkbox `同时跑一次 Baseline 对比`；页面右上主 CTA `▶ Run`，触发 `setRunId` 重启打字机
+- **主区左右并排**（Baseline 关掉时退化为单栏）：
+  - 左卡（MoM）：标题旁挂 `Badge tone="mom"` 显示 `3 advisors`；副标题 `3 advisors + aggregator · MoM`（型号字用 mono）——不是三个独立 slot 芯片
+  - 右卡（Baseline）：标题 `Baseline`，副标题 `单次旗舰模型调用 · claude-fable-5`
+  - Body：`useTypewriter(text, { runId, tickMs, charsPerTick })` 逐字流出到 `<pre>` 里（无 markdown 高亮，等宽字体原样渲染代码块）；未完成时右侧闪一个 clay 光标
+  - Footer 一行三项：`⏱ 延迟 · N tokens · $ cost`（延迟按 locale 显示"1.2 秒"或"3.4s"）——**没有 prompt / completion 拆分**，也**没有 cache hit%**
+- **下方两栏**：
+  - 左：**Judge 雷达图**（`components/charts/JudgeRadar.tsx`，Recharts `RadarChart`），5 维 = `Correctness` / `Completeness` / `Depth` / `Clarity` / `Usefulness`（中文：准确性 / 完整度 / 深度 / 清晰度 / 实用性）；MoM 实线 clay 填充 22%，Baseline 灰色虚线填充 10%；无圆心综合分差数字
+  - 右：**成本对比条**（`CostCompare`）：并排两根横向单色条（MoM clay / Baseline flagship 灰），不再细分 advisor/aggregator/judge/baseline 段；下方一行"You saved −N%"（正向绿）+ "Latency Δ +N.Ns"（正数红、负数绿）
+- **底部动态排名图**（ISS-029 二修新增，`components/charts/RankingChart.tsx`，全宽独立卡片）：横轴最近 10 turn（第 10 = 当前 preset），Y 轴 `reversed` 显示 rank 1/2/3（1 = 最好）；三条折线 MoM / Aggregator-only / Fable 5，同色 stroke 家族与 ComboChart 一致；数据来自 `mock/live-ranking.ts`（9 turn 历史固定 mock + 每个 preset 单独定义的第 10 turn，Prompt Shelf 切换 preset 时第 10 turn 联动）；Tooltip 显示 turn 号 + 当轮问题标题（中英切换）+ 三家排名；副标题点明"对不确定问题绝对分不可比、用相对排名衡量效果"这一叙事动机——补 Judge 雷达"只看当前一轮"的短板，讲解"MoM 在开放型问题上是否稳定优于 baseline"
+- **不含底部甘特时间线**；请求各阶段耗时不在此页展示
+
+**3. Pipeline 请求流程页（`pages/PipelinePage.tsx` · mock 时序）**
+回答"MoM 内部是怎么跑的"。时序读 `mock/pipeline-trace.ts` 的 `pipelineTimeline`；每次点 Replay 就 `setRunId+1`，`useEffect` 用 `requestAnimationFrame` + `performance.now()` 推进 elapsed，节点靠 `computeStatus(node, elapsed, speed)` 计算 `pending / running / done`。**此页与 Live 页彼此独立，不联动。**
+- **主流程图（垂直排列）**：`User prompt` → **fan-out 虚线**（SVG 三叉）→ 三张并排 `Advisor` 卡片（A/B/C）→ **fan-in 虚线**（三叉汇一）→ `Context assembly` 装配盒（副标注 `system_and_3 layout · 4 cache breakpoints`）→ 单虚线 → `Aggregator` → 单虚线 → `Final answer`
+- **动画节奏**：节点按 `pending（灰底、40% 不透明）→ running（clay 边、"● 进行中"徽章）→ done（positive 绿边、"✓ 已完成"徽章）` 三态切换；advisor 卡片会实时显示预置的 preview 文本、`tokens / latency / cost`，A 号卡带 `cache 命中` 徽章
+- **顶部控件**：右上一组 `Speed 1× / 2× / 4×` 分段控件（`SpeedToggle`）+ 一个 `▶ Replay` 主按钮；`Turn #N · X.XXs` 与一根 clay 细进度条（`ProgressBar`）显示总进度
+- **Context diff 弹窗**（`DiffModal`）：装配盒里的 `Show context diff →` 幽灵按钮打开一个居中 modal，左右并排两个 `<pre>` 展示 `装配前` vs `装配后` 的 messages JSON（右侧多出 `<references>...</references>` 段落）；点遮罩或右上 `× 关闭` 收起
+- **每张卡目前不可点开抽屉**；请求 messages 全文与 aggregator 最终 messages 只在 diff 弹窗里以 JSON 片段呈现，暂无 slot / aggregator 独立抽屉
+
+**4. Cost 成本分析页（`pages/CostPage.tsx` · MoM 内部成本剖析）**
+Scope 只算 MoM 流程内部（3 个 advisor + aggregator），Baseline 与 Judge 单独展示；本 phase 的 mock 里 judge 成本还没建模。
+- **顶部横幅 `SavedBanner`**（读 `mock/cost.ts` 的 `sessionCost`，32 turns）：左侧 `Baseline $4.12`（灰色删除线）→ `MoM $1.33`（44px clay 加粗）；右侧巨号 `−68%`（72px positive 绿）+ 副标 `节省 / saved`
+- **KPI 四卡**：`总成本 Total cost` / `平均每轮 Avg / turn` / `Cache 命中率 Cache hit rate` / `已运行轮次 Turns run`——**不是 Advisor:Aggregator:Judge 占比卡**
+- **主图 · 每轮堆叠柱**（`CostStackedBar.tsx`）：横轴 turn index（32 轮），纵轴 cost（`$0.XXX`），四段堆叠 `Advisor A / B / C / Aggregator`（clay 段在最上，radius=[3,3,0,0]）；hover tooltip 显示 `$0.XXXX` 明细。**当前无 judge 段**
+- **副图 · 饼图**（`CostPie.tsx`）：4 段 `Advisor A/B/C + Aggregator`（三 advisor 用暖灰渐变 `advisorA/B/C`，aggregator 用 clay），中空环形，图例 & tooltip 均按角色显示 `$0.XXX`
+- **Cache 命中率条**（`CacheHitBars.tsx`）：横向条形对比 4 个模型（`kimi-k2 (Advisor A)` / `deepseek-v3 (Advisor B)` / `qwen3-72b (Advisor C)` / `claude-sonnet-4-6 (Aggregator)`），每行单值命中率（0–100%）、渐变填充（aggregatorOnly → mom）——**不区分 read/write/miss 三段**，也**没有第 5 行 judge**
+- **底部时间线**（`CostTimeline.tsx`）：本次 session 每轮成本折线（`AreaChart`，clay 描边 + clay 半透明填充）；**不是 24h 累计线**，**没有 Flagship 上限虚线**，也不做"价格调整点标注"
+
+**5. Settings 设置页（`pages/SettingsPage.tsx` · 本地 state，不落库）**
+所有字段初值读 `mock/config.ts` 的 `initialConfig`；`Save` 只 setState + 弹一个 `✓ 设置已保存（预览版无后端接入）` 的 flash，**不调 API**，也不写 `localStorage`。语言切换是唯一真正持久化的项，走 `I18nProvider` 写 `mom-dashboard-lang`。
+- **Language 卡**：`English / 中文` 两颗大 radio 按钮；描述说明本设置同时控制 Dashboard UI 与 MoM 与 Claude Code 交互时使用的语言。**没有主题切换**
+- **Provider 卡（`.env` 只读快照）**：两条只读字段 `Base URL: https://api.deepseek.com`、`Auth style: bearer · dee****k7yq`；每行右侧带 `🔒 只读` 徽章 + 说明 `Provider 秘钥请在 .env 中修改，此处不可编辑`
+- **Aggregator 卡**：一个 Model 下拉；**没有 temperature / max_tokens / system prompt 输入框**
+- **Advisor slots 卡**：可 `+ 添加槽位` / `× 移除` 每个 slot；每行三列 = `Slot 标签徽章 / Model 下拉 / 移除按钮`；**没有 name / weight / stance / enabled 字段**；也没有 slot 数量 ≥1 / ≤4 的硬性校验
+- **Judge & Baseline 合并卡**：并排两个 Model 下拉 `Judge model` + `Baseline model` + 一行 checkbox `启用 Baseline 对比 · 为演示每次多调一次，代价换效果`；**没有 5 维权重滑块**、**没有 `JUDGE_SYSTEM_PROMPT` 展开**；`Comparison` 未独立成卡
+- **Pricing table 卡**：`model / Input $ / 1M / Output $ / 1M` 三列可编辑（`NumInput` 数字输入）；**没有 cache_read / cache_write 两列**；行是固定的（从 `initialConfig.pricing` 派生），不支持增删 model
+- **Save/Cancel 按钮**在 `PageShell` 右上（不是页面底部）；Cancel 会把整份 config 重置回 `initialConfig`
+- **不含 Cost tradeoff `Coming soon` 卡**
+
+### 双语（i18n）
+- **实现**：`web/src/i18n/{dict.ts, context.tsx, format.ts}`，`I18nProvider` + `useI18n()` 一套自研；不引入 i18next
+- **术语策略**：技术术语保留英文（`token` / `cache hit` / `latency` / `Aggregator` / `Advisor` / `Judge` / `Baseline` / `Pareto` / 各 benchmark 名 / 各模型 ID），本地化的是叙述性文字：`本会话共节省` / `节省` / `等待中` / `已完成` / `设置已保存` 等
+- **切换后果**：Dashboard UI 全体切换 + `<html lang>` 属性同步为 `zh-CN` / `en`；`mock/live-samples.ts` 与 `mock/pipeline-trace.ts` 都按 lang 提供两套完整脚本，切语言即换全套预置内容
+- **默认语言**：读 `localStorage['mom-dashboard-lang']`，缺省时用 `navigator.language`（`zh-*` → zh，其他 → en）；用户切换后写回 `localStorage`
+- **格式化**（`i18n/format.ts`）：成本一律 `$X.XX / X.XXX / X.XXXX`（两种语言共用，未做 `$0.42` vs `0.42 $` 分叉，也未做千分位分隔号切换）；延迟 `1.2 秒` / `1.2s`；token 数超过 1k 缩为 `1.2k`
+
+### 预览版交付边界（本 phase 已完成）
+- 五页可切换 + 中英可切换 + 主要动画（Live 打字机 / Pipeline 节点状态推进 & Diff modal / 图表 hover）可跑
+- 数据全部来自 `web/src/mock/*`；`hooks/useEventSource.ts` 是保留空壳的 `EventSource` 封装，签名 `{ events, connected }`，本 phase 无消费者
+- `npm --prefix web run build`（`tsc -b && vite build`）通过；Vite 配置 `base: '/dashboard/'`，dev proxy `/api` + `/v1` → `http://localhost:3000`——已经为将来接后端预留
+- **不做的事**：不接 Phase 2/3 orchestrator、不接 `/v1/messages`、不消费 `/trace/requests`、不接 SSE、不写数据库、不改 `mom.config.json`
 
 ### 待讨论的问题
-- 图表库选型：Recharts 好写、uPlot 快
-- 需不需要暗色主题（展厅演示要看现场大屏）
+- 现场大屏分辨率：假设 1920×1080，是否需要 4K 兼容（字号跟随视口 clamp？）
+- 展会现场是否要一个"Demo 循环模式"（每 20s 自动切页 + 触发一次 Live 播放）—— 若要，加一个 `?demo=1` query flag 即可
+- Pipeline 页目前只有 Diff modal，没有 advisor / aggregator 抽屉——展会讲解需不需要能"点开某个 slot 看请求全文"？若要，Phase 6 接真数据时补
 
 ---
 
-## Phase 6: Judge 模式 + 对比展示层（略写）
+## Phase 6: Judge 模式 + Baseline 后端接入（略写）
 
 ### 目标
-`aggregation_mode: judge` 生效：所有 advisor 跑完后额外一次 judge 调用（temperature=0），输出 5 类 JSON（consensus / disagreements / partial_coverage / unique_insights / blind_spots），把结构化摘要而非原文塞到 aggregator。同时实现 Dashboard 的对比展示层（同一 messages 输入，MoM aggregator vs baseline 单模型并排展示）。
+后端两件事：（1）`aggregation_mode: judge` 生效——所有 advisor 跑完后走一次 judge 调用（temperature=0），输出 5 类 JSON 结构化摘要塞进 aggregator；（2）`comparison.enabled` 生效——每次 MoM turn 结束后异步跑一次 baseline 单模型调用 + 一次 judge 对 MoM 输出 vs baseline 输出的多维打分，供 Live Compare 页展示。**Dashboard 端的 UI 已在 Phase 5 预览版里做好了**，本 phase 只填后端数据管道。
 
 ### 初步构想
-- **Judge 调用** `src/judge/judge-runtime.ts` `runJudge(results, settings): Promise<JudgeResult>` — 构造 messages（把成功的 advisor references 编号后拼进 user message），system=`JUDGE_SYSTEM_PROMPT`（要求严格输出 JSON），`temperature=0`；response 用 `safeJsonParse` 解析
-- **`safeJsonParse` fallback**：`JSON.parse` 失败 → 用 `/\{[\s\S]*\}/` 正则抽取第一个 `{...}` 段再 parse → 仍失败 → 降级到 concat 模式（把原文按 Phase 2 逻辑拼），标记 `judge_result.fallback = true`
+- **Judge 结构化整合** `src/judge/judge-runtime.ts` `runJudge(results, settings): Promise<JudgeResult>`
+  - 构造 messages：把成功的 advisor references 编号后拼进 user message，system=`JUDGE_INTEGRATION_PROMPT`（要求严格输出 JSON），`temperature=0`
+  - Response 用 `safeJsonParse` 解析：`JSON.parse` 失败 → 用 `/\{[\s\S]*\}/` 正则抽取第一个 `{...}` 段再 parse → 仍失败 → 降级到 concat 模式（Phase 2 逻辑），标记 `judge_result.fallback = true`
+  - 输出 5 类：`consensus` / `disagreements` / `partial_coverage` / `unique_insights` / `blind_spots`
+- **Judge 打分（对比用）** `runJudgeCompare(mom_output, baseline_output, settings): Promise<JudgeScore>`
+  - 与结构化整合是同一个 judge 模型，不同的 system prompt（`JUDGE_COMPARE_PROMPT`）
+  - 输出严格 JSON：`{ correctness, depth, clarity, efficiency, safety }` 各 0-100，附 `verdict_summary` 字符串
+  - 落 `trace.judge_score`，供 Live 页雷达图消费
 - **成本归属**：
-  - `total_cost_usd += judge_result.cost_usd`（judge 是 MoM 流程内部成本）
-  - `trace.judge_result = JudgeResult` 存下 5 类 JSON 全量供 Dashboard 展示
-- **对比展示层**：
-  - `settings.comparison.enabled = true` 时，每次 MoM turn 结束后异步发一次 `baseline_model` 的调用（同 messages、不含 references）
-  - 结果存到 `trace.baseline_result`，成本单独记 `trace.baseline_cost_usd`（**不算进 total_cost_usd**，baseline 是对比参考）
-  - `GET /api/comparison/:trace_id` 返回 mom_result + baseline_result 供前端并排展示
-  - Baseline 调用失败不影响主流程，`baseline_result` 缺失即前端隐藏对比栏
-- **JUDGE_SYSTEM_PROMPT** — 借鉴 Fusion 文档的 5 类语义：consensus / disagreements / partial_coverage / unique_insights / blind_spots
+  - `total_cost_usd += judge_integration.cost_usd`（整合是 MoM 流程内部成本）
+  - `judge_compare.cost_usd` 与 `baseline_cost_usd` 一起归入 `comparison_cost_usd`（**不算进 total_cost_usd**，仅供 Live 页展示）
+  - `trace.judge_result` / `trace.judge_score` / `trace.baseline_result` 存全量供前端消费
+- **Baseline 异步调用**：
+  - `settings.comparison.enabled = true` 时，每次 MoM turn 结束**不阻塞主链路**，用 `queueMicrotask` + 独立 fetch 发一次 `baseline_model` 调用（同 messages、不含 references），失败静默
+  - Baseline 完成 → 触发 judge compare → 全部落库
+- **API 输出**：
+  - `GET /api/comparison/:trace_id` 返回 `{ mom_result, baseline_result, judge_result, judge_score, cost_breakdown }` 一次性给 Live 页
+  - `GET /api/traces/:id` 的 detail 保持不变，comparison 字段为 optional
+- **JUDGE_INTEGRATION_PROMPT** — 借鉴 Fusion 文档的 5 类语义
+- **JUDGE_COMPARE_PROMPT** — 明确 5 维定义（Correctness 覆盖事实 / Depth 论证深度 / Clarity 表达清晰 / Efficiency 简洁度 / Safety 拒答与安全）+ 举例锚点 + 强制 JSON 输出
 
 ### 待讨论的问题
-- Judge 模型选谁默认（Sonnet 4 vs Kimi vs …）
-- Judge 失败降级到 concat 时是否要通知用户 / trace 里加显式 flag
-- 对比模式下 baseline call 是否也用 streaming（若是，需要额外一路 SSE 消费）
+- Judge 模型默认（Sonnet 4.6 vs Opus 4.8 vs Kimi K2）—— 展会建议用 Sonnet 4.6（快 + 便宜 + 判分稳定）
+- Judge 失败降级 concat 时是否显式在 trace 里加 flag → 加，Dashboard Cost 页需要区分"降级 turn"占比
+- Baseline call 是否 streaming：**否**（Live 页只需最终文本 + usage，不需要流；打字机是前端播放的视觉效果，不是真流）
+- Judge compare 是否要求 CoT：**否**（要求 JSON-only、temperature=0，保证可解析）
 
 ---
 

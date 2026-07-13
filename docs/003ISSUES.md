@@ -539,211 +539,6 @@ ISS-009/011 交付后的二次核查发现 4 处偏离 decision 006 与 eval 需
 > **编号说明**:PR #11 (worktree-eval-trace-api) 已占用 ISS-015..020,与 main 合并后届时会同步过来。本轮 (cache-off + thinking normalize 测试) 从 ISS-021 起,避免冲突。
 
 ---
-
-## [ISS-021] `passthroughStream` 主链路从"字节级 pipe"变为"parse → normalize → 重编码",破坏 001ARCHITECTURE 承诺
-
-**状态**：[发现]
-**优先级**：[P2 一般]
-**类型**：[技术债]
-**发现日期**：2026-07-12
-
-**现象**：
-`af33818 feat: add cache-off mode and normalize provider thinking` 重构了 `src/provider/stream-forward.ts:82-115` 的 `onData` 处理:
-- 原实现:`output.write(chunk)` **先字节级转发**,onEvent 只是旁路观察(异常吞掉,不影响主链路)
-- 新实现:所有 chunk 都过 `parser.push` → `JSON.parse` → `normalizer.normalize` → `formatSSEEvent` **重新编码** → `output.write`
-
-这与 `docs/001ARCHITECTURE.md` §6 "Aggregator 字节级透传原则"的核心承诺冲突:"前缀所有 message 保持原对象引用不变,保证 Claude Code 侧 cache_control 前缀命中"——该原则暗含"provider 侧 SSE 帧的字节序在网关内不被改写"。
-
-**后果**:
-1. 客户端拿到的 SSE 字节流不再和 provider 侧字节等价(空格 / 换行 / JSON key 顺序等被 normalize 重编码)。虽然 Anthropic SDK 解析层无感,但一旦下游有对 raw bytes 敏感的中间件(如签名、指纹、审计校验),会翻车
-2. `parser` 从"可选"变为"必需",即使调用方不需要 observer,依然要付 SSE parse + JSON.parse + JSON.stringify 三次开销
-3. SSE parse 失败时(见 stream-forward.ts:94)fallback 到 `output.write(formatSSEEvent(raw.event, raw.data))`——`data` 是**已 trim 的字符串**,直接被当第二参给 formatSSEEvent 会输出 `data: <string>`,但原始 provider 帧可能是 multi-line data,信息会丢失
-4. 无 chunk-boundary 相关问题(已通过 `test/stream-forward-chunking.test.ts` 4 例 1..4096 字节 chunk 验证,正确)
-
-**初步判断**:
-已确认。改动的**动机是对的**(不 normalize 的话没法过滤流式 thinking),但改动路径**过重**——把主链路"字节级透传"改成了"完全重编码"。这个 trade-off 未在 CHANGELOG / decisions 中显式记录。
-
-**方案讨论**:(待定)
-- 方案 A:接受当前实现,在 001ARCHITECTURE 里显式撤销"字节级"承诺,改述为"语义级 SSE 事件透传";并把 rationale 写进新 decision(建议路径)
-- 方案 B:normalize 只作用于 "含 thinking" 的帧,其余走原字节级 pipe——需要 SSEParser 支持"透传未消费字节"或双缓冲
-- 方案 C:回退到 byte-level pipe,失去流式 thinking 过滤能力
-- 当前倾向:方案 A(承诺已经破坏,承认现实并写清)
-
-**关联**:
--> src/provider/stream-forward.ts:82-115
--> src/provider/anthropic-normalize.ts(新增,af33818)
--> docs/001ARCHITECTURE.md §6 "Aggregator 字节级透传原则"(需修订或迁入 decision)
--> test/stream-forward-chunking.test.ts(本轮新增回归)
-
----
-
-## [ISS-022] `content_block_delta`/`content_block_stop` 在**没有对应 start**的情况下 pass-through,违反 index 连续性
-
-**状态**:[发现]
-**优先级**:[P3 轻微]
-**类型**:[功能异常]
-**发现日期**:2026-07-12
-
-**现象**:
-`src/provider/anthropic-normalize.ts:66-70` 的实现:
-```ts
-const mappedIndex = indexMap.get(event.index);
-if (mappedIndex === null) return null;
-if (mappedIndex === undefined) return event;  // ← 未映射,直接原样透出
-```
-如果协议异常:provider 侧未发 `content_block_start(idx=5)` 就发了 `content_block_delta(idx=5)` —— normalizer 会**原样透出**,不重映射。在被前面 unsigned thinking drop 导致 remap 已经生效的场景里,idx=5 可能对应错误的下游 block。
-
-**后果**:
-- 正常 provider 不会这么发,理论异常;但破坏了 "normalizer 保证 index 连续" 的语义完整性
-- 一旦上游 provider 有 bug / 网络乱序 / 中间件预处理不当,delta 会插在错的位置,客户端 SDK 拼字符串错乱
-
-**初步判断**:
-边缘情况,实测无法自然触发(要求 provider 侧协议违规)。属可观察性 hardening。
-
-**方案讨论**:(待定)
-- 方案 A:未见 start 的 delta/stop 直接 drop + log.warn(严格)
-- 方案 B:保持当前 pass-through,只 log.warn(温和)
-- 当前倾向:方案 B
-
-**关联**:
--> src/provider/anthropic-normalize.ts:68
-
----
-
-## [ISS-023] `af33818` 把 `selectSignatureMessages` 的 `per_iteration` 分支改为 `fanoutMode !== 'user_turn'` 全捕获,`off` 模式的 sigMessages 计算是无用工作
-
-**状态**:[发现]
-**优先级**:[P3 轻微]
-**类型**:[技术债]
-**发现日期**:2026-07-12
-
-**现象**:
-`src/cache/cache-key.ts:46` 的分支:
-```ts
-if (fanoutMode !== 'user_turn') return messages;
-```
-当 `fanout_mode='off'` 时,虽然 `orchestrator.ts:389` 的 `mom.fanout_mode === 'off' ? '' : computeFanoutCacheKey(...)` 已经短路——**根本不会调用 `computeFanoutCacheKey`**——但代码逻辑上让人误以为 `off` 会走"全 messages 签名"路径。语义冗余。
-
-**后果**:
-- 无功能影响(调用点已经短路)
-- 代码可读性略降
-
-**初步判断**:
-已确认。改成 `=== 'per_iteration'` 语义更清晰。
-
-**关联**:
--> src/cache/cache-key.ts:46
--> src/orchestrator/orchestrator.ts:389
-
----
-
-## [ISS-024] `fanout_mode='off'` 时 `trigger_reason='fanout_cache_off'`,但 `isNewTurn` 计算依然进行 — 无用工作
-
-**状态**:[发现]
-**优先级**:[P3 轻微]
-**类型**:[技术债]
-**发现日期**:2026-07-12
-
-**现象**:
-`src/orchestrator/orchestrator.ts:388` 无条件计算 `isNewTurn = isNewUserTurn(body.messages)`,但当 `fanout_mode='off'` 时 `computeTriggerReason` 走首个分支 `return 'fanout_cache_off'` 忽略 `isNewTurn`。off 模式下 `isNewTurn` 依然被计算(遍历 messages),纯浪费。
-
-**后果**:
-无功能影响,微小性能浪费。
-
-**方案讨论**:
-可用 lazy evaluation 或分支避免:
-```ts
-const key = mom.fanout_mode === 'off' ? '' : computeFanoutCacheKey(body.messages, mom);
-const isNewTurn = mom.fanout_mode === 'off' ? false : isNewUserTurn(body.messages);
-```
-
-**关联**:
--> src/orchestrator/orchestrator.ts:388
-
----
-
-## [ISS-025] `stream-forward.ts` SSE parse 失败 fallback 只把 `raw.data`(已 trim)重编码,多行 data 帧丢失
-
-**状态**:[发现]
-**优先级**:[P3 轻微]
-**类型**:[功能异常]
-**发现日期**:2026-07-12
-
-**现象**:
-`src/provider/stream-forward.ts:94`:
-```ts
-} catch (err) {
-  output.write(formatSSEEvent(raw.event, raw.data));
-  log?.warn(...);
-}
-```
-`raw.data` 是 SSEParser 已经将 multi-line `data:` 用 `\n` join 后的字符串,但 `formatSSEEvent(event, data)` 内部 `typeof data === 'string' ? data : JSON.stringify(data)` 会把 `raw.data` 原样写成 `data: <整段>\n\n`——如果原帧是 multi-line data,现在被压成单行,不符合 SSE 规范(客户端 SDK 会正确解析,因为读的还是 join 后的字符串,但字节序变了)。
-
-**后果**:
-- SSE parse 失败(JSON 破损)本身是异常路径,fallback 仅 warn + 尽量透传
-- 边缘协议差异,不影响 happy path
-
-**初步判断**:
-边缘 hardening 项,与 ISS-021 关联(主链路重编码已经打破了字节等价)。
-
-**关联**:
--> src/provider/stream-forward.ts:94
--> src/gateway/sse.ts:17 `formatSSEEvent` 语义
-
----
-
-## [ISS-026] main 上无 `cost_usd` 字段,但 CHANGELOG / DEVELOPMENT.md 并未清扫早期示例
-
-**状态**:[发现]
-**优先级**:[P3 轻微]
-**类型**:[技术债]
-**发现日期**:2026-07-12
-
-**现象**:
-`af68b46 [ISS-010]` 已从 `TraceRequest` 类型、`traces` 表 schema、`src/orchestrator/orchestrator.ts:persistAdvisorTraces / persistAggregatorTrace / persistPassthroughTrace` 中删除 `cost_usd` 字段,并同步更新 `docs/006API.md`。但:
-
-- `docs/005DEVELOPMENT.md` 内 `[2026-07-10-1]` 章节"成本分账(Phase 3 精算示例)"仍写 `total_cost_usd` 字段
-- 数据库校验代码块仍是 `SELECT trigger_reason, mom_triggered, ROUND(total_cost_usd, 6) cost ...`——这段 SQL 现在会报"no such column: total_cost_usd"
-
-**后果**:
-- 新用户按 [2026-07-10-1] 步骤跑 V1..V6 验证,到"数据库校验"步会遇到 SQL 报错
-- 与新 schema 契约不同步
-
-**初步判断**:
-文档同步遗漏,af68b46 提交时忘记扫这段。
-
-**方案讨论**:
-- 方案 A:把示例改成"现算 cost"(读 pricing 和 usage 做数学)
-- 方案 B:直接删除该段(用户可能不关心 SQL 层)
-- 当前倾向:方案 A(与 006API.md 新契约一致)
-
-**关联**:
--> docs/005DEVELOPMENT.md `[2026-07-10-1]` 章节"数据库校验"与"成本分账"
--> docs/006API.md(已更新,作对照)
--> af68b46 commit
-
----
-
-## [ISS-027] `docs/001ARCHITECTURE.md` §6 "Advisor cache_control 布局"未反映 `fanout_mode='off'` 分支
-
-**状态**:[发现]
-**优先级**:[P3 轻微]
-**类型**:[技术债]
-**发现日期**:2026-07-12
-
-**现象**:
-`docs/001ARCHITECTURE.md` §6 "Trigger 语义"依然只列 6 种 `trigger_reason` 枚举(mom_off / user_turn / skipped_tool_iteration / tool_iteration_cache_miss / per_iteration / fanout_cache_hit)。af33818 新增了第 7 种 `fanout_cache_off`,但架构文档未同步。
-
-**后果**:
-- Dashboard / eval 侧看到未知的 `fanout_cache_off` 标签,以为是数据污染
-
-**初步判断**:
-文档同步遗漏。
-
-**关联**:
--> docs/001ARCHITECTURE.md §6 "Trigger 语义"
--> src/types/mom.ts:TriggerReason(新增枚举)
--> af33818 commit
 ## [ISS-015] 缓存复用会把上一轮失败的 advisor `TraceError` 沿着 cache_hit 一路带过来
 
 **状态**：[发现]
@@ -974,6 +769,293 @@ response_summary: null,
 **关联**：
 -> src/cache/fanout-cache.ts:cloneAsCacheHit
 -> 与 ISS-015 合并考虑
+
+
+## [ISS-021] `passthroughStream` 主链路从"字节级 pipe"变为"parse → normalize → 重编码",破坏 001ARCHITECTURE 承诺
+
+**状态**：[发现]
+**优先级**：[P2 一般]
+**类型**：[技术债]
+**发现日期**：2026-07-12
+
+**现象**：
+`af33818 feat: add cache-off mode and normalize provider thinking` 重构了 `src/provider/stream-forward.ts:82-115` 的 `onData` 处理:
+- 原实现:`output.write(chunk)` **先字节级转发**,onEvent 只是旁路观察(异常吞掉,不影响主链路)
+- 新实现:所有 chunk 都过 `parser.push` → `JSON.parse` → `normalizer.normalize` → `formatSSEEvent` **重新编码** → `output.write`
+
+这与 `docs/001ARCHITECTURE.md` §6 "Aggregator 字节级透传原则"的核心承诺冲突:"前缀所有 message 保持原对象引用不变,保证 Claude Code 侧 cache_control 前缀命中"——该原则暗含"provider 侧 SSE 帧的字节序在网关内不被改写"。
+
+**后果**:
+1. 客户端拿到的 SSE 字节流不再和 provider 侧字节等价(空格 / 换行 / JSON key 顺序等被 normalize 重编码)。虽然 Anthropic SDK 解析层无感,但一旦下游有对 raw bytes 敏感的中间件(如签名、指纹、审计校验),会翻车
+2. `parser` 从"可选"变为"必需",即使调用方不需要 observer,依然要付 SSE parse + JSON.parse + JSON.stringify 三次开销
+3. SSE parse 失败时(见 stream-forward.ts:94)fallback 到 `output.write(formatSSEEvent(raw.event, raw.data))`——`data` 是**已 trim 的字符串**,直接被当第二参给 formatSSEEvent 会输出 `data: <string>`,但原始 provider 帧可能是 multi-line data,信息会丢失
+4. 无 chunk-boundary 相关问题(已通过 `test/stream-forward-chunking.test.ts` 4 例 1..4096 字节 chunk 验证,正确)
+
+**初步判断**:
+已确认。改动的**动机是对的**(不 normalize 的话没法过滤流式 thinking),但改动路径**过重**——把主链路"字节级透传"改成了"完全重编码"。这个 trade-off 未在 CHANGELOG / decisions 中显式记录。
+
+**方案讨论**:(待定)
+- 方案 A:接受当前实现,在 001ARCHITECTURE 里显式撤销"字节级"承诺,改述为"语义级 SSE 事件透传";并把 rationale 写进新 decision(建议路径)
+- 方案 B:normalize 只作用于 "含 thinking" 的帧,其余走原字节级 pipe——需要 SSEParser 支持"透传未消费字节"或双缓冲
+- 方案 C:回退到 byte-level pipe,失去流式 thinking 过滤能力
+- 当前倾向:方案 A(承诺已经破坏,承认现实并写清)
+
+**关联**:
+-> src/provider/stream-forward.ts:82-115
+-> src/provider/anthropic-normalize.ts(新增,af33818)
+-> docs/001ARCHITECTURE.md §6 "Aggregator 字节级透传原则"(需修订或迁入 decision)
+-> test/stream-forward-chunking.test.ts(本轮新增回归)
+
+---
+
+## [ISS-022] `content_block_delta`/`content_block_stop` 在**没有对应 start**的情况下 pass-through,违反 index 连续性
+
+**状态**:[发现]
+**优先级**:[P3 轻微]
+**类型**:[功能异常]
+**发现日期**:2026-07-12
+
+**现象**:
+`src/provider/anthropic-normalize.ts:66-70` 的实现:
+```ts
+const mappedIndex = indexMap.get(event.index);
+if (mappedIndex === null) return null;
+if (mappedIndex === undefined) return event;  // ← 未映射,直接原样透出
+```
+如果协议异常:provider 侧未发 `content_block_start(idx=5)` 就发了 `content_block_delta(idx=5)` —— normalizer 会**原样透出**,不重映射。在被前面 unsigned thinking drop 导致 remap 已经生效的场景里,idx=5 可能对应错误的下游 block。
+
+**后果**:
+- 正常 provider 不会这么发,理论异常;但破坏了 "normalizer 保证 index 连续" 的语义完整性
+- 一旦上游 provider 有 bug / 网络乱序 / 中间件预处理不当,delta 会插在错的位置,客户端 SDK 拼字符串错乱
+
+**初步判断**:
+边缘情况,实测无法自然触发(要求 provider 侧协议违规)。属可观察性 hardening。
+
+**方案讨论**:(待定)
+- 方案 A:未见 start 的 delta/stop 直接 drop + log.warn(严格)
+- 方案 B:保持当前 pass-through,只 log.warn(温和)
+- 当前倾向:方案 B
+
+**关联**:
+-> src/provider/anthropic-normalize.ts:68
+
+---
+
+## [ISS-023] `af33818` 把 `selectSignatureMessages` 的 `per_iteration` 分支改为 `fanoutMode !== 'user_turn'` 全捕获,`off` 模式的 sigMessages 计算是无用工作
+
+**状态**:[发现]
+**优先级**:[P3 轻微]
+**类型**:[技术债]
+**发现日期**:2026-07-12
+
+**现象**:
+`src/cache/cache-key.ts:46` 的分支:
+```ts
+if (fanoutMode !== 'user_turn') return messages;
+```
+当 `fanout_mode='off'` 时,虽然 `orchestrator.ts:389` 的 `mom.fanout_mode === 'off' ? '' : computeFanoutCacheKey(...)` 已经短路——**根本不会调用 `computeFanoutCacheKey`**——但代码逻辑上让人误以为 `off` 会走"全 messages 签名"路径。语义冗余。
+
+**后果**:
+- 无功能影响(调用点已经短路)
+- 代码可读性略降
+
+**初步判断**:
+已确认。改成 `=== 'per_iteration'` 语义更清晰。
+
+**关联**:
+-> src/cache/cache-key.ts:46
+-> src/orchestrator/orchestrator.ts:389
+
+---
+
+## [ISS-024] `fanout_mode='off'` 时 `trigger_reason='fanout_cache_off'`,但 `isNewTurn` 计算依然进行 — 无用工作
+
+**状态**:[发现]
+**优先级**:[P3 轻微]
+**类型**:[技术债]
+**发现日期**:2026-07-12
+
+**现象**:
+`src/orchestrator/orchestrator.ts:388` 无条件计算 `isNewTurn = isNewUserTurn(body.messages)`,但当 `fanout_mode='off'` 时 `computeTriggerReason` 走首个分支 `return 'fanout_cache_off'` 忽略 `isNewTurn`。off 模式下 `isNewTurn` 依然被计算(遍历 messages),纯浪费。
+
+**后果**:
+无功能影响,微小性能浪费。
+
+**方案讨论**:
+可用 lazy evaluation 或分支避免:
+```ts
+const key = mom.fanout_mode === 'off' ? '' : computeFanoutCacheKey(body.messages, mom);
+const isNewTurn = mom.fanout_mode === 'off' ? false : isNewUserTurn(body.messages);
+```
+
+**关联**:
+-> src/orchestrator/orchestrator.ts:388
+
+---
+
+## [ISS-025] `stream-forward.ts` SSE parse 失败 fallback 只把 `raw.data`(已 trim)重编码,多行 data 帧丢失
+
+**状态**:[发现]
+**优先级**:[P3 轻微]
+**类型**:[功能异常]
+**发现日期**:2026-07-12
+
+**现象**:
+`src/provider/stream-forward.ts:94`:
+```ts
+} catch (err) {
+  output.write(formatSSEEvent(raw.event, raw.data));
+  log?.warn(...);
+}
+```
+`raw.data` 是 SSEParser 已经将 multi-line `data:` 用 `\n` join 后的字符串,但 `formatSSEEvent(event, data)` 内部 `typeof data === 'string' ? data : JSON.stringify(data)` 会把 `raw.data` 原样写成 `data: <整段>\n\n`——如果原帧是 multi-line data,现在被压成单行,不符合 SSE 规范(客户端 SDK 会正确解析,因为读的还是 join 后的字符串,但字节序变了)。
+
+**后果**:
+- SSE parse 失败(JSON 破损)本身是异常路径,fallback 仅 warn + 尽量透传
+- 边缘协议差异,不影响 happy path
+
+**初步判断**:
+边缘 hardening 项,与 ISS-021 关联(主链路重编码已经打破了字节等价)。
+
+**关联**:
+-> src/provider/stream-forward.ts:94
+-> src/gateway/sse.ts:17 `formatSSEEvent` 语义
+
+---
+
+## [ISS-026] main 上无 `cost_usd` 字段,但 CHANGELOG / DEVELOPMENT.md 并未清扫早期示例
+
+**状态**:[发现]
+**优先级**:[P3 轻微]
+**类型**:[技术债]
+**发现日期**:2026-07-12
+
+**现象**:
+`af68b46 [ISS-010]` 已从 `TraceRequest` 类型、`traces` 表 schema、`src/orchestrator/orchestrator.ts:persistAdvisorTraces / persistAggregatorTrace / persistPassthroughTrace` 中删除 `cost_usd` 字段,并同步更新 `docs/006API.md`。但:
+
+- `docs/005DEVELOPMENT.md` 内 `[2026-07-10-1]` 章节"成本分账(Phase 3 精算示例)"仍写 `total_cost_usd` 字段
+- 数据库校验代码块仍是 `SELECT trigger_reason, mom_triggered, ROUND(total_cost_usd, 6) cost ...`——这段 SQL 现在会报"no such column: total_cost_usd"
+
+**后果**:
+- 新用户按 [2026-07-10-1] 步骤跑 V1..V6 验证,到"数据库校验"步会遇到 SQL 报错
+- 与新 schema 契约不同步
+
+**初步判断**:
+文档同步遗漏,af68b46 提交时忘记扫这段。
+
+**方案讨论**:
+- 方案 A:把示例改成"现算 cost"(读 pricing 和 usage 做数学)
+- 方案 B:直接删除该段(用户可能不关心 SQL 层)
+- 当前倾向:方案 A(与 006API.md 新契约一致)
+
+**关联**:
+-> docs/005DEVELOPMENT.md `[2026-07-10-1]` 章节"数据库校验"与"成本分账"
+-> docs/006API.md(已更新,作对照)
+-> af68b46 commit
+
+---
+
+## [ISS-027] `docs/001ARCHITECTURE.md` §6 "Advisor cache_control 布局"未反映 `fanout_mode='off'` 分支
+
+**状态**:[发现]
+**优先级**:[P3 轻微]
+**类型**:[技术债]
+**发现日期**:2026-07-12
+
+**现象**:
+`docs/001ARCHITECTURE.md` §6 "Trigger 语义"依然只列 6 种 `trigger_reason` 枚举(mom_off / user_turn / skipped_tool_iteration / tool_iteration_cache_miss / per_iteration / fanout_cache_hit)。af33818 新增了第 7 种 `fanout_cache_off`,但架构文档未同步。
+
+**后果**:
+- Dashboard / eval 侧看到未知的 `fanout_cache_off` 标签,以为是数据污染
+
+**初步判断**:
+文档同步遗漏。
+
+**关联**:
+-> docs/001ARCHITECTURE.md §6 "Trigger 语义"
+-> src/types/mom.ts:TriggerReason(新增枚举)
+-> af33818 commit
+
+---
+
+## [ISS-028] Dashboard 前端从三层升级为五页（Overview / Live / Pipeline / Cost / Settings），出 mock 驱动的预览版并同步改写 PLAN Phase 5/6
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[规划调整]
+**发现日期**：2026-07-12
+**解决日期**：2026-07-13
+**解决方案**：以 mock 数据先出前端预览版反推 API 契约（`web/src/mock/*.ts`），Phase 5 拆两阶段——5.0 预览版本次交付，5.1 待 Phase 4 API 到位后回填真实数据。Phase 6 改为"Judge 模式 + Baseline 后端接入"，UI 已在 5.0 完成。全栈落地五页 + 双语 i18n（自研 `dict + useI18n`，不引 i18next）；图表统一走 Recharts；视觉语言以 `web/src/theme.ts` 常量为准（奶油底 `#FAF9F5` + clay 主色 `#C96442` + 暖灰低饱和图表色带）。同步改写 PLAN.md 的概览表 / 依赖链 / 目录树 / Context 与 Phase 5/6 正文，使描述与代码一致。
+
+**现象**：
+PLAN 原 Phase 5 只写了三层（Settings / Traces / Metrics）+ Phase 6 的对比展示层，且都是 `📝 略写`。展会演示叙事（"用更便宜的组合逼近旗舰能力"）要求先看效果对比、再看现场证明、再讲原理、再看成本、最后配置——三层布局无法承载。Phase 4 Dashboard API 还没动，先出前端预览版反推 API 契约。
+
+**后果**：
+不处理会导致：（1）展会讲解找不到主轴，观众看不出 MoM 效果；（2）Phase 4 API schema 无参照，落地后要为 UI 反复调整；（3）双语切换未纳入规划，中文观众体验碎裂。
+
+**初步判断**：
+已确认。前端预览版已构建通过（`npm --prefix web run build` 已过），5 页 + 双语 + 主要动画（打字机 / pipeline 节点流转 / 图表 hover）可跑；全部走 `web/src/mock/*` 假数据。
+
+**关联**：
+-> PLAN.md Phase 5 / Phase 6（本次改写）
+-> web/src/pages/{OverviewPage,LivePage,PipelinePage,CostPage,SettingsPage}.tsx
+-> web/src/i18n/{dict.ts,context.tsx,format.ts}
+-> web/src/components/charts/*
+-> web/src/mock/*
+-> decisions/007-dashboard-5-page-preview.md
+-> 004CHANGELOG.md [2026-07-12-4]
+
+---
+
+## [ISS-029] Overview/Live 页视觉修订：Pareto legend 挡 x 轴、KPI 缺分数三卡、Live 缺跨 turn 动态排名图
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-13
+**解决日期**：2026-07-13
+**解决方案**：三处联动改动，全部走 mock，不影响后端/API。
+1. **Pareto 图 legend/x 轴对齐** — `web/src/components/charts/ParetoChart.tsx`
+   - X 轴标签改用 `insideBottom` + 负 offset 压回轴线上方，避免被 legend 顶掉；
+   - 5 个非 MoM 模型（Fable 5 / GPT-5 / Sonnet 4.6 / Haiku 4.5 / Aggregator-only）拆成 5 个独立 `Scatter`，legend 列出全部名字；shape 分别是 circle / square / triangle / diamond / cross，MoM 保持 star；
+   - Aggregator-only 走 `color.aggregatorOnly`（卡其），其余四个走 `color.flagship`（暖灰）—— 语义上 Aggregator-only 是我们内部 baseline，不是竞品旗舰；
+   - Legend spacing（`paddingTop: 8` + `margin.bottom: 30`）与 ComboChart 对齐，不再离 x 轴过远。
+2. **OverviewPage KPI 加分数三卡** — `web/src/pages/OverviewPage.tsx`
+   - 顶部原有的三张卡（相对分 96% / 成本 −68% / 延迟 +1.2s）保留；
+   - 新增第二排三张：Fable 5 (85.5) / MoM (82.4, clay 强调) / Aggregator-only (71.1)，分数直接读 `mock/benchmarks.ts` 的 `paretoData`，与 Pareto 图完全一致；
+   - i18n 键新增 `overview.kpi.scoreMoM / scoreFable5 / scoreBaseline` 及其 hint，中英双语齐。
+3. **LivePage 新增"动态排名"图** — `web/src/pages/LivePage.tsx` + `web/src/components/charts/RankingChart.tsx` + `web/src/mock/live-ranking.ts`
+   - 位置：Judge 雷达 + 成本对比行之下的独立全宽卡片；
+   - 数据：最近 10 turn 的 judge 相对排名（前 9 turn 为历史 mock，第 10 turn 跟 Prompt Shelf 选中的 preset 联动切换）；
+   - 三条折线 MoM / Aggregator-only / Fable 5，跟 ComboChart 同色同 stroke 家族；Y 轴 `reversed`，tick 只 1/2/3（1 = 最好）；
+   - Tooltip 显示这一轮的问题标题（中英切换）+ 三家排名；副标题点明"开放型问题绝对分不可比、用相对排名"这一叙事动机。
+4. **ComboChart legend 拆两行** — `web/src/components/charts/ComboChart.tsx`
+   - 自定义 `TwoRowLegend`：第一行三个 cost 项（柱色），第二行三个 score 项（线色）；
+   - 底部 margin 30 → 40 给两行 legend 留位。
+
+**现象**：
+1. 中文 legend 里 `MoM（GLM 5.2 + Kimi k2.7 + DeepSeek V4 flash(agggregator)）` 太长换行，落到 Pareto 的 x 轴标签上方，遮住"成本（$ / 1M 输出 token）"文字。
+2. Pareto 图数据有 5 个灰点（Fable5 / GPT-5 / Sonnet4.6 / Haiku4.5 / Aggregator-only），legend 却把它们全部归到 `t.models.flagship`（"Fable 5"）一条，观众无法辨识灰点是谁。
+3. Overview 顶部只强调"MoM 达到 Fable 5 96%"，没有把三家的原始分数并排放出来；展会讲解时观众会问"MoM 具体多少？Fable 5 又是多少？Aggregator 单跑呢？"，得先看代码才能答。
+4. Live 页只有 Judge 雷达针对当前这一轮，没有跨 turn 的趋势视角；讲解"MoM 在开放型问题上是否稳定优于 baseline"缺一张动态图。
+5. Combo 图 legend 六个项拼一行太挤，在 1080p 宽下会自动换行，语义上 cost/score 各三个应分开呈现。
+
+**后果**：
+展会现场观众看图时理解成本增加：Pareto 图无法识别 5 个灰点分别是哪些模型；Overview 的"96%"缺原始分数背书；Live 页无法一眼看出 MoM 是否稳定领先。
+
+**初步判断**：
+已确认。三处改动均为纯前端 mock 视觉修订，不影响 orchestrator / API / storage；`npm --prefix web run build` 通过。
+
+**关联**：
+-> web/src/components/charts/ParetoChart.tsx
+-> web/src/components/charts/ComboChart.tsx
+-> web/src/components/charts/RankingChart.tsx（新增）
+-> web/src/pages/OverviewPage.tsx
+-> web/src/pages/LivePage.tsx
+-> web/src/mock/live-ranking.ts（新增）
+-> web/src/i18n/dict.ts
+-> PLAN.md Phase 5 页面 1 & 2 描述二次修订
+-> 004CHANGELOG.md [2026-07-13-1]
 
 <!--
 新增条目模板：
