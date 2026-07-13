@@ -1,5 +1,5 @@
 import { useI18n } from '../../i18n/context';
-import { color, font, layout, space } from '../../theme';
+import { color, font, layout, shadow, space } from '../../theme';
 
 export type PageKey = 'overview' | 'live' | 'pipeline' | 'cost' | 'settings';
 
@@ -58,19 +58,19 @@ function BrandBlock({ name, tagline }: { name: string; tagline: string }) {
         <span
           aria-hidden
           style={{
-            width: 14,
-            height: 14,
-            borderRadius: 3,
+            width: 18,
+            height: 18,
+            borderRadius: 4,
             background: color.mom,
             display: 'inline-block',
             transform: 'translateY(1px)',
           }}
         />
-        <span style={{ fontSize: 17, fontWeight: 600, color: color.textPrimary, letterSpacing: '-0.02em' }}>
+        <span style={{ fontSize: font.size.xl, fontWeight: font.weight.semibold, color: color.textPrimary, letterSpacing: '-0.02em' }}>
           {name}
         </span>
       </div>
-      <div style={{ fontSize: 11, color: color.textMuted, paddingLeft: 22, letterSpacing: '0.02em' }}>
+      <div style={{ fontSize: font.size.xxs, color: color.textMuted, paddingLeft: 26, letterSpacing: '0.02em' }}>
         {tagline}
       </div>
     </div>
@@ -96,11 +96,11 @@ function FooterBlock({
     background: isActive ? color.surface : 'transparent',
     color: isActive ? color.textPrimary : color.textMuted,
     borderRadius: 6,
-    padding: '4px 10px',
-    fontSize: 11,
-    fontWeight: 500,
+    padding: '6px 14px',
+    fontSize: font.size.xs,
+    fontWeight: font.weight.medium,
     cursor: 'pointer',
-    boxShadow: isActive ? '0 1px 2px rgba(31, 27, 22, 0.06)' : 'none',
+    boxShadow: isActive ? shadow.card : 'none',
   });
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: space.sm, paddingLeft: 8 }}>
@@ -108,16 +108,16 @@ function FooterBlock({
         style={{
           display: 'inline-flex',
           alignSelf: 'flex-start',
-          background: '#EDE8DA',
+          background: color.bgSubtle,
           borderRadius: 8,
-          padding: 2,
+          padding: 3,
           gap: 2,
         }}
       >
         <button onClick={() => onLang('en')} style={pill(lang === 'en')}>{langEn}</button>
         <button onClick={() => onLang('zh')} style={pill(lang === 'zh')}>{langZh}</button>
       </div>
-      <div style={{ fontSize: 10, color: color.textMuted, letterSpacing: '0.03em' }}>{version}</div>
+      <div style={{ fontSize: font.size.xxs, color: color.textMuted, letterSpacing: '0.03em' }}>{version}</div>
     </div>
   );
 }
@@ -132,12 +132,12 @@ function NavItem({ active, label, onClick }: { active: boolean; label: string; o
         background: active ? color.surface : 'transparent',
         color: active ? color.textPrimary : color.textSecondary,
         borderRadius: 8,
-        padding: '9px 12px',
+        padding: '12px 14px',
         textAlign: 'left',
-        fontSize: 14,
-        fontWeight: active ? 500 : 400,
+        fontSize: font.size.sm,
+        fontWeight: active ? font.weight.semibold : font.weight.regular,
         cursor: 'pointer',
-        boxShadow: active ? '0 1px 2px rgba(31, 27, 22, 0.04)' : 'none',
+        boxShadow: active ? shadow.card : 'none',
         letterSpacing: '-0.005em',
         transition: 'background 120ms ease',
       }}

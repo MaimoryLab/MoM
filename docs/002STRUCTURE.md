@@ -74,8 +74,8 @@ MoM/
 │   └── src/
 │       ├── main.tsx               # React 挂载入口 + I18nProvider 包裹 App
 │       ├── App.tsx                # 侧边栏 + useState 路由，五页切换
-│       ├── theme.ts               # 色板 / 字体 / 圆角 / 阴影常量集中定义（clay 主色 / 三色带 / 奶油底）
-│       ├── global.css             # 全局奶油底色、blink keyframe、字体栈
+│       ├── theme.ts               # 色板 / 字号阶梯 / 圆角 / 阴影常量集中定义（ISS-030 改：royal-blue 冷主色 + 冷灰 advisor 色带 + 冷白底 + font.size 十档语义常量 base 18px）
+│       ├── global.css             # 全局冷白底、base font 18px、blink / pulse-mom keyframe、字体栈
 │       ├── i18n/                  # 新增 — ISS-028；自研 i18n（不引入 i18next）
 │       │   ├── dict.ts            # 中英双语字典（术语保留英文，叙述性文字本地化）
 │       │   ├── context.tsx        # I18nProvider + useI18n；语言持久化 localStorage

@@ -2,7 +2,7 @@ import {
   PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart,
   ResponsiveContainer, Tooltip, Legend,
 } from 'recharts';
-import { color } from '../../theme';
+import { color, font } from '../../theme';
 import { useI18n } from '../../i18n/context';
 import type { JudgeScores } from '../../mock/live-samples';
 
@@ -21,24 +21,24 @@ export function JudgeRadar({ mom, baseline }: Props) {
     { dim: t.live.judgeDim.usefulness,   mom: mom.usefulness,   baseline: baseline.usefulness   },
   ];
   return (
-    <div style={{ width: '100%', height: 280 }}>
+    <div style={{ width: '100%', height: 340 }}>
       <ResponsiveContainer>
-        <RadarChart data={data} margin={{ top: 12, right: 20, bottom: 8, left: 20 }} outerRadius="72%">
+        <RadarChart data={data} margin={{ top: 16, right: 28, bottom: 12, left: 28 }} outerRadius="72%">
           <PolarGrid stroke={color.gridLine} />
-          <PolarAngleAxis dataKey="dim" tick={{ fontSize: 11, fill: color.textSecondary }} />
+          <PolarAngleAxis dataKey="dim" tick={{ fontSize: font.size.xs, fill: color.textSecondary }} />
           <PolarRadiusAxis
             domain={[0, 100]}
-            tick={{ fontSize: 9, fill: color.textMuted }}
+            tick={{ fontSize: font.size.xxs, fill: color.textMuted }}
             axisLine={false}
             tickCount={5}
           />
           <Radar name="MoM"      dataKey="mom"      stroke={color.mom}      fill={color.mom}      fillOpacity={0.22} strokeWidth={2} />
           <Radar name="Baseline" dataKey="baseline" stroke={color.flagship} fill={color.flagship} fillOpacity={0.10} strokeWidth={1.5} strokeDasharray="4 3" />
-          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+          <Legend wrapperStyle={{ fontSize: font.size.xs, paddingTop: 6 }} />
           <Tooltip
             contentStyle={{
               background: color.surface, border: `1px solid ${color.border}`,
-              borderRadius: 8, fontSize: 12, color: color.textPrimary,
+              borderRadius: 8, fontSize: font.size.xs, color: color.textPrimary,
             }}
           />
         </RadarChart>
