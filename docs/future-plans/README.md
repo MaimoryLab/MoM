@@ -32,13 +32,5 @@
 
 ## 现有规划
 
-- [001 — System Prompt 数据库管理 + 后台可视化](001-system-prompt-db-management.md)
-- [002 — Admin 后台前端工程化重构](002-admin-frontend-modernization.md)
-- [003 — Admin 高级诊断分析功能](003-admin-diagnostic-analytics.md)
-- [004 — CI 流水线 + 自动化质量门禁](004-ci-pipeline.md)
-- [005 — AI 指令注册表单一来源 + 代码生成](005-tool-registry.md)
-- [006 — 屏幕全文提取（取代 SelectAllAndCopy 的真实意图）](006-screen-text-extraction.md)
-- [007 — 会话级记忆系统](007-session-memory-system.md)
-- [008 — Android 系统通知接口（AI 主动提醒类指令）](008-android-notification-reminder.md)
-- [009 — ai_module 状态持久化 + alarm 唤醒长挂起](009-ai-module-suspend-resume.md)
-- [010 — 测试 pipeline 演进方向](010-test-pipeline-extensions.md)
+- [001 — Dashboard API 字段形状与 mock 类型对齐](001-dashboard-api-shape-reconciliation.md)
+- [002 — Dashboard 4K 适配 + 展会自动循环 demo 模式](002-dashboard-4k-and-demo-loop.md)

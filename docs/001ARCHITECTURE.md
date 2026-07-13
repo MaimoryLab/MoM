@@ -225,3 +225,44 @@ Claude Code POST /v1/messages {stream:true}（可带 X-Session-ID header）
 - **Provider 错误信号双通道**（ISS-012 起）：`passthroughStream` 遇 provider 非 2xx / 网络错误时——(1) 副作用：向 output 写一条 SSE `error` 帧供客户端观察；(2) 主信号：仍抛 `ProviderError` / 原始 `Error` 让 orchestrator 层落 `status='error'` TraceRequest。写帧不吞信号，两条通道独立
 - **TraceError 结构化传递**（ISS-012 起）：`AdvisorResult.error` / `AggregatorResult.error` / `TraceRequest.error` 统一为 `TraceError | null`（`type` 收窄为 `provider_error | gateway_error | advisor_error | aggregator_error`）；`toTraceError(err, fallbackType)` 位于 provider-client，四条路径（advisor / aggregator / passthrough / stream-forward）共用一个转换器，`ProviderError.statusCode` 一路带进 `TraceError.http_status`
 - **Pricing source stamping**（ISS-012 起）：`RuntimeConfig.mom_config_source` 在 `getConfig(momConfigPath)` 时读文件 mtime 拼 `basename@<iso>`（stat 失败 fallback 到 basename）；orchestrator 每次 `snapshotPricing` 用此值填 `PricingSnapshot.source`
+
+---
+
+## 7. Dashboard 前端
+
+Vite + React + TS 独立子工程（`web/`），构建产物挂在网关 `/dashboard/*`。Phase 5.0 交付**预览版**：数据全部走 `web/src/mock/*`，未接入后端 API 与 SSE。
+
+### 页面结构
+
+五页，通过左侧固定 Sidebar 切换：
+
+- **Overview** `pages/OverviewPage.tsx` — Pareto 效果-成本散点（Aggregator-only / MoM / Flagship 三点）+ per-benchmark combo（折线 score + 柱状 tokens）+ 3 KPI（quality vs flagship / cost vs flagship / wins-ties-losses）
+- **Live Compare** `pages/LivePage.tsx` — 顶部 5 个预置 prompt shelf + MoM vs Baseline 左右并排打字机 + Judge 5 维雷达（correctness/depth/clarity/efficiency/safety）+ 成本对比条 + 底部阶段耗时甘特
+- **Pipeline** `pages/PipelinePage.tsx` — user → 3 advisor 并行 → references 装配盒 → aggregator → final 的水平流程图；节点激活动画；Replay 时间轴；节点抽屉展示 request/response 全文与 references 拼接位置；Diff toggle 切"有/无 MoM 的 aggregator messages"红绿高亮
+- **Cost** `pages/CostPage.tsx` — 会话节省 banner + 4 KPI（total / per-turn / cache_hit / advisor:aggregator:judge 占比）+ 每轮堆叠柱（advisor slots + aggregator + judge）+ 组成饼图 + 5 角色 cache_read/write/miss 横向条 + 累计成本时间线（MoM vs Flagship-only）
+- **Settings** `pages/SettingsPage.tsx` — 语言切换（中/EN，`localStorage` 持久化） + Provider 遮罩摘要（只读，秘钥编辑走 `.env`） + Aggregator / Advisor slots / Judge / Comparison / Pricing 表单
+
+### 双语（i18n）
+
+自研，未引入 i18next：`i18n/dict.ts`（中英字典）+ `i18n/context.tsx`（`I18nProvider` + `useI18n()`）+ `i18n/format.ts`（成本 / 延迟 / token 数按 locale 格式化）。默认语言取 `navigator.language`（`zh-*` → zh，其他 → en）。**术语保留英文**：token / cache hit / latency / SSE / Aggregator / Advisor / Judge；叙述性文字本地化。切换语言同步切换 `mock/live-samples.ts` 里预置 prompt 与回复的语言。
+
+### 数据源
+
+Phase 5.0 完全走 `web/src/mock/*`，无后端调用：
+
+- `mock/benchmarks.ts` — Pareto 三点 + per-benchmark combo
+- `mock/live-samples.ts` — 5 个预置 prompt × 中英 × MoM/Baseline/Judge 全套脚本
+- `mock/pipeline-trace.ts` — canned trace + 动画时序
+- `mock/cost.ts` — 32 turns session 成本 + cache 命中
+- `mock/config.ts` — Settings 初值 + 模型下拉候选
+
+`hooks/useTypewriter.ts` 前端播放假流式；`hooks/useEventSource.ts` 空壳、签名与未来 SSE 一致（Phase 5.1 回填时替换 mock 引用）。
+
+### 视觉体系
+
+- 底色 `#FBF7EE`（奶油色）+ 卡片浅描边 `#EADFC7` + 大留白
+- 主色 clay orange `#C96442`（MoM 本身与主动作按钮）
+- 图表三色带：MoM = clay / Baseline = slate `#7A8A99` / Flagship = moss `#5F8C6B`；辅助色 `#B8A175`（judge）/ `#9C8CB3`（cache）
+- 字体：`ui-serif`（标题）+ `ui-sans-serif`（正文）+ `ui-monospace`（token/代码）
+- 圆角 14px，阴影 `0 1px 2px rgba(50,30,10,.04), 0 8px 24px rgba(50,30,10,.05)`
+- 图表库 Recharts；不做暗色主题

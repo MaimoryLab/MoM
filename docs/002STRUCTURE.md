@@ -67,13 +67,38 @@ MoM/
 │   ├── trace-storage.test.ts      # 新增 — ISS-009；saveTraceRequest / getTraceRequestById / getTraceRequestsBySessionId 升序 / session 隔离 / null session 不落入按 session 查询
 │   └── trace-api.test.ts          # 新增 — ISS-011；GET /trace/requests 400 缺参 / 400 非 UUID / 200 空数组 / 200 升序 / session 隔离
 ├── web/                           # Dashboard 前端（Vite 子工程）
-│   ├── package.json               # workspace 成员
+│   ├── package.json               # workspace 成员；依赖 react / react-dom / recharts
 │   ├── tsconfig.json
 │   ├── vite.config.ts             # base:/dashboard/、dev proxy /api & /v1 → :3000
 │   ├── index.html
 │   └── src/
-│       ├── main.tsx               # React 挂载入口
-│       └── App.tsx                # 顶层组件，Phase 1 只显示 "Hello MoM"
+│       ├── main.tsx               # React 挂载入口 + I18nProvider 包裹 App
+│       ├── App.tsx                # 侧边栏 + useState 路由，五页切换
+│       ├── theme.ts               # 色板 / 字体 / 圆角 / 阴影常量集中定义（clay 主色 / 三色带 / 奶油底）
+│       ├── global.css             # 全局奶油底色、blink keyframe、字体栈
+│       ├── i18n/                  # 新增 — ISS-028；自研 i18n（不引入 i18next）
+│       │   ├── dict.ts            # 中英双语字典（术语保留英文，叙述性文字本地化）
+│       │   ├── context.tsx        # I18nProvider + useI18n；语言持久化 localStorage
+│       │   └── format.ts          # 成本 / 延迟 / token 数按 locale 格式化
+│       ├── hooks/                 # 新增 — ISS-028
+│       │   ├── useTypewriter.ts   # Live/Pipeline 假流式打字机（Phase 5.0 mock 播放）
+│       │   └── useEventSource.ts  # 空壳，签名与未来 SSE 一致；Phase 5.1 接入真数据
+│       ├── pages/                 # 新增 — ISS-028；五页
+│       │   ├── OverviewPage.tsx   # Pareto 主图 + benchmark combo 副图 + 3 KPI（效果层）
+│       │   ├── LivePage.tsx       # 预置 prompt shelf / MoM vs Baseline 并排打字机 / Judge 雷达 / 成本对比条
+│       │   ├── PipelinePage.tsx   # user→3 advisor→装配→aggregator→final 动画 + Replay + 节点抽屉
+│       │   ├── CostPage.tsx       # 节省 banner + 4 KPI + 每轮堆叠柱 + 饼图 + cache 命中矩阵 + 累计时间线
+│       │   └── SettingsPage.tsx   # 语言 / Provider 只读 / Aggregator / Advisor slots / Judge / Comparison / Pricing
+│       ├── components/            # 新增 — ISS-028
+│       │   ├── layout/            # Sidebar / PageShell
+│       │   ├── primitives/        # Card / KpiCard / Badge / Button
+│       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline
+│       └── mock/                  # 新增 — ISS-028；Phase 5.0 伪数据（Phase 5.1 逐步替换为 lib/api.ts）
+│           ├── benchmarks.ts      # Pareto 三点 + per-benchmark combo
+│           ├── live-samples.ts    # 5 个预置 prompt × 中英 × MoM/Baseline/Judge 全套脚本
+│           ├── pipeline-trace.ts  # canned trace + 动画时序
+│           ├── cost.ts            # 32 turns session 成本 + cache 命中
+│           └── config.ts          # Settings 初值 + 模型下拉候选
 ├── docs/                          # 文档体系
 │   ├── 000README.md               # 文档体系规范
 │   ├── 001ARCHITECTURE.md         # 系统架构
