@@ -491,9 +491,10 @@ Dashboard 前端所需 REST API 全部就位。
 
 **1. Overview 总览页（`pages/OverviewPage.tsx` · 静态）**
 数据源是评测组的 benchmark 结果占位，预览版全走 `mock/benchmarks.ts`。回答"MoM 到底达没达到旗舰效果、代价几何"。
-- **KPI 三张卡**（顶部一排，读 `heroStats`）：`达到 Fable 5 平均分`（96%，clay 强调）/ `相比 Fable 5 成本`（−68%，positive 绿）/ `延迟（我们说实话）`（+1.2s，negative 红，副文案"这是我们承认的代价"）
-- **副图 · 分 benchmark Combo**（`components/charts/ComboChart.tsx`）：横轴 6 个 benchmark（MMLU / HumanEval / GSM8K / BBH / MATH / GPQA），主 Y 轴分数三条折线（MoM / Aggregator only / Fable 5），次 Y 轴是**成本**（`$/1k token`）三组柱——不是 token 消耗
-- **主图 · Pareto 效果-成本气泡图**（`components/charts/ParetoChart.tsx`）：横轴 `$ / 1M 输出 token`（线性 0–20，非对数），纵轴 avg score（60–90）；散点六个 = MoM / Aggregator only / Fable 5 / GPT-5 / Sonnet 4.6 / Haiku 4.5，MoM 用 star 形放大突出；背景一根 clay 虚线连出 Pareto frontier 折线（Haiku → AggOnly → MoM → GPT-5 → Fable 5，全部非被支配点）；tooltip 显示 `score X.X · cost $Y.YY/1M`
+- **KPI 顶部三卡**（读 `heroStats`）：`达到 Fable 5 平均分`（96%，clay 强调）/ `相比 Fable 5 成本`（−68%，positive 绿）/ `延迟（我们说实话）`（+1.2s，negative 红，副文案"这是我们承认的代价"）
+- **KPI 分数三卡**（ISS-029 二修新增，读 `paretoData`）：`Fable 5 平均分`（85.5，旗舰参照）/ `MoM 平均分`（82.4，clay 强调）/ `Aggregator 单跑平均分`（71.1，baseline），跟 Pareto 图数字完全一致
+- **副图 · 分 benchmark Combo**（`components/charts/ComboChart.tsx`）：横轴 6 个 benchmark（MMLU / HumanEval / GSM8K / BBH / MATH / GPQA），主 Y 轴分数三条折线（MoM / Aggregator only / Fable 5），次 Y 轴是**成本**（`$/1k token`）三组柱——不是 token 消耗；Legend 用自定义 `TwoRowLegend` 拆两行（ISS-029 二修）——第一行 3 个 cost 项，第二行 3 个 score 项
+- **主图 · Pareto 效果-成本气泡图**（`components/charts/ParetoChart.tsx`）：横轴 `$ / 1M 输出 token`（线性 0–20，非对数），纵轴 avg score（60–90）；散点六个 = MoM / Aggregator only / Fable 5 / GPT-5 / Sonnet 4.6 / Haiku 4.5，**每个非 MoM 模型都是独立 Scatter**（ISS-029 二修），legend 列全部名字，shape 分别 star (MoM) / circle (Fable5) / square (GPT-5) / triangle (Sonnet4.6) / diamond (Haiku4.5) / cross (Aggregator only)；Aggregator-only 走 `color.aggregatorOnly` 卡其色区分内部 baseline 与竞品旗舰灰；背景一根 clay 虚线连出 Pareto frontier 折线（Haiku → AggOnly → MoM → GPT-5 → Fable 5，全部非被支配点）；X 轴 label 走 `insideBottom` 压回轴线上方，与 Combo 图 legend spacing 对齐（`paddingTop: 8` + `margin.bottom: 30`）；tooltip 显示 `score X.X · cost $Y.YY/1M`
 - 不含 `Wins / Ties / Losses` 卡；不含"MoM → Flagship 差值标注"
 
 **2. Live Compare 实时对比页（`pages/LivePage.tsx` · mock 打字机）**
@@ -507,6 +508,7 @@ Dashboard 前端所需 REST API 全部就位。
 - **下方两栏**：
   - 左：**Judge 雷达图**（`components/charts/JudgeRadar.tsx`，Recharts `RadarChart`），5 维 = `Correctness` / `Completeness` / `Depth` / `Clarity` / `Usefulness`（中文：准确性 / 完整度 / 深度 / 清晰度 / 实用性）；MoM 实线 clay 填充 22%，Baseline 灰色虚线填充 10%；无圆心综合分差数字
   - 右：**成本对比条**（`CostCompare`）：并排两根横向单色条（MoM clay / Baseline flagship 灰），不再细分 advisor/aggregator/judge/baseline 段；下方一行"You saved −N%"（正向绿）+ "Latency Δ +N.Ns"（正数红、负数绿）
+- **底部动态排名图**（ISS-029 二修新增，`components/charts/RankingChart.tsx`，全宽独立卡片）：横轴最近 10 turn（第 10 = 当前 preset），Y 轴 `reversed` 显示 rank 1/2/3（1 = 最好）；三条折线 MoM / Aggregator-only / Fable 5，同色 stroke 家族与 ComboChart 一致；数据来自 `mock/live-ranking.ts`（9 turn 历史固定 mock + 每个 preset 单独定义的第 10 turn，Prompt Shelf 切换 preset 时第 10 turn 联动）；Tooltip 显示 turn 号 + 当轮问题标题（中英切换）+ 三家排名；副标题点明"对不确定问题绝对分不可比、用相对排名衡量效果"这一叙事动机——补 Judge 雷达"只看当前一轮"的短板，讲解"MoM 在开放型问题上是否稳定优于 baseline"
 - **不含底部甘特时间线**；请求各阶段耗时不在此页展示
 
 **3. Pipeline 请求流程页（`pages/PipelinePage.tsx` · mock 时序）**

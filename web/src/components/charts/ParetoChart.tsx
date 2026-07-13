@@ -16,10 +16,11 @@ export function ParetoChart() {
     label: t.models[p.labelKey],
     size: p.isMoM ? 260 : 130,
   }));
+  const other = (id: string) => models.filter((m) => m.id === id);
   return (
-    <div style={{ width: '100%', height: 340 }}>
+    <div style={{ width: '100%', height: 360 }}>
       <ResponsiveContainer>
-        <ComposedChart margin={{ top: 20, right: 30, bottom: 40, left: 40 }}>
+        <ComposedChart margin={{ top: 20, right: 30, bottom: 30, left: 40 }}>
           <CartesianGrid stroke={color.gridLine} strokeDasharray="2 4" />
           <XAxis
             type="number"
@@ -28,7 +29,7 @@ export function ParetoChart() {
             ticks={[0, 5, 10, 15, 20]}
             stroke={color.axisLabel}
             tick={{ fontSize: 11, fill: color.axisLabel }}
-            label={{ value: t.overview.paretoAxisX, position: 'bottom', fill: color.textSecondary, fontSize: 12, offset: 12 }}
+            label={{ value: t.overview.paretoAxisX, position: 'insideBottom', fill: color.textSecondary, fontSize: 12, offset: -8 }}
           />
           <YAxis
             type="number"
@@ -41,7 +42,7 @@ export function ParetoChart() {
           />
           <ZAxis type="number" dataKey="size" range={[80, 260]} />
           <Tooltip content={<ParetoTooltip />} cursor={{ stroke: color.border }} />
-          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
+          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
           <Line
             data={paretoFrontier}
             dataKey="score"
@@ -53,17 +54,12 @@ export function ParetoChart() {
             isAnimationActive={false}
             connectNulls
           />
-          <Scatter
-            name={t.models.momComposite}
-            data={models.filter((m) => m.isMoM)}
-            fill={color.mom}
-            shape="star"
-          />
-          <Scatter
-            name={t.models.flagship}
-            data={models.filter((m) => !m.isMoM)}
-            fill={color.flagship}
-          />
+          <Scatter name={t.models.momComposite}  data={models.filter((m) => m.isMoM)} fill={color.mom}      shape="star"     />
+          <Scatter name={t.models.flagship}      data={other('fable5')}                fill={color.flagship} shape="circle"   />
+          <Scatter name={t.models.gpt5}          data={other('gpt5')}                  fill={color.flagship} shape="square"   />
+          <Scatter name={t.models.sonnet46}      data={other('sonnet46')}              fill={color.flagship} shape="triangle" />
+          <Scatter name={t.models.haiku45}       data={other('haiku45')}               fill={color.flagship} shape="diamond"  />
+          <Scatter name={t.models.aggregatorOnly} data={other('aggOnly')}              fill={color.aggregatorOnly} shape="cross" />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

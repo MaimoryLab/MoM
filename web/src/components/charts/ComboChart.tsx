@@ -11,7 +11,7 @@ export function ComboChart() {
   return (
     <div style={{ width: '100%', height: 360 }}>
       <ResponsiveContainer>
-        <ComposedChart data={perBenchmark} margin={{ top: 20, right: 40, bottom: 30, left: 20 }}>
+        <ComposedChart data={perBenchmark} margin={{ top: 20, right: 40, bottom: 40, left: 20 }}>
           <CartesianGrid stroke={color.gridLine} strokeDasharray="2 4" />
           <XAxis
             dataKey="bench"
@@ -36,7 +36,7 @@ export function ComboChart() {
             label={{ value: t.overview.comboAxisCost, angle: 90, position: 'right', fill: color.textSecondary, fontSize: 12, offset: 8 }}
           />
           <Tooltip content={<ComboTooltip />} cursor={{ fill: color.gridLine, fillOpacity: 0.4 }} />
-          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+          <Legend content={<TwoRowLegend />} wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
           <Bar yAxisId="cost" dataKey="momCost"      name={`${t.overview.legend.mom} · cost`}        fill={color.mom}            radius={[3,3,0,0]} barSize={12} />
           <Bar yAxisId="cost" dataKey="aggCost"      name={`${t.overview.legend.aggregatorOnly} · cost`} fill={color.aggregatorOnly} radius={[3,3,0,0]} barSize={12} />
           <Bar yAxisId="cost" dataKey="flagshipCost" name={`${t.overview.legend.flagship} · cost`}   fill={color.flagship}       radius={[3,3,0,0]} barSize={12} />
@@ -45,6 +45,29 @@ export function ComboChart() {
           <Line yAxisId="score" dataKey="flagshipScore" name={`${t.overview.legend.flagship} · score`}   stroke={color.flagship}       strokeWidth={1.5} dot={{ r: 3, fill: color.flagship }} />
         </ComposedChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+type LegendEntry = { dataKey?: string; value?: string; color?: string; type?: string };
+function TwoRowLegend({ payload }: { payload?: LegendEntry[] }) {
+  if (!payload || payload.length === 0) return null;
+  const costRow  = payload.filter((p) => typeof p.dataKey === 'string' && p.dataKey.endsWith('Cost'));
+  const scoreRow = payload.filter((p) => typeof p.dataKey === 'string' && p.dataKey.endsWith('Score'));
+  const item = (p: LegendEntry, key: string) => (
+    <span key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: color.textSecondary }}>
+      <span style={{ width: 10, height: 10, background: p.color, borderRadius: 2, display: 'inline-block' }} />
+      {p.value}
+    </span>
+  );
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, alignItems: 'center' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
+        {costRow.map((p, i) => item(p, `cost-${i}`))}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
+        {scoreRow.map((p, i) => item(p, `score-${i}`))}
+      </div>
     </div>
   );
 }

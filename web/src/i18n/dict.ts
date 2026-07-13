@@ -30,6 +30,12 @@ export const en = {
       costVsFlagship: 'vs Fable 5 cost',
       latency: 'latency (honest)',
       latencyNote: 'we admit the trade-off',
+      scoreMoM: 'MoM avg score',
+      scoreMoMHint: '3 advisors + aggregator, averaged across 6 benchmarks',
+      scoreFable5: 'Fable 5 avg score',
+      scoreFable5HintFlagship: 'flagship reference',
+      scoreBaseline: 'Aggregator-only avg score',
+      scoreBaselineHint: 'aggregator alone, no advisors',
     },
     paretoTitle: 'Cost × Quality frontier',
     paretoSubtitle: 'MoM sits on the frontier — high score, low cost.',
@@ -78,6 +84,10 @@ export const en = {
     latencyDelta: 'Latency Δ',
     waitingForRun: 'Click Run to start a demo turn.',
     advisors: 'advisors',
+    rankingTitle: 'Rolling rank — last 10 turns',
+    rankingSubtitle: 'Judge-model relative rank of MoM vs Aggregator-only vs Fable 5. Rank 1 = best. Absolute scores are not comparable across prompts; relative rank is.',
+    rankingAxisX: 'Turn (10 = current)',
+    rankingAxisY: 'Rank (1 = best)',
   },
 
   pipeline: {
@@ -245,13 +255,19 @@ export const zh: Dict = {
   lang: { en: 'EN', zh: '中' },
 
   overview: {
-    heroTitle: '性能追平最强旗舰模型，成本减半。',
-    heroSubtitle: '三个臭皮匠顶个诸葛亮，半价成本追平最强模型。',
+    heroTitle: '性能追平最强旗舰模型',
+    heroSubtitle: '',
     kpi: {
       scoreOfFlagship: '达到 Fable 5 平均分',
       costVsFlagship: '相比 Fable 5 成本',
       latency: '额外延迟',
       latencyNote: '单次请求可接受',
+      scoreMoM: 'MoM 平均分',
+      scoreMoMHint: '3 advisor + aggregator，6 个 benchmark 平均',
+      scoreFable5: 'Fable 5 平均分',
+      scoreFable5HintFlagship: '旗舰参照',
+      scoreBaseline: 'Aggregator 单跑平均分',
+      scoreBaselineHint: '不接 advisor，只跑 aggregator',
     },
     paretoTitle: '成本 × 效果',
     paretoSubtitle: 'MoM 落在前沿上——分数高，成本低。',
@@ -300,6 +316,10 @@ export const zh: Dict = {
     latencyDelta: '延迟差',
     waitingForRun: '点"发送"开始一次演示。',
     advisors: '个 advisor',
+    rankingTitle: '动态排名 · 最近 10 轮',
+    rankingSubtitle: 'Judge 模型对 MoM / Aggregator 单跑 / Fable 5 的相对排名。第 1 名最好。开放型问题跨 prompt 的绝对分不可比，用排名反映相对强弱。',
+    rankingAxisX: '第几轮（第 10 轮 = 当前）',
+    rankingAxisY: '排名（1 最佳）',
   },
 
   pipeline: {

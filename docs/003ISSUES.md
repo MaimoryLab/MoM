@@ -1005,6 +1005,58 @@ PLAN 原 Phase 5 只写了三层（Settings / Traces / Metrics）+ Phase 6 的�
 -> decisions/007-dashboard-5-page-preview.md
 -> 004CHANGELOG.md [2026-07-12-4]
 
+---
+
+## [ISS-029] Overview/Live 页视觉修订：Pareto legend 挡 x 轴、KPI 缺分数三卡、Live 缺跨 turn 动态排名图
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-13
+**解决日期**：2026-07-13
+**解决方案**：三处联动改动，全部走 mock，不影响后端/API。
+1. **Pareto 图 legend/x 轴对齐** — `web/src/components/charts/ParetoChart.tsx`
+   - X 轴标签改用 `insideBottom` + 负 offset 压回轴线上方，避免被 legend 顶掉；
+   - 5 个非 MoM 模型（Fable 5 / GPT-5 / Sonnet 4.6 / Haiku 4.5 / Aggregator-only）拆成 5 个独立 `Scatter`，legend 列出全部名字；shape 分别是 circle / square / triangle / diamond / cross，MoM 保持 star；
+   - Aggregator-only 走 `color.aggregatorOnly`（卡其），其余四个走 `color.flagship`（暖灰）—— 语义上 Aggregator-only 是我们内部 baseline，不是竞品旗舰；
+   - Legend spacing（`paddingTop: 8` + `margin.bottom: 30`）与 ComboChart 对齐，不再离 x 轴过远。
+2. **OverviewPage KPI 加分数三卡** — `web/src/pages/OverviewPage.tsx`
+   - 顶部原有的三张卡（相对分 96% / 成本 −68% / 延迟 +1.2s）保留；
+   - 新增第二排三张：Fable 5 (85.5) / MoM (82.4, clay 强调) / Aggregator-only (71.1)，分数直接读 `mock/benchmarks.ts` 的 `paretoData`，与 Pareto 图完全一致；
+   - i18n 键新增 `overview.kpi.scoreMoM / scoreFable5 / scoreBaseline` 及其 hint，中英双语齐。
+3. **LivePage 新增"动态排名"图** — `web/src/pages/LivePage.tsx` + `web/src/components/charts/RankingChart.tsx` + `web/src/mock/live-ranking.ts`
+   - 位置：Judge 雷达 + 成本对比行之下的独立全宽卡片；
+   - 数据：最近 10 turn 的 judge 相对排名（前 9 turn 为历史 mock，第 10 turn 跟 Prompt Shelf 选中的 preset 联动切换）；
+   - 三条折线 MoM / Aggregator-only / Fable 5，跟 ComboChart 同色同 stroke 家族；Y 轴 `reversed`，tick 只 1/2/3（1 = 最好）；
+   - Tooltip 显示这一轮的问题标题（中英切换）+ 三家排名；副标题点明"开放型问题绝对分不可比、用相对排名"这一叙事动机。
+4. **ComboChart legend 拆两行** — `web/src/components/charts/ComboChart.tsx`
+   - 自定义 `TwoRowLegend`：第一行三个 cost 项（柱色），第二行三个 score 项（线色）；
+   - 底部 margin 30 → 40 给两行 legend 留位。
+
+**现象**：
+1. 中文 legend 里 `MoM（GLM 5.2 + Kimi k2.7 + DeepSeek V4 flash(agggregator)）` 太长换行，落到 Pareto 的 x 轴标签上方，遮住"成本（$ / 1M 输出 token）"文字。
+2. Pareto 图数据有 5 个灰点（Fable5 / GPT-5 / Sonnet4.6 / Haiku4.5 / Aggregator-only），legend 却把它们全部归到 `t.models.flagship`（"Fable 5"）一条，观众无法辨识灰点是谁。
+3. Overview 顶部只强调"MoM 达到 Fable 5 96%"，没有把三家的原始分数并排放出来；展会讲解时观众会问"MoM 具体多少？Fable 5 又是多少？Aggregator 单跑呢？"，得先看代码才能答。
+4. Live 页只有 Judge 雷达针对当前这一轮，没有跨 turn 的趋势视角；讲解"MoM 在开放型问题上是否稳定优于 baseline"缺一张动态图。
+5. Combo 图 legend 六个项拼一行太挤，在 1080p 宽下会自动换行，语义上 cost/score 各三个应分开呈现。
+
+**后果**：
+展会现场观众看图时理解成本增加：Pareto 图无法识别 5 个灰点分别是哪些模型；Overview 的"96%"缺原始分数背书；Live 页无法一眼看出 MoM 是否稳定领先。
+
+**初步判断**：
+已确认。三处改动均为纯前端 mock 视觉修订，不影响 orchestrator / API / storage；`npm --prefix web run build` 通过。
+
+**关联**：
+-> web/src/components/charts/ParetoChart.tsx
+-> web/src/components/charts/ComboChart.tsx
+-> web/src/components/charts/RankingChart.tsx（新增）
+-> web/src/pages/OverviewPage.tsx
+-> web/src/pages/LivePage.tsx
+-> web/src/mock/live-ranking.ts（新增）
+-> web/src/i18n/dict.ts
+-> PLAN.md Phase 5 页面 1 & 2 描述二次修订
+-> 004CHANGELOG.md [2026-07-13-1]
+
 <!--
 新增条目模板：
 

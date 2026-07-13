@@ -92,10 +92,11 @@ MoM/
 │       ├── components/            # 新增 — ISS-028
 │       │   ├── layout/            # Sidebar / PageShell
 │       │   ├── primitives/        # Card / KpiCard / Badge / Button
-│       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline
+│       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029)
 │       └── mock/                  # 新增 — ISS-028；Phase 5.0 伪数据（Phase 5.1 逐步替换为 lib/api.ts）
-│           ├── benchmarks.ts      # Pareto 三点 + per-benchmark combo
+│           ├── benchmarks.ts      # Pareto 6 点（MoM + 4 flagship + Aggregator-only）+ per-benchmark combo
 │           ├── live-samples.ts    # 5 个预置 prompt × 中英 × MoM/Baseline/Judge 全套脚本
+│           ├── live-ranking.ts    # 新增 — ISS-029；最近 10 turn 的 judge 相对排名（9 turn 历史 + preset-联动的第 10 turn）
 │           ├── pipeline-trace.ts  # canned trace + 动画时序
 │           ├── cost.ts            # 32 turns session 成本 + cache 命中
 │           └── config.ts          # Settings 初值 + 模型下拉候选

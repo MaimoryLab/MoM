@@ -4,6 +4,7 @@ import { Card } from '../components/primitives/Card';
 import { Badge } from '../components/primitives/Badge';
 import { Button } from '../components/primitives/Button';
 import { JudgeRadar } from '../components/charts/JudgeRadar';
+import { RankingChart } from '../components/charts/RankingChart';
 import { useI18n } from '../i18n/context';
 import { getLiveSample, PRESET_ORDER, type PresetKey } from '../mock/live-samples';
 import { formatCost, formatLatency, formatTokens } from '../i18n/format';
@@ -58,6 +59,9 @@ export function LivePage() {
           <CostCompare mom={sample.mom} baseline={sample.baseline} />
         </Card>
       </div>
+      <Card title={t.live.rankingTitle} subtitle={t.live.rankingSubtitle}>
+        <RankingChart preset={preset} />
+      </Card>
     </PageShell>
   );
 }

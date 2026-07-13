@@ -1,3 +1,53 @@
+## [2026-07-13-1] fix(dashboard): Pareto legend 5-model split · Overview 分数三卡 · Live 动态排名图 · Combo legend 两行 [ISS-029]
+
+### 改动
+- **ParetoChart 视觉修订**（`web/src/components/charts/ParetoChart.tsx`）
+  - X 轴标签改 `insideBottom` + 负 offset 压回轴线上方，legend 恢复紧贴 x 轴（`paddingTop: 8` + `margin.bottom: 30`，与 ComboChart 对齐）
+  - 5 个非 MoM 模型拆成独立 Scatter，legend 显示全名：Fable 5 (circle) / GPT-5 (square) / Sonnet 4.6 (triangle) / Haiku 4.5 (diamond) / Aggregator only (cross)
+  - Aggregator-only 用 `color.aggregatorOnly`（卡其）区分内部 baseline 与竞品旗舰灰
+- **OverviewPage KPI 分数三卡**（`web/src/pages/OverviewPage.tsx`）
+  - 顶部原有三卡（96% / −68% / +1.2s）保留，新增第二排：Fable 5 (85.5) / MoM (82.4, clay 强调) / Aggregator-only (71.1)
+  - 分数直接读 `mock/benchmarks.ts` 的 `paretoData`，与 Pareto 图完全一致
+- **LivePage 动态排名图**（新增 `web/src/components/charts/RankingChart.tsx` + `web/src/mock/live-ranking.ts`；`web/src/pages/LivePage.tsx` 挂载）
+  - 位置：Judge 雷达 / 成本对比行之下的独立全宽卡片
+  - 数据：最近 10 turn；前 9 turn 为历史 mock，第 10 turn 跟 Prompt Shelf preset 联动切换
+  - 三条折线 MoM / Aggregator-only / Fable 5，同色 stroke 家族与 ComboChart 一致；Y 轴 `reversed`，tick 1/2/3（1 = 最好）
+  - Tooltip 显示当前 turn 的问题标题（中英切换）+ 三家排名；副标题点明"开放型问题绝对分不可比、用相对排名"
+- **ComboChart legend 拆两行**（`web/src/components/charts/ComboChart.tsx`）
+  - 自定义 `TwoRowLegend`：第一行三个 cost 项（柱色），第二行三个 score 项（线色）
+  - 底部 margin 30 → 40 给两行 legend 留位
+- **i18n 键**（`web/src/i18n/dict.ts`）
+  - 新增 `overview.kpi.scoreMoM / scoreMoMHint / scoreFable5 / scoreFable5HintFlagship / scoreBaseline / scoreBaselineHint`
+  - 新增 `live.rankingTitle / rankingSubtitle / rankingAxisX / rankingAxisY`
+  - 中英双语齐
+
+### 涉及文件
+- `web/src/components/charts/ParetoChart.tsx`：X 轴 label 定位 + 5 个 Scatter 拆分 + 卡其色 Aggregator only + 图高 400→360
+- `web/src/components/charts/ComboChart.tsx`：自定义 `TwoRowLegend` + margin.bottom 30→40
+- `web/src/components/charts/RankingChart.tsx`：**新增** 折线图 + 自定义 `RankTooltip`（含中英/turn label/prompt label）
+- `web/src/pages/OverviewPage.tsx`：读 `paretoData` + 第二排 KPI 三卡
+- `web/src/pages/LivePage.tsx`：引入 `RankingChart`，挂到 judge / cost 行之下的独立卡片
+- `web/src/mock/live-ranking.ts`：**新增** 10 turn ranking fixture（9 turn 历史 + 5 preset 各自的第 10 turn）
+- `web/src/i18n/dict.ts`：新增 kpi + ranking 键（zh + en）
+- `docs/003ISSUES.md`：新增 ISS-029
+- `docs/004CHANGELOG.md`：本条
+- `docs/002STRUCTURE.md`：`web/src/components/charts/` 与 `web/src/mock/` 子树补 RankingChart / live-ranking.ts
+- `PLAN.md`：Phase 5 页面 1（Overview）+ 页面 2（Live Compare）描述二次修订
+
+### 自检
+- `npm --prefix web run build`（`tsc -b && vite build`）通过
+- 无代码逻辑改动，全部为前端 mock 视觉；orchestrator / API / storage / tests 未触及
+
+### 关联
+-> ISS-029
+-> web/src/components/charts/ParetoChart.tsx / ComboChart.tsx / RankingChart.tsx
+-> web/src/pages/OverviewPage.tsx / LivePage.tsx
+-> web/src/mock/live-ranking.ts
+-> web/src/i18n/dict.ts
+-> PLAN.md Phase 5 页面 1 & 2
+
+---
+
 ## [2026-07-12-5] test(orchestrator): fanout_mode=off + anthropic-normalize coverage; issue triage on af33818/af68b46 [ISS-021..027]
 
 ### 改动
