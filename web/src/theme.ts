@@ -3,8 +3,8 @@
 
 export const color = {
   // surfaces
-  bg: '#F7F8FC',
-  bgSubtle: '#EEF1F8',
+  bg: '#EDF1FC',
+  bgSubtle: '#C5D3F0',
   surface: '#FFFFFF',
   surfaceRaised: '#FFFFFF',
 
