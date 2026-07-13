@@ -32,7 +32,35 @@
 
 ---
 
-## [2026-07-12-4] fix(provider): normalize invalid thinking blocks
+## [2026-07-12-4] docs(dashboard): rewrite PLAN Phase 5/6 and ship 5-page mock-first preview [ISS-028]
+
+### 改动
+- 改写 PLAN.md Phase 5：拆两阶段——5.0 交付 mock 数据驱动的**设计预览版**（当前）+ 5.1 待 Phase 4 API 到位后回填。原三层（Settings / Traces / Metrics）升级为五页（Overview / Live Compare / Pipeline / Cost / Settings），Traces 页被 Live + Pipeline 吸收，Metrics 拆成 Overview（效果 KPI + Pareto + combo）+ Cost（成本 KPI + 每轮堆叠 + cache 矩阵）
+- 改写 PLAN.md Phase 6：改为"Judge 模式 + Baseline **后端**接入"，Dashboard UI 已在 5.0 完成；拆 `runJudge` 结构化整合 + `runJudgeCompare` 5 维打分两条路径
+- 更新 PLAN.md 概览表（Phase 5 状态 `🎨 预览版已交付`）、依赖链表述、目录树的 `web/` 子树、Context 概述里"三层 Dashboard"改为"五页 Dashboard，双语中英可切换"
+- 落地 web/ 预览版：五页 + 双语 i18n + Recharts 图表；`npm --prefix web run build` 通过
+- 视觉体系：奶油底 `#FBF7EE` + clay 主色 `#C96442` + 低饱和三色带（MoM / Baseline / Flagship）
+- 003ISSUES.md 新增 ISS-028（状态 [已解决]）
+- 新增 decisions/007-dashboard-5-page-preview.md（五页拆分 + mock-first + Recharts + 自研 i18n 的完整推理链）
+- 新增 future-plans/001-dashboard-api-shape-reconciliation.md（Phase 5.1 mock 数据换 API 的回填计划）
+- 新增 future-plans/002-dashboard-4k-and-demo-loop.md（4K 兼容 + 展会自动循环 demo 模式）
+- 修正 decisions/README.md 与 future-plans/README.md 中残留的、指向另一个项目文件的"现有列表"，改为本项目实际文件
+
+### 涉及文件
+- PLAN.md：Phase 5 / Phase 6 整节改写，概览表 + 依赖链 + 目录树 + Context 一句话表述
+- web/：新增 `src/{App.tsx,main.tsx,theme.ts,global.css}` / `src/i18n/{dict.ts,context.tsx,format.ts}` / `src/hooks/{useTypewriter.ts,useEventSource.ts}` / `src/pages/{Overview,Live,Pipeline,Cost,Settings}Page.tsx` / `src/components/{layout,primitives,charts}/*` / `src/mock/{benchmarks,live-samples,pipeline-trace,cost,config}.ts`；`package.json` 新增依赖 `recharts@^2.15.4`
+- docs/003ISSUES.md：追加 ISS-028
+- docs/decisions/007-dashboard-5-page-preview.md：新增
+- docs/future-plans/001-dashboard-api-shape-reconciliation.md：新增
+- docs/future-plans/002-dashboard-4k-and-demo-loop.md：新增
+- docs/decisions/README.md：修正"现有决策"列表
+- docs/future-plans/README.md：修正"现有规划"列表
+
+### 关联
+-> ISS-028
+-> decisions/007-dashboard-5-page-preview.md
+
+---
 
 ## [2026-07-12-3] fix(provider): normalize invalid thinking blocks
 
