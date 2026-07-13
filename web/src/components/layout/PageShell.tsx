@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { color, layout, space } from '../../theme';
+import { color, font, layout, space } from '../../theme';
 
 type Props = {
   title: ReactNode;
@@ -31,11 +31,11 @@ export function PageShell({ title, subtitle, actions, children }: Props) {
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 600, color: color.textPrimary, letterSpacing: '-0.02em' }}>
+          <h1 style={{ margin: 0, fontSize: font.size.h1, fontWeight: font.weight.semibold, color: color.textPrimary, letterSpacing: '-0.02em' }}>
             {title}
           </h1>
           {subtitle && (
-            <p style={{ margin: 0, fontSize: 14, color: color.textSecondary, lineHeight: 1.5, maxWidth: 720 }}>
+            <p style={{ margin: 0, fontSize: font.size.md, color: color.textSecondary, lineHeight: 1.5, maxWidth: 960 }}>
               {subtitle}
             </p>
           )}

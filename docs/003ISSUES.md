@@ -1059,6 +1059,54 @@ PLAN 原 Phase 5 只写了三层（Settings / Traces / Metrics）+ Phase 6 的�
 
 ---
 
+## [ISS-030] Dashboard 展厅面板需要：主题色改冷蓝紫、字号整体放大以支持 3–4 米远观看
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-13
+**解决日期**：2026-07-13
+**解决方案**：将 `web/src/theme.ts` + `web/src/global.css` 集中改造为冷调 royal-blue 主题；新增 `font.size` / `font.weight` 语义常量，把散落在各页面 / 组件里的 px 硬编码 fontSize 全部收编，为展厅 1080p 大屏观看做整体字号上调（base 14→18，一档档同比放大）。
+
+**具体改动**：
+1. **色板换血**（`web/src/theme.ts`）
+   - `bg` #FAF9F5（暖奶油）→ #F7F8FC（冷淡白）；`bgSubtle` 同步换 #EEF1F8
+   - `mom` #C96442（Anthropic 陶橙）→ #3E5BDB（royal blue）；`momSoft` #F5DDD1 → #DBE3F9
+   - `flagship` / `aggregatorOnly` / `advisorA/B/C` 全部从暖灰卡其色带换到冷灰蓝紫色带
+   - `textPrimary` #1F1B16 → #1A1D2E；`textSecondary/Muted` 同步换到冷灰
+   - `border` #E8E3D8 → #E4E7F0；`gridLine` #EDE7DB → #E4E7F0
+   - `positive` / `negative` / `info` 微调到更冷更清晰的版本
+   - `shadow` rgba 从 warm (31,27,22) 改为 cool (20,26,46)
+2. **字号阶梯语义化**（`web/src/theme.ts` 新增 `font.size.*` / `font.weight.*`）
+   - 十档 xxs (14) → xs (15) → sm (16) → base (18) → md (20) → lg (22) → xl (26) → h2 (30) → h1 (36) → kpi (44) / kpiHero (56) / kpiUltra (84)
+   - 覆盖到 sidebar / PageShell / Card / KpiCard / Badge / Button / 五个页面 / 六个图表
+3. **base 字体从 14px 提到 18px**（`web/src/global.css`）
+   - `:root { font-size: 18px }` + bg / color 冷调化；scrollbar / pulse-mom keyframe 都用新蓝色
+4. **layout 适配**
+   - sidebarWidth 220 → 244；contentMaxWidth 1440 → 1520；给放大后字号留呼吸空间
+   - 图表容器高度普遍 +40~80px（Pareto 360→420、Combo 360→420、Ranking 320→380、CostStackedBar 260→320、CostTimeline 240→300、JudgeRadar 280→340、CostPie 260→320）
+
+**现象**：
+- 现有前端以 Anthropic 陶橙为主色 + 暖奶油底，气质偏 blog / marketing，展厅想要更冷更工业更"AI 面板"的观感。
+- 大屏观看距离 3–4 米，14px 正文在 1080p 上看不清；轴标签 10~11px、KPI label 11~12px 更是无从辨识。
+
+**后果**：
+不处理则展厅面板不能作为演示看板使用；观众要走近才能读到数据，讲解节奏被打断。
+
+**初步判断**：
+纯前端主题改造，不触达 orchestrator / API / storage / mock 数据。所有色值集中在 `theme.ts`，页面 / 组件里散落的 px fontSize 与 rgba 阴影已全部替换为 theme 引用。`npm run typecheck` + `npm run build:web` + `npm run build` 全部通过。
+
+**关联**：
+-> web/src/theme.ts
+-> web/src/global.css
+-> web/src/components/layout/{Sidebar,PageShell}.tsx
+-> web/src/components/primitives/{Card,KpiCard,Badge,Button}.tsx
+-> web/src/components/charts/*（Pareto / Combo / JudgeRadar / RankingChart / CostStackedBar / CostPie / CacheHitBars / CostTimeline）
+-> web/src/pages/*（Overview / Live / Pipeline / Cost / Settings）
+-> 004CHANGELOG.md [2026-07-13-2]
+
+---
+
 ## [ISS-030] 递归护栏过严：aggregator.model 与 advisor.slots 精确同名时直接进程退出
 
 **状态**：[已解决]
@@ -1085,7 +1133,7 @@ PLAN 原 Phase 5 只写了三层（Settings / Traces / Metrics）+ Phase 6 的�
 -> docs/002STRUCTURE.md `src/config.ts` 说明
 -> docs/006API.md §2.6 配置装配签名清单
 -> docs/000README.md 自检自测约定"运行时行为改动"示例
--> 004CHANGELOG.md [2026-07-13-2]
+
 
 <!--
 新增条目模板：

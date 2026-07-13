@@ -8,7 +8,7 @@ import { RankingChart } from '../components/charts/RankingChart';
 import { useI18n } from '../i18n/context';
 import { getLiveSample, PRESET_ORDER, type PresetKey } from '../mock/live-samples';
 import { formatCost, formatLatency, formatTokens } from '../i18n/format';
-import { color, radius, space } from '../theme';
+import { color, font, radius, space } from '../theme';
 import { useTypewriter } from '../hooks/useTypewriter';
 
 export function LivePage() {
@@ -106,21 +106,21 @@ function OutputColumn({
           border: `1px solid ${color.border}`,
           borderRadius: radius.md,
           padding: space.md,
-          fontSize: 12.5,
+          fontSize: font.size.sm,
           lineHeight: 1.55,
           color: color.textPrimary,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
           fontFamily: 'ui-monospace, "SF Mono", monospace',
-          minHeight: 220,
-          maxHeight: 360,
+          minHeight: 260,
+          maxHeight: 420,
           overflow: 'auto',
         }}
       >
         {shown}
-        {!done && <span style={{ display: 'inline-block', width: 6, height: 14, background: color.mom, marginLeft: 2, verticalAlign: 'text-bottom', animation: 'blink 1s steps(1) infinite' }} />}
+        {!done && <span style={{ display: 'inline-block', width: 8, height: 18, background: color.mom, marginLeft: 2, verticalAlign: 'text-bottom', animation: 'blink 1s steps(1) infinite' }} />}
       </pre>
-      <div style={{ display: 'flex', gap: space.md, fontSize: 12, color: color.textSecondary, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: space.md, fontSize: font.size.sm, color: color.textSecondary, alignItems: 'center' }}>
         <span>⏱ {formatLatency(latencyMs, lang)}</span>
         <span>· {formatTokens(tokens)} {t.live.stats.tokens}</span>
         <span>· {formatCost(costUsd, lang)}</span>
@@ -155,11 +155,11 @@ function PromptShelf({
                 border: `1px solid ${active ? color.mom : color.border}`,
                 background: active ? color.momSoft : color.surface,
                 color: active ? color.mom : color.textPrimary,
-                padding: '8px 12px',
+                padding: '10px 16px',
                 borderRadius: radius.md,
-                fontSize: 13,
+                fontSize: font.size.sm,
                 cursor: 'pointer',
-                fontWeight: active ? 500 : 400,
+                fontWeight: active ? font.weight.semibold : font.weight.regular,
                 transition: 'all 120ms ease',
               }}
             >
@@ -168,10 +168,10 @@ function PromptShelf({
           );
         })}
       </div>
-      <label style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, fontSize: 13, color: color.textSecondary, cursor: 'pointer' }}>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, fontSize: font.size.sm, color: color.textSecondary, cursor: 'pointer' }}>
         <input type="checkbox" checked={baselineOn} onChange={(e) => onBaselineToggle(e.target.checked)} />
         {t.live.baselineToggle}
-        <span style={{ color: color.textMuted, fontSize: 12 }}>· {t.live.baselineHint}</span>
+        <span style={{ color: color.textMuted, fontSize: font.size.xs }}>· {t.live.baselineHint}</span>
       </label>
     </Card>
   );
@@ -199,12 +199,12 @@ function CostCompare({
       <Row label={t.live.baselineTitle} value={formatCost(baseline.costUsd, lang)} bar={bar(baseline.costUsd, color.flagship)} />
       <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: space.sm, borderTop: `1px solid ${color.border}` }}>
         <div>
-          <div style={{ fontSize: 11, color: color.textSecondary, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{t.live.costSaved}</div>
-          <div style={{ fontSize: 26, fontWeight: 600, color: color.positive, letterSpacing: '-0.02em' }}>−{savedPct}%</div>
+          <div style={{ fontSize: font.size.xs, color: color.textSecondary, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{t.live.costSaved}</div>
+          <div style={{ fontSize: font.size.h2, fontWeight: font.weight.semibold, color: color.positive, letterSpacing: '-0.02em' }}>−{savedPct}%</div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 11, color: color.textSecondary, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{t.live.latencyDelta}</div>
-          <div style={{ fontSize: 22, fontWeight: 500, color: dLatency > 0 ? color.negative : color.positive, letterSpacing: '-0.02em' }}>
+          <div style={{ fontSize: font.size.xs, color: color.textSecondary, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{t.live.latencyDelta}</div>
+          <div style={{ fontSize: font.size.md, fontWeight: font.weight.medium, color: dLatency > 0 ? color.negative : color.positive, letterSpacing: '-0.02em' }}>
             {dLatency > 0 ? '+' : ''}{(dLatency / 1000).toFixed(1)}s
           </div>
         </div>
@@ -215,7 +215,7 @@ function CostCompare({
 
 function Row({ label, value, bar }: { label: string; value: string; bar: React.ReactNode }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 80px', alignItems: 'center', gap: space.md, fontSize: 13 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 100px', alignItems: 'center', gap: space.md, fontSize: font.size.sm }}>
       <span style={{ color: color.textSecondary }}>{label}</span>
       {bar}
       <span style={{ textAlign: 'right', fontFamily: 'ui-monospace, monospace', color: color.textPrimary }}>{value}</span>

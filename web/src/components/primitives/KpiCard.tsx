@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { color, radius, shadow, space } from '../../theme';
+import { color, font, radius, shadow, space } from '../../theme';
 
 type Props = {
   label: ReactNode;
@@ -29,14 +29,14 @@ export function KpiCard({ label, value, hint, accent = 'default' }: Props) {
         minWidth: 0,
       }}
     >
-      <div style={{ fontSize: 12, color: color.textSecondary, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+      <div style={{ fontSize: font.size.xs, color: color.textSecondary, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: font.weight.medium }}>
         {label}
       </div>
-      <div style={{ fontSize: 34, fontWeight: 600, color: accentColor, letterSpacing: '-0.02em', lineHeight: 1.05 }}>
+      <div style={{ fontSize: font.size.kpi, fontWeight: font.weight.semibold, color: accentColor, letterSpacing: '-0.02em', lineHeight: 1.05 }}>
         {value}
       </div>
       {hint && (
-        <div style={{ fontSize: 12, color: color.textMuted, lineHeight: 1.4 }}>
+        <div style={{ fontSize: font.size.sm, color: color.textMuted, lineHeight: 1.4 }}>
           {hint}
         </div>
       )}

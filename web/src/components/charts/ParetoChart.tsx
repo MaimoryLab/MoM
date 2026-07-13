@@ -3,7 +3,7 @@ import {
   Scatter, Tooltip, XAxis, YAxis, ZAxis,
 } from 'recharts';
 import { paretoData, paretoFrontier } from '../../mock/benchmarks';
-import { color } from '../../theme';
+import { color, font, shadow } from '../../theme';
 import { useI18n } from '../../i18n/context';
 
 // Recharts ComposedChart with cartesian axes: scatter for models,
@@ -18,9 +18,9 @@ export function ParetoChart() {
   }));
   const other = (id: string) => models.filter((m) => m.id === id);
   return (
-    <div style={{ width: '100%', height: 360 }}>
+    <div style={{ width: '100%', height: 420 }}>
       <ResponsiveContainer>
-        <ComposedChart margin={{ top: 20, right: 30, bottom: 30, left: 40 }}>
+        <ComposedChart margin={{ top: 20, right: 30, bottom: 36, left: 48 }}>
           <CartesianGrid stroke={color.gridLine} strokeDasharray="2 4" />
           <XAxis
             type="number"
@@ -28,8 +28,8 @@ export function ParetoChart() {
             domain={[0, 20]}
             ticks={[0, 5, 10, 15, 20]}
             stroke={color.axisLabel}
-            tick={{ fontSize: 11, fill: color.axisLabel }}
-            label={{ value: t.overview.paretoAxisX, position: 'insideBottom', fill: color.textSecondary, fontSize: 12, offset: -8 }}
+            tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
+            label={{ value: t.overview.paretoAxisX, position: 'insideBottom', fill: color.textSecondary, fontSize: font.size.xs, offset: -8 }}
           />
           <YAxis
             type="number"
@@ -37,12 +37,12 @@ export function ParetoChart() {
             domain={[60, 90]}
             ticks={[60, 70, 80, 90]}
             stroke={color.axisLabel}
-            tick={{ fontSize: 11, fill: color.axisLabel }}
-            label={{ value: t.overview.paretoAxisY, angle: -90, position: 'left', fill: color.textSecondary, fontSize: 12, offset: 10 }}
+            tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
+            label={{ value: t.overview.paretoAxisY, angle: -90, position: 'left', fill: color.textSecondary, fontSize: font.size.xs, offset: 10 }}
           />
-          <ZAxis type="number" dataKey="size" range={[80, 260]} />
+          <ZAxis type="number" dataKey="size" range={[80, 300]} />
           <Tooltip content={<ParetoTooltip />} cursor={{ stroke: color.border }} />
-          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+          <Legend wrapperStyle={{ fontSize: font.size.xs, paddingTop: 10 }} />
           <Line
             data={paretoFrontier}
             dataKey="score"
@@ -75,12 +75,12 @@ function ParetoTooltip({ active, payload }: { active?: boolean; payload?: Array<
       background: color.surface,
       border: `1px solid ${color.border}`,
       borderRadius: 8,
-      padding: '8px 10px',
-      fontSize: 12,
-      boxShadow: '0 4px 12px rgba(31, 27, 22, 0.08)',
+      padding: '10px 14px',
+      fontSize: font.size.xs,
+      boxShadow: shadow.raised,
       color: color.textPrimary,
     }}>
-      <div style={{ fontWeight: 600, marginBottom: 2 }}>{d.label}</div>
+      <div style={{ fontWeight: font.weight.semibold, marginBottom: 3 }}>{d.label}</div>
       <div style={{ color: color.textSecondary }}>score {d.score.toFixed(1)} · cost ${d.cost.toFixed(2)}/1M</div>
     </div>
   );

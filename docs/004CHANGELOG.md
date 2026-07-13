@@ -1,4 +1,4 @@
-## [2026-07-13-2] refactor(config): drop assertRecursionGuard, allow aggregator.model to appear in advisor.slots [ISS-030]
+## [2026-07-13-3] refactor(config): drop assertRecursionGuard, allow aggregator.model to appear in advisor.slots [ISS-030]
 
 ### 改动
 - 删除 `src/config.ts:assertRecursionGuard` 函数与其在 `getConfig()` 中的调用；`aggregator.model` 与 `advisor.slots` 精确同名不再让进程 `exit 1`
@@ -17,6 +17,54 @@
 
 ### 关联
 -> ISS-030
+## [2026-07-13-2] refactor(dashboard): royal-blue 主题 + 展厅字号阶梯 (base 14→18) [ISS-030]
+
+### 改动
+- **theme.ts 换血**（`web/src/theme.ts`）
+  - `bg` #FAF9F5 → #F7F8FC；`bgSubtle` #F5F2E9 → #EEF1F8
+  - `mom` 主色 #C96442 (陶橙) → #3E5BDB (royal blue)；`momSoft` #F5DDD1 → #DBE3F9
+  - `flagship` / `aggregatorOnly` / `advisorA/B/C` 全部换到冷灰蓝紫色带
+  - `textPrimary/Secondary/Muted` 换成冷调；`border` / `gridLine` 冷灰化
+  - `positive` / `negative` / `info` 微调到更冷更清晰的版本
+  - `shadow` rgba 从 (31,27,22) warm 改为 (20,26,46) cool
+- **font.size / font.weight 语义常量**（`web/src/theme.ts` 新增字段）
+  - 十档 xxs (14) / xs (15) / sm (16) / base (18) / md (20) / lg (22) / xl (26) / h2 (30) / h1 (36) / kpi (44) / kpiHero (56) / kpiUltra (84)
+  - `layout.sidebarWidth` 220 → 244；`contentMaxWidth` 1440 → 1520 给放大字号留呼吸空间
+- **global.css base 字号 14 → 18**（`web/src/global.css`）
+  - `:root { font-size: 18px }` + bg / color 冷调化；scrollbar / pulse-mom keyframe 换新蓝色
+- **组件全站扫齐**：散落在 `sidebar / PageShell / Card / KpiCard / Badge / Button / 六个 chart / 五个 page` 里的 px 硬编码 `fontSize` 全部替换为 `font.size.*`；`rgba(31,27,22,*)` boxShadow 替换为 `shadow.*` 引用；Badge 语义色底也从暖调改为冷调
+- **图表容器高度上调**（配合放大字号）
+  - ParetoChart 360→420、ComboChart 360→420、RankingChart 320→380、CostStackedBar 260→320、CostTimeline 240→300、JudgeRadar 280→340、CostPie 260→320
+
+### 涉及文件
+- `web/src/theme.ts`：色板换血 + `font.size` / `font.weight` 新增 + `layout` 调整
+- `web/src/global.css`：base 字号 + 底色 + scrollbar + pulse-mom 颜色
+- `web/src/components/layout/Sidebar.tsx`：nav item / brand / footer 字号 + pill 尺寸
+- `web/src/components/layout/PageShell.tsx`：H1 / subtitle 字号
+- `web/src/components/primitives/{Card,KpiCard,Badge,Button}.tsx`：字号 + Badge 冷调语义色 + Button 高度 36→42
+- `web/src/components/charts/*.tsx`：8 张图的 tick / label / legend / tooltip 字号 + 阴影 + 图表容器高度
+- `web/src/pages/OverviewPage.tsx`：走 KpiCard 常量,无需内联字号
+- `web/src/pages/LivePage.tsx`：typewriter pre / 成本对比行 / prompt shelf 按钮 / row / label 字号
+- `web/src/pages/PipelinePage.tsx`：SpeedToggle / FlowNode / DiffColumn / DiffModal / AdvisorCard 字号 + 冷调 backdrop rgba
+- `web/src/pages/CostPage.tsx`：SavedBanner 各段字号从 11/22/28/44/72 上调到 xs/lg/h2/kpiHero/kpiUltra
+- `web/src/pages/SettingsPage.tsx`：Field label / ReadOnly / Select / NumInput / PricingTable / RadioBtn / saved flash 字号 + Badge tone 冷调
+- `docs/003ISSUES.md`：新增 ISS-030
+- `docs/004CHANGELOG.md`：本条
+
+### 自检
+- `npm run typecheck`：通过（`tsc -p tsconfig.json --noEmit` 无输出）
+- `npm run build:web`：通过（`tsc -b && vite build`，编译 859 modules，`built in 1.17s`）
+- `npm run build`：通过（`tsc -p tsconfig.json`）
+- 纯前端 mock 视觉；orchestrator / API / storage / tests 未触及
+
+### 关联
+-> ISS-030
+-> web/src/theme.ts / global.css
+-> web/src/components/layout/*
+-> web/src/components/primitives/*
+-> web/src/components/charts/*
+-> web/src/pages/*
+-> docs/003ISSUES.md [ISS-030]
 
 ---
 

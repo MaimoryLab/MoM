@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { color, radius, space } from '../../theme';
+import { color, font, radius, space } from '../../theme';
 
 type Variant = 'primary' | 'secondary' | 'ghost';
 
@@ -10,11 +10,11 @@ type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 export function Button({ variant = 'secondary', children, style, ...rest }: Props) {
   const base = {
-    height: 36,
+    height: 42,
     padding: `0 ${space.md}`,
     borderRadius: radius.md,
-    fontSize: 13,
-    fontWeight: 500,
+    fontSize: font.size.sm,
+    fontWeight: font.weight.medium,
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',

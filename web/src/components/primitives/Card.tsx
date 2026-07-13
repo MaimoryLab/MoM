@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { color, radius, shadow, space } from '../../theme';
+import { color, font, radius, shadow, space } from '../../theme';
 
 type Props = {
   title?: ReactNode;
@@ -28,8 +28,8 @@ export function Card({ title, subtitle, children, padding = 'lg', style, actions
       {(title || actions) && (
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: space.md }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {title && <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: color.textPrimary, letterSpacing: '-0.01em' }}>{title}</h3>}
-            {subtitle && <p style={{ margin: 0, fontSize: 13, color: color.textSecondary, lineHeight: 1.5 }}>{subtitle}</p>}
+            {title && <h3 style={{ margin: 0, fontSize: font.size.lg, fontWeight: font.weight.semibold, color: color.textPrimary, letterSpacing: '-0.01em' }}>{title}</h3>}
+            {subtitle && <p style={{ margin: 0, fontSize: font.size.sm, color: color.textSecondary, lineHeight: 1.5 }}>{subtitle}</p>}
           </div>
           {actions}
         </header>
