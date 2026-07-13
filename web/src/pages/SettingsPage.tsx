@@ -5,7 +5,7 @@ import { Badge } from '../components/primitives/Badge';
 import { Button } from '../components/primitives/Button';
 import { useI18n } from '../i18n/context';
 import { initialConfig, modelOptions, type MockConfig } from '../mock/config';
-import { color, radius, space } from '../theme';
+import { color, font, radius, space } from '../theme';
 
 export function SettingsPage() {
   const { t, lang, setLang } = useI18n();
@@ -29,7 +29,7 @@ export function SettingsPage() {
       }
     >
       {savedFlash && (
-        <div style={{ padding: space.sm, background: '#E4EFE0', border: `1px solid ${color.positive}`, borderRadius: radius.md, color: color.positive, fontSize: 13 }}>
+        <div style={{ padding: space.md, background: '#DFF0E6', border: `1px solid ${color.positive}`, borderRadius: radius.md, color: color.positive, fontSize: font.size.sm }}>
           ✓ {t.settings.saved}
         </div>
       )}
@@ -110,11 +110,11 @@ export function SettingsPage() {
               onChange={(v) => setCfg({ ...cfg, baseline: { ...cfg.baseline, model: v } })} />
           </Field>
         </FieldGrid>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, fontSize: 13, color: color.textSecondary, cursor: 'pointer' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, fontSize: font.size.sm, color: color.textSecondary, cursor: 'pointer' }}>
           <input type="checkbox" checked={cfg.baseline.enabled}
             onChange={(e) => setCfg({ ...cfg, baseline: { ...cfg.baseline, enabled: e.target.checked } })} />
           {t.settings.judge.enable}
-          <span style={{ color: color.textMuted, fontSize: 12 }}>· {t.settings.judge.enableHint}</span>
+          <span style={{ color: color.textMuted, fontSize: font.size.xs }}>· {t.settings.judge.enableHint}</span>
         </label>
       </Card>
 
@@ -136,7 +136,7 @@ function FieldGrid({ children }: { children: React.ReactNode }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <span style={{ fontSize: 12, color: color.textSecondary, letterSpacing: '0.04em' }}>{label}</span>
+      <span style={{ fontSize: font.size.xs, color: color.textSecondary, letterSpacing: '0.04em', fontWeight: font.weight.medium }}>{label}</span>
       {children}
     </label>
   );
@@ -148,9 +148,9 @@ function ReadOnly({ value }: { value: string }) {
     <div
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        height: 36, padding: `0 ${space.md}`, background: color.bgSubtle,
+        height: 44, padding: `0 ${space.md}`, background: color.bgSubtle,
         border: `1px solid ${color.border}`, borderRadius: radius.md,
-        fontSize: 13, color: color.textMuted, fontFamily: 'ui-monospace, monospace',
+        fontSize: font.size.sm, color: color.textMuted, fontFamily: 'ui-monospace, monospace',
       }}
     >
       <span>{value}</span>
@@ -165,9 +165,9 @@ function Select({ value, options, onChange }: { value: string; options: string[]
       value={value}
       onChange={(e) => onChange(e.target.value)}
       style={{
-        appearance: 'none', height: 36, padding: `0 ${space.md}`,
+        appearance: 'none', height: 44, padding: `0 ${space.md}`,
         background: color.surface, border: `1px solid ${color.borderStrong}`,
-        borderRadius: radius.md, fontSize: 13, color: color.textPrimary,
+        borderRadius: radius.md, fontSize: font.size.sm, color: color.textPrimary,
         fontFamily: 'ui-monospace, monospace', cursor: 'pointer',
       }}
     >
@@ -184,7 +184,7 @@ function PricingTable({ cfg, setCfg }: { cfg: MockConfig; setCfg: (c: MockConfig
   };
   return (
     <div style={{ border: `1px solid ${color.border}`, borderRadius: radius.md, overflow: 'hidden' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', background: color.bgSubtle, padding: `${space.sm} ${space.md}`, fontSize: 12, color: color.textSecondary, letterSpacing: '0.04em' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', background: color.bgSubtle, padding: `${space.sm} ${space.md}`, fontSize: font.size.xs, color: color.textSecondary, letterSpacing: '0.04em', fontWeight: font.weight.medium }}>
         <span>{t.settings.pricing.model}</span>
         <span style={{ textAlign: 'right' }}>{t.settings.pricing.input}</span>
         <span style={{ textAlign: 'right' }}>{t.settings.pricing.output}</span>
@@ -195,7 +195,7 @@ function PricingTable({ cfg, setCfg }: { cfg: MockConfig; setCfg: (c: MockConfig
           padding: `${space.sm} ${space.md}`, alignItems: 'center',
           borderTop: `1px solid ${color.border}`, gap: space.md,
         }}>
-          <code style={{ fontSize: 13, color: color.textPrimary, fontFamily: 'ui-monospace, monospace' }}>{row.model}</code>
+          <code style={{ fontSize: font.size.sm, color: color.textPrimary, fontFamily: 'ui-monospace, monospace' }}>{row.model}</code>
           <NumInput value={row.input}  onChange={(v) => update(i, { input: v })} />
           <NumInput value={row.output} onChange={(v) => update(i, { output: v })} />
         </div>
@@ -212,9 +212,9 @@ function NumInput({ value, onChange }: { value: number; onChange: (v: number) =>
       step={0.01}
       onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
       style={{
-        appearance: 'none', height: 32, padding: `0 ${space.sm}`,
+        appearance: 'none', height: 40, padding: `0 ${space.sm}`,
         background: color.surface, border: `1px solid ${color.border}`,
-        borderRadius: radius.sm, fontSize: 13, color: color.textPrimary,
+        borderRadius: radius.sm, fontSize: font.size.sm, color: color.textPrimary,
         fontFamily: 'ui-monospace, monospace', textAlign: 'right', width: '100%',
       }}
     />
@@ -230,8 +230,8 @@ function RadioBtn({ active, onClick, children }: { active: boolean; onClick: () 
         border: `1.5px solid ${active ? color.mom : color.border}`,
         background: active ? color.momSoft : color.surface,
         color: active ? color.mom : color.textPrimary,
-        padding: '10px 20px', borderRadius: radius.md, fontSize: 14, cursor: 'pointer',
-        fontWeight: active ? 500 : 400, transition: 'all 120ms ease',
+        padding: '12px 26px', borderRadius: radius.md, fontSize: font.size.sm, cursor: 'pointer',
+        fontWeight: active ? font.weight.semibold : font.weight.regular, transition: 'all 120ms ease',
       }}
     >
       {children}

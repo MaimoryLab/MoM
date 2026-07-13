@@ -5,7 +5,7 @@ import { Badge } from '../components/primitives/Badge';
 import { Button } from '../components/primitives/Button';
 import { pipelineTimeline, getPipelineCopy, type PipelineNode } from '../mock/pipeline-trace';
 import { useI18n } from '../i18n/context';
-import { color, radius, space } from '../theme';
+import { color, font, radius, shadow, space } from '../theme';
 import { formatCost, formatLatency } from '../i18n/format';
 
 type NodeStatus = 'pending' | 'running' | 'done';
@@ -59,7 +59,7 @@ export function PipelinePage() {
     >
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: space.sm }}>
-          <div style={{ fontSize: 13, color: color.textSecondary }}>
+          <div style={{ fontSize: font.size.sm, color: color.textSecondary }}>
             {t.pipeline.turnLabel} #{runId} · {(elapsed / 1000).toFixed(2)}s
           </div>
           <ProgressBar pct={Math.min(1, elapsed / totalMs)} />
@@ -123,7 +123,7 @@ function FlowDiagram({
       <FlowNode
         status={statusOf('final')}
         label={t.pipeline.stage.final}
-        sub={<code style={{ fontFamily: 'ui-monospace, monospace', color: color.textMuted, fontSize: 12 }}>{copy.finalPreview}</code>}
+        sub={<code style={{ fontFamily: 'ui-monospace, monospace', color: color.textMuted, fontSize: font.size.xs }}>{copy.finalPreview}</code>}
         tone="positive"
       />
     </div>
@@ -133,9 +133,9 @@ function FlowDiagram({
 function SpeedToggle({ value, onChange }: { value: number; onChange: (n: number) => void }) {
   const { t } = useI18n();
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: color.textSecondary }}>
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: font.size.sm, color: color.textSecondary }}>
       <span>{t.pipeline.speed}</span>
-      <div style={{ display: 'inline-flex', background: color.bgSubtle, borderRadius: 8, padding: 2 }}>
+      <div style={{ display: 'inline-flex', background: color.bgSubtle, borderRadius: 8, padding: 3 }}>
         {[1, 2, 4].map((s) => (
           <button
             key={s}
@@ -143,10 +143,10 @@ function SpeedToggle({ value, onChange }: { value: number; onChange: (n: number)
             style={{
               appearance: 'none', border: 'none',
               background: value === s ? color.surface : 'transparent',
-              padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+              padding: '6px 14px', fontSize: font.size.sm, borderRadius: 6, cursor: 'pointer',
               color: value === s ? color.textPrimary : color.textMuted,
-              fontWeight: value === s ? 500 : 400,
-              boxShadow: value === s ? '0 1px 2px rgba(31,27,22,0.06)' : 'none',
+              fontWeight: value === s ? font.weight.medium : font.weight.regular,
+              boxShadow: value === s ? shadow.card : 'none',
             }}
           >
             {s}×
@@ -158,9 +158,9 @@ function SpeedToggle({ value, onChange }: { value: number; onChange: (n: number)
 }
 
 const TONE: Record<'mom' | 'neutral' | 'positive', { bg: string; border: string; fg: string }> = {
-  mom:      { bg: color.momSoft, border: color.mom,        fg: color.mom },
+  mom:      { bg: color.momSoft,  border: color.mom,          fg: color.mom },
   neutral:  { bg: color.bgSubtle, border: color.borderStrong, fg: color.textPrimary },
-  positive: { bg: '#E4EFE0', border: color.positive,      fg: color.positive },
+  positive: { bg: '#DFF0E6',      border: color.positive,     fg: color.positive },
 };
 
 function FlowNode({
@@ -193,11 +193,11 @@ function FlowNode({
         gap: space.md,
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
-        <div style={{ fontSize: 12, color: c.fg, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: font.size.xs, color: c.fg, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: font.weight.semibold }}>
           {label}
         </div>
-        {sub && <div style={{ fontSize: 13, color: color.textSecondary, lineHeight: 1.5, wordBreak: 'break-word' }}>{sub}</div>}
+        {sub && <div style={{ fontSize: font.size.sm, color: color.textSecondary, lineHeight: 1.5, wordBreak: 'break-word' }}>{sub}</div>}
       </div>
       {rightSlot}
       <StatusPill status={status} />
@@ -240,24 +240,24 @@ function AdvisorCard({
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm }}>
-          <span style={{ fontSize: 12, color: color.textSecondary, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: font.size.xs, color: color.textSecondary, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: font.weight.medium }}>
             Advisor {slot}
           </span>
           {cacheHit && <Badge tone="info">{t.pipeline.cacheHit}</Badge>}
         </div>
         <StatusPill status={status} />
       </div>
-      <code style={{ fontFamily: 'ui-monospace, monospace', color: color.textMuted, fontSize: 11 }}>{model}</code>
+      <code style={{ fontFamily: 'ui-monospace, monospace', color: color.textMuted, fontSize: font.size.xxs }}>{model}</code>
       <div style={{
-        fontSize: 12, color: color.textPrimary, lineHeight: 1.55,
+        fontSize: font.size.sm, color: color.textPrimary, lineHeight: 1.55,
         background: isPending ? 'transparent' : color.surface,
         border: `1px solid ${color.border}`, borderRadius: 6,
-        padding: space.sm, minHeight: 60,
+        padding: space.sm, minHeight: 80,
       }}>
         {isPending ? <span style={{ color: color.textMuted }}>…</span> : preview}
-        {isRunning && <span style={{ display: 'inline-block', width: 6, height: 12, background: color.mom, marginLeft: 2, verticalAlign: 'text-bottom', animation: 'blink 1s steps(1) infinite' }} />}
+        {isRunning && <span style={{ display: 'inline-block', width: 8, height: 16, background: color.mom, marginLeft: 2, verticalAlign: 'text-bottom', animation: 'blink 1s steps(1) infinite' }} />}
       </div>
-      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: color.textSecondary, fontFamily: 'ui-monospace, monospace' }}>
+      <div style={{ display: 'flex', gap: 14, fontSize: font.size.xxs, color: color.textSecondary, fontFamily: 'ui-monospace, monospace' }}>
         <span>⏱ {formatLatency(latencyMs, lang)}</span>
         <span>· {tokens}t</span>
         <span>· {formatCost(costUsd, lang)}</span>
@@ -302,7 +302,7 @@ function DiffModal({ copy, onClose }: { copy: ReturnType<typeof getPipelineCopy>
     <div
       onClick={onClose}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(31, 27, 22, 0.35)',
+        position: 'fixed', inset: 0, background: 'rgba(20, 26, 46, 0.42)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
         padding: space.lg,
       }}
@@ -311,15 +311,15 @@ function DiffModal({ copy, onClose }: { copy: ReturnType<typeof getPipelineCopy>
         onClick={(e) => e.stopPropagation()}
         style={{
           background: color.surface, borderRadius: radius.lg,
-          maxWidth: 1100, width: '100%', maxHeight: '85vh', overflow: 'auto',
-          boxShadow: '0 20px 60px rgba(31, 27, 22, 0.24)',
+          maxWidth: 1200, width: '100%', maxHeight: '85vh', overflow: 'auto',
+          boxShadow: '0 20px 60px rgba(20, 26, 46, 0.28)',
           display: 'flex', flexDirection: 'column',
         }}
       >
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: space.lg, borderBottom: `1px solid ${color.border}` }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.pipeline.diffTitle}</h3>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: color.textSecondary }}>{t.pipeline.diffSubtitle}</p>
+            <h3 style={{ margin: 0, fontSize: font.size.lg, fontWeight: font.weight.semibold }}>{t.pipeline.diffTitle}</h3>
+            <p style={{ margin: '4px 0 0', fontSize: font.size.sm, color: color.textSecondary }}>{t.pipeline.diffSubtitle}</p>
           </div>
           <Button variant="ghost" onClick={onClose}>× {t.pipeline.close}</Button>
         </header>
@@ -336,11 +336,11 @@ function DiffColumn({ title, content, tone }: { title: string; content: string; 
   const bg = tone === 'mom' ? color.momSoft : color.bgSubtle;
   return (
     <div style={{ background: color.surface, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: `${space.sm} ${space.lg}`, background: bg, fontSize: 12, color: color.textSecondary, fontWeight: 500, letterSpacing: '0.03em' }}>
+      <div style={{ padding: `${space.sm} ${space.lg}`, background: bg, fontSize: font.size.xs, color: color.textSecondary, fontWeight: font.weight.medium, letterSpacing: '0.03em' }}>
         {title}
       </div>
       <pre style={{
-        margin: 0, padding: space.lg, fontSize: 12, fontFamily: 'ui-monospace, monospace',
+        margin: 0, padding: space.lg, fontSize: font.size.xs, fontFamily: 'ui-monospace, monospace',
         color: color.textPrimary, lineHeight: 1.55, overflow: 'auto', whiteSpace: 'pre-wrap',
       }}>
         {content}

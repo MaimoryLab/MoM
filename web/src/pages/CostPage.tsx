@@ -7,7 +7,7 @@ import { CacheHitBars } from '../components/charts/CacheHitBars';
 import { CostTimeline } from '../components/charts/CostTimeline';
 import { useI18n } from '../i18n/context';
 import { sessionCost } from '../mock/cost';
-import { color, radius, space } from '../theme';
+import { color, font, radius, space } from '../theme';
 
 export function CostPage() {
   const { t, lang } = useI18n();
@@ -65,30 +65,30 @@ function SavedBanner({
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: space.sm }}>
-        <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 500 }}>
+        <div style={{ fontSize: font.size.xs, color: color.textSecondary, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: font.weight.medium }}>
           {title}
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: space.xl }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, color: color.textMuted, letterSpacing: '0.04em', textTransform: 'uppercase' }}>{baselineLabel}</span>
-            <span style={{ fontSize: 28, color: color.textMuted, fontFamily: 'ui-monospace, monospace', textDecoration: 'line-through', textDecorationColor: color.textMuted }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: font.size.xs, color: color.textMuted, letterSpacing: '0.04em', textTransform: 'uppercase' }}>{baselineLabel}</span>
+            <span style={{ fontSize: font.size.h2, color: color.textMuted, fontFamily: 'ui-monospace, monospace', textDecoration: 'line-through', textDecorationColor: color.textMuted }}>
               ${sessionCost.baselineTotalUsd.toFixed(2)}
             </span>
           </div>
-          <span style={{ fontSize: 22, color: color.textMuted }}>→</span>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, color: color.mom, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 500 }}>{momLabel}</span>
-            <span style={{ fontSize: 44, fontWeight: 600, color: color.mom, fontFamily: 'ui-monospace, monospace', letterSpacing: '-0.02em' }}>
+          <span style={{ fontSize: font.size.lg, color: color.textMuted }}>→</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: font.size.xs, color: color.mom, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: font.weight.medium }}>{momLabel}</span>
+            <span style={{ fontSize: font.size.kpiHero, fontWeight: font.weight.semibold, color: color.mom, fontFamily: 'ui-monospace, monospace', letterSpacing: '-0.02em' }}>
               ${sessionCost.momTotalUsd.toFixed(2)}
             </span>
           </div>
         </div>
       </div>
       <div style={{ textAlign: 'right' }}>
-        <div style={{ fontSize: 11, color: color.positive, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600 }}>
+        <div style={{ fontSize: font.size.xs, color: color.positive, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: font.weight.semibold }}>
           {lang === 'zh' ? savedSuffix : `${savedSuffix}`}
         </div>
-        <div style={{ fontSize: 72, fontWeight: 700, color: color.positive, letterSpacing: '-0.04em', lineHeight: 1 }}>
+        <div style={{ fontSize: font.size.kpiUltra, fontWeight: font.weight.bold, color: color.positive, letterSpacing: '-0.04em', lineHeight: 1 }}>
           −{sessionCost.savedPct}%
         </div>
       </div>
