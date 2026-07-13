@@ -72,7 +72,7 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协�
 - Gateway 层只调用 Orchestrator 层与 Config 层；不感知 provider 协议细节
 - Orchestrator 层（`src/orchestrator/*` + `src/advisor/*` + `src/aggregator/*` + `src/cache/*` + `src/cost/*`）以 `RuntimeConfig` + 最小 `Logger` 接口为唯一依赖入口，读取 Storage 层 `saveTraceRequest` 落 trace；不依赖 Fastify、不读 config.json
 - Provider 层只负责 HTTP 与 SSE 转发，签名接 `NodeJS.WritableStream` + 可选 `onEvent` 观察者，只依赖 `ProviderConfig`；不依赖 Fastify、不读 SQLite、不读 config.json
-- Config 层：`src/config/provider-env.ts` 从 `process.env` 加载；`src/config/mom-config-file.ts` 从 `data/mom.config.json` 加载并原子写回；`src/config.ts` 组装 `RuntimeConfig` 并跑护栏（`assertRecursionGuard` + `assertModeRequirements`）
+- Config 层：`src/config/provider-env.ts` 从 `process.env` 加载；`src/config/mom-config-file.ts` 从 `data/mom.config.json` 加载并原子写回；`src/config.ts` 组装 `RuntimeConfig` 并跑护栏（`assertModeRequirements`）
 - Storage 层只负责 traces / metrics_cache 表的 CRUD，与配置完全解耦
 - **SDK 边界**（Phase 3 起）：`Fastify` 仅出现在 `src/gateway/*`；`src/orchestrator/*` + `src/advisor/*` + `src/aggregator/*` + `src/cache/*` + `src/cost/*` + `src/provider/*` 全体业务层可作为独立 SDK 被外部项目 import
 - 前端 `web/` 不直接访问 SQLite 与 config.json，只通过 HTTP 与网关交互（Dashboard 编辑 L2 走 `POST /api/config`，Phase 4+）
@@ -99,7 +99,7 @@ process.env (via --env-file=.env)
   → loadProviderConfig() → ProviderConfig
 data/mom.config.json (首次 ENOENT → 写入 DEFAULT_MOM_CONFIG)
   → loadMoMConfig() → MoMConfig
-assertRecursionGuard(MoMConfig) + assertModeRequirements(MoMConfig)
+assertModeRequirements(MoMConfig)
   → RuntimeConfig = { provider, mom }
   → startServer(port, runtime)
 ```
@@ -201,7 +201,6 @@ Claude Code POST /v1/messages {stream:true}（可带 X-Session-ID header）
   - `bearer` → `Authorization: Bearer <PROVIDER_API_KEY>`
   - `x-api-key` → `x-api-key: <PROVIDER_API_KEY>` + `anthropic-version: 2023-06-01`
 - **配置边界**：秘钥（`PROVIDER_*`）只来自 `.env`，永不写入 `data/mom.config.json` 与 SQLite；业务配置只来自 `data/mom.config.json`；Dashboard 只编辑 L2，只只读展示 provider 状态摘要
-- **递归护栏**：启动时 `assertRecursionGuard()` 检查 `momConfig.aggregator.model ∉ momConfig.advisor.slots`，违反则进程退出（`ConfigError`）
 - **模式护栏**：启动时 `assertModeRequirements()` 在 `mom_mode==='always'` 下检查 `advisor.slots` 非空且 `aggregator.model` 非空，违反则 `ConfigError` 退出
 - **秘钥缺失护栏**：`.env` 中 `PROVIDER_BASE_URL` / `PROVIDER_API_KEY` 缺失或空 → `ProviderConfigError`，进程退出
 - **Body 上限**：Fastify `bodyLimit: 10 MiB`

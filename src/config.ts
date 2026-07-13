@@ -6,15 +6,6 @@ import type { MoMConfig, RuntimeConfig } from './types/mom.js';
 
 export class ConfigError extends Error {}
 
-export function assertRecursionGuard(mom: MoMConfig): void {
-  const aggregator = mom.aggregator.model;
-  if (aggregator && mom.advisor.slots.includes(aggregator)) {
-    throw new ConfigError(
-      `aggregator.model "${aggregator}" also appears in advisor.slots — recursion guard tripped`,
-    );
-  }
-}
-
 export function assertModeRequirements(mom: MoMConfig): void {
   if (mom.mom_mode !== 'always') return;
   if (mom.advisor.slots.length === 0) {
@@ -46,7 +37,6 @@ export function stampMoMConfigSource(momConfigPath: string): string {
 export function getConfig(momConfigPath: string): RuntimeConfig {
   const provider = loadProviderConfig();
   const mom = loadMoMConfig(momConfigPath);
-  assertRecursionGuard(mom);
   assertModeRequirements(mom);
   const mom_config_source = stampMoMConfigSource(momConfigPath);
   return { provider, mom, mom_config_source };

@@ -1057,6 +1057,36 @@ PLAN 原 Phase 5 只写了三层（Settings / Traces / Metrics）+ Phase 6 的�
 -> PLAN.md Phase 5 页面 1 & 2 描述二次修订
 -> 004CHANGELOG.md [2026-07-13-1]
 
+---
+
+## [ISS-030] 递归护栏过严：aggregator.model 与 advisor.slots 精确同名时直接进程退出
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[技术债]
+**发现日期**：2026-07-13
+**解决日期**：2026-07-13
+**解决方案**：删除 `assertRecursionGuard` 及其在 `getConfig` 中的调用；同模型自引用配置改为静默接受，用户自行承担"同质集成收益低"的权衡；`assertModeRequirements`（`always` 模式非空校验）保留不变。
+
+**现象**：
+`src/config.ts:assertRecursionGuard` 在 `mom.advisor.slots.includes(mom.aggregator.model)` 时以 `ConfigError` 让进程 `exit 1`。判等是纯字符串精确匹配，任何"同模型 ID"的配置（无论是否有意）都会被拦，网关端口不绑，任何 `POST /v1/messages` 都无法送达；即便 `mom_mode='off'`（本该走透传、根本不 fanout）也一样被拦。Dashboard 前端未做等价校验，用户改 Settings 后要下次重启才知道踩线。
+
+**后果**：
+1. 用户想在同一模型上做 self-ensemble（如未来加 per-slot temperature / system_prompt）的正常配置无法启动
+2. `mom_mode='off'` 状态下与 fanout 无关的配置也被拒绝，护栏语义与运行时行为脱节
+3. "递归护栏"命名误导——provider 出站不会回到 MoM，从不存在技术意义上的递归调用；护栏拦的是"退化成同质集成"，不是循环调用
+
+**初步判断**：
+已确认。判定链路：`src/index.ts:15` → `src/config.ts:49` → `assertRecursionGuard` 抛 `ConfigError` → `index.ts:22-23` catch → `process.exit(1)`。判等使用 `Array.prototype.includes`，属于强启动期硬约束，无 warn 通道。
+
+**关联**：
+-> src/config.ts:9-16, 49
+-> docs/001ARCHITECTURE.md §3 / §6 递归护栏 / 链路 0
+-> docs/002STRUCTURE.md `src/config.ts` 说明
+-> docs/006API.md §2.6 配置装配签名清单
+-> docs/000README.md 自检自测约定"运行时行为改动"示例
+-> 004CHANGELOG.md [2026-07-13-2]
+
 <!--
 新增条目模板：
 
