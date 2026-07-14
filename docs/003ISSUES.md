@@ -1177,6 +1177,44 @@ PLAN 原 Phase 5 只写了三层（Settings / Traces / Metrics）+ Phase 6 的�
 -> docs/001ARCHITECTURE.md §2 "Aggregator 侧字节级透传原则"
 -> docs/004CHANGELOG.md [2026-07-14-1]
 
+---
+
+## [ISS-032] Phase 4 Dashboard 后端 API 尚未实现 — Dashboard 前端只能读 mock，无法读真 trace / 改 config
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-14
+**解决日期**：2026-07-14
+**解决方案**：一次性落地 8 个 `/api/*` 端点（config GET+POST、traces list+detail+by-gateway、metrics 合并大对象、benchmarks 静态 JSON、comparison-501 占位），引入 `OrchestratorHolder` 支撑 `POST /api/config` 后 hot reload orchestrator（丢弃旧 fanout cache）；新增 `src/types/dashboard-api.ts` 前后端共享响应类型，`web/src/lib/api.ts` 出 typed fetch 骨架但 Page 引用不动（Phase 5.1 才切）；`data/benchmarks.json` 显式加入 gitignore 白名单。5 组新单测 42 case 全通过（`dashboard-api-config/traces/metrics/benchmarks.test.ts` + rebuild 副作用观察）。10 项设计决策见 decisions/008。
+
+**现象**：
+Phase 5.0 交付了预览版 Dashboard 五页（Overview / Live / Pipeline / Cost / Settings），全部走 `web/src/mock/*` 伪数据；Phase 3 已经完整落 `TraceRequest` 到 SQLite `traces` 表并支持 `X-Session-ID` 关联；但 `src/dashboard-api/*` 目录仍未创建，`/api/*` 命名空间下无任何 HTTP 端点。前端 SettingsPage 的"Save"按钮 setState + 弹 toast 不写盘，Cost / Overview / Pipeline 页也无从消费真数据。
+
+**后果**：
+1. **配置修改无法落地**：Dashboard 编辑 aggregator/advisor slots/pricing_table 后，用户必须手动编辑 `data/mom.config.json` + 重启进程；违反 decision 002（Dashboard 是配置修改的主入口）
+2. **真数据观察缺口**：`traces` 表已有数据，但 Dashboard 无 API 拉取；每次要看真跑效果只能 `sqlite3 mom.db 'SELECT ...'`
+3. **展会节奏受阻**：现场调 `advisor.slots` 需要 SSH 到机器改文件重启，无法直接在 Dashboard 上 hot swap
+4. **contract 拖延**：`future-plans/001-dashboard-api-shape-reconciliation.md` 是 Phase 5.1 前置项，Phase 4 API 不出，前端字段形状无法确定
+
+**方案讨论**：
+方案 A：分 8 个 REST 端点全落地 —— `/api/config` GET/POST（provider 只读 + MoMConfig 读写）/`/api/traces` 分页 /`/api/traces/:request_id` 单条 /`/api/traces/by-gateway/:gid` 组合查（Pipeline 用）/`/api/metrics` 合并大对象 /`/api/benchmarks` 静态 JSON /`/api/comparison/:trace_id` 返 501（Phase 6 占位）。前端 `web/src/lib/api.ts` 只出 TS 类型与 fetch 骨架，Page 引用不动。**倾向：与用户 10 决策对齐后采纳**
+方案 B：只做 config 一个端点，其他端点留 Phase 5.1 —— 快，但 Cost / Pipeline 观察缺口不解决，展会现场依然需要 sqlite 直查
+方案 C：/api/* 与 /trace/* 合并为一个命名空间 —— 违反 decision 006 方案 F（eval 与 dashboard 消费方语义不同）
+
+当前倾向：方案 A。
+
+**关联**：
+-> src/dashboard-api/*（待创建）
+-> src/gateway/server.ts / messages-handler.ts（orchestrator hot reload）
+-> src/types/dashboard-api.ts（待创建，前后端共享响应类型）
+-> data/benchmarks.json（待创建，评测组维护）
+-> web/src/lib/api.ts（待创建，只出类型 + fetch 骨架）
+-> web/vite.config.ts（`server.proxy` 已配好 `/api → :3000`）
+-> future-plans/001-dashboard-api-shape-reconciliation.md（本 issue 解决后转 Phase 5.1）
+-> decisions/008-phase4-dashboard-api-shape.md（本次拍板）
+-> docs/006API.md §1.5（已规划端点清单）
+
 
 <!--
 新增条目模板：

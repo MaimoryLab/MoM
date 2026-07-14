@@ -38,13 +38,17 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协�
 ```
 ┌────────────────────────────────────────────────┐
 │  Gateway 层（Fastify 路由 / 请求校验 / SSE header + hijack） │
-│  src/gateway/*                                  │
+│  src/gateway/* + src/dashboard-api/*（Phase 4）                       │
+│    — /v1/messages → messages-handler → OrchestratorHolder             │
+│    — /trace/*     → registerTraceAPI（ISS-011）                        │
+│    — /api/*       → Config/Traces/Metrics/Benchmarks/Comparison-API   │
 └────────────────────────────────────────────────┘
                     ↓
 ┌────────────────────────────────────────────────┐
 │  Orchestrator 层（主调度 / trigger / fanout / cache / references / cost / trace） │
 │  src/orchestrator/*  src/advisor/*  src/aggregator/*  src/cache/*  src/cost/* │
 │    — 只依赖 RuntimeConfig + Logger 接口，不直连 Fastify / SQLite 前端 / config.json │
+│    — OrchestratorHolder（Phase 4）持有 runtime 引用，POST /api/config 后 rebuild │
 └────────────────────────────────────────────────┘
                     ↓
 ┌────────────────────────────────────────────────┐
@@ -191,6 +195,34 @@ Claude Code POST /v1/messages {stream:true}（可带 X-Session-ID header）
         （SSE header/hijack 在 messages-handler 层已上提，透传/主链路统一）
 ```
 
+**链路 G：Dashboard config 热重建（Phase 4 起）**
+```
+POST /api/config { mom: MoMConfig }
+  → Fastify router
+    → registerConfigAPI 处理
+      → assertMoMConfigShape（手写 typeguard，字段级校验）
+      → assertModeRequirements（always 模式非空校验）
+      → saveMoMConfig(path, mom) —— 原子写盘（写 .tmp + rename）
+      → runtime.mom 就地替换；runtime.mom_config_source = stampMoMConfigSource(path)
+      → orchestratorHolder.rebuild() —— 用最新 runtime 重造 Orchestrator（旧 fanout cache 释放）
+    → 返回 { mom, mom_config_source }
+
+下一次 /v1/messages 请求
+  → messages-handler.holder.get() 拿最新 orchestrator
+  → 走 fresh advisor slots / aggregator model / pricing_table
+```
+
+**链路 H：Dashboard 观察 API（Phase 4 起，无副作用）**
+```
+GET /api/config                         → 返 runtime 快照（provider api_key 走 maskApiKey）
+GET /api/traces?limit&offset&role&status → SELECT ... FROM traces WHERE ... LIMIT/OFFSET → 剥 settings_snapshot 返 TraceSummary[]
+GET /api/traces/:request_id             → getTraceRequestById → TraceRequest 全量 / 404
+GET /api/traces/by-gateway/:gid         → SELECT ... WHERE gateway_request_id = ? ORDER BY started_at ASC
+GET /api/metrics?window&limit            → computeMetrics 纯函数：SELECT * FROM traces （窗口过滤）→ 内存分组 + calculateCostFromSnapshot → 5 段响应
+GET /api/benchmarks                     → readFileSync data/benchmarks.json → normalizeBenchmarks；ENOENT 200 + 全空
+GET /api/comparison/:trace_id           → 501 not_implemented（Phase 6 占位）
+```
+
 ---
 
 ## 6. 关键约定
@@ -224,12 +256,16 @@ Claude Code POST /v1/messages {stream:true}（可带 X-Session-ID header）
 - **Provider 错误信号双通道**（ISS-012 起）：`passthroughStream` 遇 provider 非 2xx / 网络错误时——(1) 副作用：向 output 写一条 SSE `error` 帧供客户端观察；(2) 主信号：仍抛 `ProviderError` / 原始 `Error` 让 orchestrator 层落 `status='error'` TraceRequest。写帧不吞信号，两条通道独立
 - **TraceError 结构化传递**（ISS-012 起）：`AdvisorResult.error` / `AggregatorResult.error` / `TraceRequest.error` 统一为 `TraceError | null`（`type` 收窄为 `provider_error | gateway_error | advisor_error | aggregator_error`）；`toTraceError(err, fallbackType)` 位于 provider-client，四条路径（advisor / aggregator / passthrough / stream-forward）共用一个转换器，`ProviderError.statusCode` 一路带进 `TraceError.http_status`
 - **Pricing source stamping**（ISS-012 起）：`RuntimeConfig.mom_config_source` 在 `getConfig(momConfigPath)` 时读文件 mtime 拼 `basename@<iso>`（stat 失败 fallback 到 basename）；orchestrator 每次 `snapshotPricing` 用此值填 `PricingSnapshot.source`
+- **Dashboard API 生效方式**（Phase 4 起）：`POST /api/config` 成功后就地替换 `runtime.mom` + `runtime.mom_config_source`，调 `OrchestratorHolder.rebuild()` 重造 Orchestrator（旧 fanout cache 释放）。`messages-handler` 每次 handle 时走 `holder.get()` 拿最新实例，无需重启进程；provider 秘钥字段（`.env`）**永远不可通过 API 修改**
+- **Dashboard API 命名空间**（Phase 4 起）：`/api/*` = dashboard 消费方（Config / Traces list+detail+by-gateway / Metrics 聚合 / Benchmarks 静态 / Comparison-501 占位）；`/trace/*` = eval / 客户端消费方（按 session_id 批量查）；两个命名空间并行不合并，语义与消费方不同
+- **Metrics 实时聚合**（Phase 4 起）：`GET /api/metrics` 每次请求走 SQL SELECT + 内存分组，不写入 `metrics_cache` 表（schema 存在但暂未启用）
+- **api_key mask 形状**（Phase 4 起）：`GET /api/config` 中 `api_key_masked = 前3 + '****' + 后2`；短 key（<5 字符）退化为 `<首字> + ****`；秘钥长度不泄漏
 
 ---
 
 ## 7. Dashboard 前端
 
-Vite + React + TS 独立子工程（`web/`），构建产物挂在网关 `/dashboard/*`。Phase 5.0 交付**预览版**：数据全部走 `web/src/mock/*`，未接入后端 API 与 SSE。
+Vite + React + TS 独立子工程（`web/`），构建产物挂在网关 `/dashboard/*`。Phase 5.0 交付**预览版**：数据全部走 `web/src/mock/*`，未接入后端 API 与 SSE。Phase 4 起后端 `/api/*` 命名空间已就位（`web/src/lib/api.ts` 提供 typed fetch 骨架），Page 引用切换是 Phase 5.1 的工作，`mock/*` 仍是当前 Page 的唯一数据源。
 
 ### 页面结构
 

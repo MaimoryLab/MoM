@@ -1,3 +1,57 @@
+## [2026-07-14-3] feat(dashboard-api): implement Phase 4 REST API + orchestrator hot reload [ISS-032]
+
+### 改动
+- **新增 `src/dashboard-api/` 目录 5 个文件**
+  - `config-api.ts` — `GET /api/config` 返回 `ConfigResponse`（provider 走 `maskApiKey` = 前3+****+后2 固定形状）；`POST /api/config` 走 `assertMoMConfigShape`（手写字段级 typeguard，无 zod）→ `assertModeRequirements` → `saveMoMConfig` → 就地替换 `runtime.mom` + 重算 `mom_config_source` → `holder.rebuild()`；忽略请求体中的 provider 字段
+  - `traces-api.ts` — `GET /api/traces?limit&offset&role&status&gateway_request_id` 走 SQL 分页 + 过滤，返 `TraceSummary[]`（剥离 `settings_snapshot` / `request_summary` / `response_summary`）；`GET /api/traces/:request_id` 返全量 / 404；`GET /api/traces/by-gateway/:gateway_request_id` 空数组不 404，按 `started_at` ASC
+  - `metrics-api.ts` — `GET /api/metrics?window=&limit=` 一次返 5 段（summary / per_turn / by_role / cache_hit_by_model / timeline）；`computeMetrics` 为纯函数（只读 SELECT）便于单测；cost null 语义：一条 non-zero usage trace 缺 pricing → 该聚合层 `cost_usd` = null；`window` 支持 `last_24h` / `last_7d` / `all`
+  - `benchmarks-api.ts` — `GET /api/benchmarks` 从 `data/benchmarks.json` 读；ENOENT 返 200 + 空态；`normalizeBenchmarks` 每字段 typed 校验，非法 JSON / shape 失败返 500 `internal_error`
+  - `comparison-api.ts` — `GET /api/comparison/:trace_id` 返 501 `not_implemented`（Phase 6 占位）
+- **新增 `src/orchestrator/orchestrator-holder.ts`**：`createOrchestratorHolder(runtime): { get, rebuild }` — mutable holder 支撑 `POST /api/config` 后 orchestrator 热重建，旧 fanout cache 释放
+- **新增 `src/types/dashboard-api.ts`**：前后端共享响应类型（20+ 接口，参考 `docs/006API.md §4`）
+- **改造 `src/gateway/server.ts`**：`createServer(runtime, { momConfigPath, benchmarksPath })` 挂载全部 6 组新路由 + 传 `holder` 给 config-api + messages-handler；`startServer` 同步扩签名
+- **改造 `src/gateway/messages-handler.ts`**：`createMessagesHandler(holder)`，每次 handle 从 `holder.get()` 拿最新 orchestrator（POST /api/config 立即生效）；构造签名从 `runtime` 变为 `holder`
+- **改造 `src/index.ts`**：读 `MOM_BENCHMARKS_PATH` env（默认 `data/benchmarks.json`），传给 `startServer`
+- **新增 `data/benchmarks.json`**：Overview 页静态数据；`.gitignore` 加白名单 `!data/benchmarks.json`（`data/` 其他文件仍忽略）
+- **新增 `web/src/lib/api.ts`**：Dashboard API 类型镜像 + typed fetch wrappers（`getConfig` / `saveConfig` / `listTraces` / `getTrace` / `getTracesByGateway` / `getMetrics` / `getBenchmarks`）；**Page 引用不切**（`mock/*` 仍是当前 Page 的唯一数据源，Phase 5.1 才切）
+- **新增 5 组单元测试 42 case 全通过**
+  - `test/dashboard-api-config.test.ts` — maskApiKey 3 case / assertMoMConfigShape 4 case / GET-POST /api/config 8 case（含 rebuild 副作用可观测断言）
+  - `test/dashboard-api-traces.test.ts` — 10 case 覆盖分页/过滤/排序/404/空 by-gateway
+  - `test/dashboard-api-metrics.test.ts` — 7 case 覆盖 empty/mixed/window/cost null 语义 + HTTP 400/200
+  - `test/dashboard-api-benchmarks.test.ts` — 10 case 覆盖 normalize/loadFromDisk ENOENT/malformed + HTTP 200/500
+
+### 涉及文件
+- `src/dashboard-api/config-api.ts`：新增
+- `src/dashboard-api/traces-api.ts`：新增
+- `src/dashboard-api/metrics-api.ts`：新增
+- `src/dashboard-api/benchmarks-api.ts`：新增
+- `src/dashboard-api/comparison-api.ts`：新增
+- `src/orchestrator/orchestrator-holder.ts`：新增
+- `src/types/dashboard-api.ts`：新增
+- `src/gateway/server.ts`：挂载全部 /api/* 路由 + 构造 holder
+- `src/gateway/messages-handler.ts`：签名接 holder，每次 handle 读最新 orchestrator
+- `src/index.ts`：`MOM_BENCHMARKS_PATH` env + 传路径给 startServer
+- `data/benchmarks.json`：新增静态数据（gitignore 白名单）
+- `.gitignore`：`!data/benchmarks.json`
+- `web/src/lib/api.ts`：新增类型镜像 + fetch wrappers
+- `test/dashboard-api-config.test.ts`：新增
+- `test/dashboard-api-traces.test.ts`：新增
+- `test/dashboard-api-metrics.test.ts`：新增
+- `test/dashboard-api-benchmarks.test.ts`：新增
+- `docs/decisions/008-phase4-dashboard-api-shape.md`：新增（10 决策拍板 + 否定方案 A-K + 5 项已知代价 + 6 项不在本期范围）
+- `docs/003ISSUES.md`：新增 ISS-032 [讨论中] → [已解决]
+- `PLAN.md`：Phase 4 章节从 📝 略写升级为 📋 已规划的完整设计（含目标 / 偏离 / 前置 / 组件改动 / API 契约 / 验证方式 / 单测清单）
+- `docs/001ARCHITECTURE.md`：§2 分层图补 `src/dashboard-api/*` + `OrchestratorHolder`；§5 追加链路 G（Dashboard config hot reload）与链路 H（Dashboard 观察 API）；§6 追加 5 条 Phase 4 关键约定；§7 更新前端 mock/lib 状态
+- `docs/002STRUCTURE.md`：追加 `data/benchmarks.json` / `src/dashboard-api/*` / `src/orchestrator/orchestrator-holder.ts` / `src/types/dashboard-api.ts` / `web/src/lib/api.ts` / `test/dashboard-api-*.test.ts`；更新 gateway/server + messages-handler + orchestrator 行内说明；从"未创建目录"清单删除 `src/dashboard-api/`
+- `docs/006API.md`：§1.1 追加 7 行 Phase 4 端点；§1.5 已规划表只留 Phase 6 comparison；§1.6 新增详细契约（覆盖每个端点的 200/400/404/500/501 响应形状与语义）；§2.8 新增 dashboard-api SDK 入口清单；§4 类型契约段追加 `src/types/dashboard-api.ts` 类型清单
+
+### 关联
+-> ISS-032
+-> decisions/008-phase4-dashboard-api-shape.md
+-> future-plans/001-dashboard-api-shape-reconciliation.md
+
+---
+
 ## [2026-07-14-2] refactor(prompts): swap advisor + aggregator prompts to MoA-classic short form [ISS-031]
 
 ### 改动

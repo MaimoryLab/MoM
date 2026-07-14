@@ -2,12 +2,11 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AnthropicMessagesRequest } from '../types/anthropic.js';
 import { validateMessagesRequest, ValidationError } from './validator.js';
 import { ProviderError } from '../provider/provider-client.js';
-import type { RuntimeConfig } from '../types/mom.js';
-import { createOrchestrator, type Orchestrator } from '../orchestrator/orchestrator.js';
+import type { OrchestratorHolder } from '../orchestrator/orchestrator-holder.js';
+import type { Orchestrator } from '../orchestrator/orchestrator.js';
 import { formatSSEEvent } from './sse.js';
 
-export function createMessagesHandler(runtime: RuntimeConfig) {
-  const orchestrator = createOrchestrator(runtime);
+export function createMessagesHandler(holder: OrchestratorHolder) {
   return async function handleMessages(
     req: FastifyRequest,
     reply: FastifyReply,
@@ -24,6 +23,9 @@ export function createMessagesHandler(runtime: RuntimeConfig) {
       return;
     }
 
+    // Read latest orchestrator per-request so POST /api/config's hot rebuild
+    // takes effect from the very next inbound call.
+    const orchestrator = holder.get();
     const sessionId = extractSessionId(req);
     if (body.stream === true) {
       await handleStreaming(body, sessionId, reply, orchestrator, req);

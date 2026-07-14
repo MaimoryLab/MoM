@@ -1,0 +1,30 @@
+{
+  "hero_stats": {
+    "score_of_flagship_pct": 96,
+    "cost_savings_vs_flagship_pct": 68,
+    "latency_delta_sec": 1.2
+  },
+  "pareto_data": [
+    { "id": "mom",      "label_key": "momComposite",   "score": 82.4, "cost": 5.6,  "is_mom": true },
+    { "id": "aggOnly",  "label_key": "aggregatorOnly", "score": 71.1, "cost": 3.0 },
+    { "id": "fable5",   "label_key": "flagship",       "score": 85.5, "cost": 17.5 },
+    { "id": "gpt5",     "label_key": "gpt5",           "score": 83.9, "cost": 12.0 },
+    { "id": "sonnet46", "label_key": "sonnet46",       "score": 78.2, "cost": 8.4 },
+    { "id": "haiku45",  "label_key": "haiku45",        "score": 68.7, "cost": 2.2 }
+  ],
+  "pareto_frontier": [
+    { "cost": 2.2,  "score": 68.7 },
+    { "cost": 3.0,  "score": 71.1 },
+    { "cost": 5.6,  "score": 82.4 },
+    { "cost": 12.0, "score": 83.9 },
+    { "cost": 17.5, "score": 85.5 }
+  ],
+  "per_benchmark": [
+    { "bench": "MMLU",      "mom_score": 84.2, "agg_score": 74.6, "flagship_score": 87.8, "mom_cost": 0.006, "agg_cost": 0.003, "flagship_cost": 0.018 },
+    { "bench": "HumanEval", "mom_score": 87.1, "agg_score": 72.3, "flagship_score": 88.5, "mom_cost": 0.005, "agg_cost": 0.003, "flagship_cost": 0.017 },
+    { "bench": "GSM8K",     "mom_score": 91.3, "agg_score": 78.9, "flagship_score": 93.6, "mom_cost": 0.004, "agg_cost": 0.002, "flagship_cost": 0.015 },
+    { "bench": "BBH",       "mom_score": 79.5, "agg_score": 65.4, "flagship_score": 82.7, "mom_cost": 0.007, "agg_cost": 0.003, "flagship_cost": 0.019 },
+    { "bench": "MATH",      "mom_score": 74.8, "agg_score": 61.2, "flagship_score": 79.4, "mom_cost": 0.008, "agg_cost": 0.004, "flagship_cost": 0.022 },
+    { "bench": "GPQA",      "mom_score": 78.0, "agg_score": 64.5, "flagship_score": 80.9, "mom_cost": 0.006, "agg_cost": 0.003, "flagship_cost": 0.018 }
+  ]
+}

@@ -4,19 +4,44 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createMessagesHandler } from './messages-handler.js';
 import { registerTraceAPI } from './trace-api.js';
+import { registerConfigAPI } from '../dashboard-api/config-api.js';
+import { registerTracesAPI } from '../dashboard-api/traces-api.js';
+import { registerMetricsAPI } from '../dashboard-api/metrics-api.js';
+import { registerBenchmarksAPI } from '../dashboard-api/benchmarks-api.js';
+import { registerComparisonAPI } from '../dashboard-api/comparison-api.js';
+import { createOrchestratorHolder } from '../orchestrator/orchestrator-holder.js';
 import type { RuntimeConfig } from '../types/mom.js';
 
 const BODY_LIMIT_BYTES = 10 * 1024 * 1024;
 
-export function createServer(runtime: RuntimeConfig): FastifyInstance {
+export interface CreateServerOptions {
+  momConfigPath: string;
+  benchmarksPath: string;
+}
+
+export function createServer(
+  runtime: RuntimeConfig,
+  options: CreateServerOptions,
+): FastifyInstance {
   const app = Fastify({
     logger: { level: 'info' },
     bodyLimit: BODY_LIMIT_BYTES,
     disableRequestLogging: false,
   });
 
-  app.post('/v1/messages', createMessagesHandler(runtime));
+  const holder = createOrchestratorHolder(runtime);
+
+  app.post('/v1/messages', createMessagesHandler(holder));
   registerTraceAPI(app);
+  registerConfigAPI(app, {
+    runtime,
+    momConfigPath: options.momConfigPath,
+    holder,
+  });
+  registerTracesAPI(app);
+  registerMetricsAPI(app);
+  registerBenchmarksAPI(app, { benchmarksPath: options.benchmarksPath });
+  registerComparisonAPI(app);
 
   const webDist = resolve(process.cwd(), 'web/dist');
   if (existsSync(webDist)) {
@@ -45,8 +70,9 @@ export function createServer(runtime: RuntimeConfig): FastifyInstance {
 export async function startServer(
   port: number,
   runtime: RuntimeConfig,
+  options: CreateServerOptions,
 ): Promise<FastifyInstance> {
-  const app = createServer(runtime);
+  const app = createServer(runtime, options);
   await app.listen({ port, host: '0.0.0.0' });
   return app;
 }

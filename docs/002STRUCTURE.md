@@ -10,8 +10,9 @@ MoM/
 ├── tsconfig.json                  # 后端 TS 配置
 ├── .env.example                   # 部署配置模板（PROVIDER_* + MOM_*）；仓库提交
 ├── .gitignore
-├── data/                          # gitignore；业务配置与本地状态存放目录
-│   └── mom.config.json            # MoMConfig 持久化（首次启动自动写入 DEFAULT_MOM_CONFIG）
+├── data/                          # gitignore；业务配置与本地状态存放目录（`benchmarks.json` 显式白名单入库）
+│   ├── mom.config.json            # MoMConfig 持久化（首次启动自动写入 DEFAULT_MOM_CONFIG）
+│   └── benchmarks.json            # 新增 — Phase 4；评测组维护，Overview 页 Pareto/combo/heroStats 静态数据
 ├── scripts/                       # 新增 — ISS-010；一次性运维脚本
 │   └── sync-pricing.mjs           # 拉取 provider `/v1/models`，把 per-token 价格换算成 per-1M-tokens ModelPricing 灌进 mom.config.json.pricing_table；`--currency`（默认 CNY）+ `--overwrite` / `--dry-run`
 ├── src/                           # 网关服务（后端）
@@ -21,13 +22,14 @@ MoM/
 │   │   ├── provider-env.ts        # loadProviderConfig — 从 process.env 读 PROVIDER_* + 校验
 │   │   └── mom-config-file.ts     # loadMoMConfig / saveMoMConfig — mom.config.json 读写（原子 rename）
 │   ├── gateway/
-│   │   ├── server.ts              # Fastify 实例、路由挂载、静态挂载 web/dist；startServer(port, runtime)
-│   │   ├── messages-handler.ts    # createMessagesHandler(runtime) 构造 orchestrator；从 X-Session-ID header 提取 sessionId；拆分 non-streaming / streaming；streaming 分支上提 SSE header + hijack + 兜底 error 帧
+│   │   ├── server.ts              # Fastify 实例、路由挂载、静态挂载 web/dist；startServer(port, runtime, { momConfigPath, benchmarksPath })；Phase 4 起挂载所有 /api/* 路由 + OrchestratorHolder
+│   │   ├── messages-handler.ts    # createMessagesHandler(holder) — 通过 holder.get() 拿最新 orchestrator，支持 POST /api/config 后 hot reload；从 X-Session-ID header 提取 sessionId；拆分 non-streaming / streaming；streaming 分支上提 SSE header + hijack + 兜底 error 帧
 │   │   ├── trace-api.ts           # 新增 — ISS-011；registerTraceAPI(app) 注册 GET /trace/requests?session_id=<uuid>（eval 视角批量查询）
 │   │   ├── validator.ts           # 请求体最小校验（model / messages / max_tokens）
 │   │   └── sse.ts                 # parseSSELine / formatSSEEvent + createSSEParser（Phase 3 起）增量分帧器
-│   ├── orchestrator/              # Phase 2 / Phase 3
+│   ├── orchestrator/              # Phase 2 / Phase 3 / Phase 4
 │   │   ├── orchestrator.ts        # createOrchestrator(runtime) → { nonStreaming(body, sessionId, log), streaming(body, sessionId, output, log) }；主链路 trigger → cache → fanout → cost；每次上游调用后落一条 TraceRequest（advisor N 条 + aggregator 1 条；aggregator 抛错时也补落 error trace）；透传路径落 role='passthrough' TraceRequest
+│   │   ├── orchestrator-holder.ts # 新增 — Phase 4；createOrchestratorHolder(runtime) → { get(), rebuild() } — mutable holder 支撑 POST /api/config 后 hot reload orchestrator（丢弃旧 fanout cache）
 │   │   ├── trigger.ts             # 新增 — Phase 3；isNewUserTurn / computeTriggerReason（七种 TriggerReason 标签）
 │   │   └── fanout.ts              # promisePool + fanoutAdvisors + fanoutAdvisorsWithCache（off 时绕过 cache；命中即复用，未命中真跑再 set）
 │   ├── advisor/                   # Phase 2
@@ -43,6 +45,12 @@ MoM/
 │   │   └── cache-decorator.ts     # applyAdvisorCacheControl（system_and_3 布局；跳过合成 ADVISORY_INSTRUCTION marker）
 │   ├── cost/                      # 新增 — Phase 3
 │   │   └── pricing.ts             # calculateCost / sumUsage（4 段 Usage 汇总）+ ISS-009 起 snapshotPricing / calculateCostFromSnapshot / toTraceUsage；ISS-010 起 snapshotPricing 从 ModelPricing.currency 忠实带出币种，不再假设 USD
+│   ├── dashboard-api/             # 新增 — Phase 4；Dashboard REST API 命名空间 /api/*
+│   │   ├── config-api.ts          # GET/POST /api/config；provider 只读脱敏；POST 走 assertMoMConfigShape + assertModeRequirements + saveMoMConfig + orchestratorHolder.rebuild
+│   │   ├── traces-api.ts          # GET /api/traces（分页+过滤）/ /api/traces/:request_id / /api/traces/by-gateway/:gateway_request_id；TraceSummary 剥离 settings_snapshot
+│   │   ├── metrics-api.ts         # GET /api/metrics — computeMetrics 纯函数聚合 5 段（summary / per_turn / by_role / cache_hit_by_model / timeline）；实时 SQL 聚合
+│   │   ├── benchmarks-api.ts      # GET /api/benchmarks — 读 data/benchmarks.json，ENOENT 返 200 空态，malformed 返 500
+│   │   └── comparison-api.ts      # GET /api/comparison/:trace_id — Phase 6 占位，Phase 4 返 501 not_implemented
 │   ├── provider/
 │   │   ├── anthropic-normalize.ts # 过滤不可安全回传的 unsigned thinking blocks；SSE content block index 连续重映射
 │   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders(provider)；响应 normalization
@@ -53,6 +61,7 @@ MoM/
 │   └── types/
 │       ├── anthropic.ts           # Anthropic Messages API 请求/响应/SSE 事件类型
 │       ├── mom.ts                 # ProviderConfig / MoMConfig / RuntimeConfig / TraceRequest / TraceUsage / PricingSnapshot / TraceError / RequestSummary / ResponseSummary / AdvisorResult / AggregatorResult / TriggerReason / Logger + DEFAULT_MOM_CONFIG
+│       ├── dashboard-api.ts       # 新增 — Phase 4；ConfigResponse / SaveConfigRequest/Response / TraceSummary / TracesListQuery/Response / TraceByGatewayResponse / MetricsResponse (含 summary/per_turn/by_role/cache_hit_by_model/timeline) / BenchmarksResponse / ApiErrorEnvelope
 │       └── index.ts               # 汇出 anthropic.ts / mom.ts
 ├── test/                          # node --test --import tsx 执行
 │   ├── view-transformer.test.ts   # Phase 2；convertToAdvisorView / truncateToolResult 覆盖
@@ -65,7 +74,11 @@ MoM/
 │   ├── pricing.test.ts            # 新增 — Phase 3；四段单价加总 / 缺项返回 0 / 负数&NaN 归零 / sumUsage 聚合
 │   ├── pricing-snapshot.test.ts   # 新增 — ISS-009；snapshotPricing 深拷贝 + null 分支 / toTraceUsage 5 段映射 / calculateCostFromSnapshot 全字段
 │   ├── trace-storage.test.ts      # 新增 — ISS-009；saveTraceRequest / getTraceRequestById / getTraceRequestsBySessionId 升序 / session 隔离 / null session 不落入按 session 查询
-│   └── trace-api.test.ts          # 新增 — ISS-011；GET /trace/requests 400 缺参 / 400 非 UUID / 200 空数组 / 200 升序 / session 隔离
+│   ├── trace-api.test.ts          # 新增 — ISS-011；GET /trace/requests 400 缺参 / 400 非 UUID / 200 空数组 / 200 升序 / session 隔离
+│   ├── dashboard-api-config.test.ts     # 新增 — Phase 4；maskApiKey / assertMoMConfigShape / GET-POST /api/config / rebuild orchestrator observable
+│   ├── dashboard-api-traces.test.ts     # 新增 — Phase 4；/api/traces 分页+过滤+排序 / :id 404 / by-gateway 空数组不 404
+│   ├── dashboard-api-metrics.test.ts    # 新增 — Phase 4；computeMetrics 空表/mixed/window/cost null 语义 + HTTP 400/200
+│   └── dashboard-api-benchmarks.test.ts # 新增 — Phase 4；normalizeBenchmarks / loadBenchmarksFromDisk ENOENT/malformed / HTTP 200/500
 ├── web/                           # Dashboard 前端（Vite 子工程）
 │   ├── package.json               # workspace 成员；依赖 react / react-dom / recharts
 │   ├── tsconfig.json
@@ -93,13 +106,15 @@ MoM/
 │       │   ├── layout/            # Sidebar / PageShell
 │       │   ├── primitives/        # Card / KpiCard / Badge / Button
 │       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029)
-│       └── mock/                  # 新增 — ISS-028；Phase 5.0 伪数据（Phase 5.1 逐步替换为 lib/api.ts）
-│           ├── benchmarks.ts      # Pareto 6 点（MoM + 4 flagship + Aggregator-only）+ per-benchmark combo
-│           ├── live-samples.ts    # 5 个预置 prompt × 中英 × MoM/Baseline/Judge 全套脚本
-│           ├── live-ranking.ts    # 新增 — ISS-029；最近 10 turn 的 judge 相对排名（9 turn 历史 + preset-联动的第 10 turn）
-│           ├── pipeline-trace.ts  # canned trace + 动画时序
-│           ├── cost.ts            # 32 turns session 成本 + cache 命中
-│           └── config.ts          # Settings 初值 + 模型下拉候选
+│       ├── mock/                  # 新增 — ISS-028；Phase 5.0 伪数据（Phase 5.1 逐步替换为 lib/api.ts）
+│       │   ├── benchmarks.ts      # Pareto 6 点（MoM + 4 flagship + Aggregator-only）+ per-benchmark combo
+│       │   ├── live-samples.ts    # 5 个预置 prompt × 中英 × MoM/Baseline/Judge 全套脚本
+│       │   ├── live-ranking.ts    # 新增 — ISS-029；最近 10 turn 的 judge 相对排名（9 turn 历史 + preset-联动的第 10 turn）
+│       │   ├── pipeline-trace.ts  # canned trace + 动画时序
+│       │   ├── cost.ts            # 32 turns session 成本 + cache 命中
+│       │   └── config.ts          # Settings 初值 + 模型下拉候选
+│       └── lib/                   # 新增 — Phase 4（ISS-032）
+│           └── api.ts             # Dashboard API 类型镜像 + typed fetch wrappers（getConfig/saveConfig/listTraces/getTrace/getTracesByGateway/getMetrics/getBenchmarks）；Phase 5.1 起 Page 才切引用
 ├── docs/                          # 文档体系
 │   ├── 000README.md               # 文档体系规范
 │   ├── 001ARCHITECTURE.md         # 系统架构
@@ -115,6 +130,5 @@ MoM/
 ## 未创建目录（后续阶段引入）
 
 - `src/judge/`：Phase 6 引入的 judge 调用
-- `src/dashboard-api/`：Phase 4 引入的 REST API
 
 > 约定：每新增或删除文件/目录后更新本文件。
