@@ -77,7 +77,7 @@ describe('appendReferencesToLastUser — critical invariant', () => {
     assert.notStrictEqual(out[2], m2); // last is replaced with modified clone
   });
 
-  it('appends Expert Panel References to the last user text block', () => {
+  it('appends aggregator guidance + Advisor Panel References to the last user text block', () => {
     const messages: AnthropicMessage[] = [
       {
         role: 'user',
@@ -87,7 +87,8 @@ describe('appendReferencesToLastUser — critical invariant', () => {
     const out = appendReferencesToLastUser(messages, 'REF1');
     const last = out[out.length - 1]!;
     const text = (last.content as Array<{ type: string; text: string }>)[0]!.text;
-    assert.match(text, /analyse this\n\n---\n\nExpert Panel References:\nREF1/);
+    assert.match(text, /^analyse this\n\n---\n\nYou are the aggregator in a Mixture-of-Models process\./);
+    assert.match(text, /Advisor Panel References \(for the aggregator only, not user-visible\):\nREF1/);
   });
 
   it('appends to the LAST text block when multiple text blocks exist', () => {
@@ -103,7 +104,8 @@ describe('appendReferencesToLastUser — critical invariant', () => {
     const out = appendReferencesToLastUser(messages, 'REF');
     const blocks = out[out.length - 1]!.content as Array<{ type: string; text: string }>;
     assert.equal(blocks[0]!.text, 'first');
-    assert.match(blocks[1]!.text, /^last\n\n---\n\nExpert Panel References:\nREF/);
+    assert.match(blocks[1]!.text, /^last\n\n---\n\nYou are the aggregator in a Mixture-of-Models process\./);
+    assert.match(blocks[1]!.text, /Advisor Panel References \(for the aggregator only, not user-visible\):\nREF/);
   });
 
   it('appends a new text block when the last user message has no text (tool_result only)', () => {
@@ -120,7 +122,8 @@ describe('appendReferencesToLastUser — critical invariant', () => {
     assert.equal(blocks.length, 2);
     assert.equal(blocks[0]!.type, 'tool_result');
     assert.equal(blocks[1]!.type, 'text');
-    assert.match(blocks[1]!.text ?? '', /Expert Panel References:\nREF/);
+    assert.match(blocks[1]!.text ?? '', /You are the aggregator in a Mixture-of-Models process\./);
+    assert.match(blocks[1]!.text ?? '', /Advisor Panel References \(for the aggregator only, not user-visible\):\nREF/);
   });
 
   it('synthesizes a trailing user message when the last message is assistant', () => {
@@ -132,7 +135,9 @@ describe('appendReferencesToLastUser — critical invariant', () => {
     assert.equal(out.length, 3);
     assert.equal(out[2]!.role, 'user');
     const text = (out[2]!.content as Array<{ type: string; text: string }>)[0]!.text;
-    assert.match(text, /Expert Panel References:\nREF/);
+    // 合成的 user 是**纯** payload,没有 "---" 分隔符前缀
+    assert.match(text, /^You are the aggregator in a Mixture-of-Models process\./);
+    assert.match(text, /Advisor Panel References \(for the aggregator only, not user-visible\):\nREF/);
     assert.strictEqual(out[0], messages[0]); // prefix identity preserved
     assert.strictEqual(out[1], messages[1]);
   });

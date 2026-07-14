@@ -202,7 +202,7 @@ console.log('session total:', total);
 
 - **一次入口请求 = N+1 条 TraceRequest**（ISS-009 / decision 006）：`mom_mode='always'` 下 N 个 advisor + 1 个 aggregator = N+1 条落盘；透传路径 = 1 条 `role='passthrough'`。所有 N+1 条共享 `gateway_request_id`；`session_id` = HTTP header `X-Session-ID` 回显（缺失即 null）
 - **Advisor 上下文范围**：`convertToAdvisorView(messages)` 会把**整段 messages 历史**（含 tool_use / tool_result，每条 message 被 flatten 成一个 text block）都传给 advisor。**不是**"只给 advisor 最新的 user prompt"——即使是第 20 轮 tool iteration，也是完整 20 轮上下文（advisor 视图形态）
-- **Aggregator 上下文范围**：拿到**原始 messages 数组**（`AnthropicMessagesRequest.messages`，前缀 message 对象引用不变——为了让 Anthropic prompt caching 命中），仅在最后一条 user message 尾部拼接一段 "Expert Panel References:" 文本
+- **Aggregator 上下文范围**：拿到**原始 messages 数组**（`AnthropicMessagesRequest.messages`，前缀 message 对象引用不变——为了让 Anthropic prompt caching 命中），仅在最后一条 user message 尾部拼接 aggregator 使用说明块（`AGGREGATOR_GUIDANCE` + `AGGREGATOR_REFERENCES_HEADER` + concat references）——ISS-031 起从 `Expert Panel References:` 单标题改为 guidance + 新标题两段结构，用于告诉 aggregator "references 是 advisor 参考、不是用户输入、不要提及 ensemble、需要工具就调工具"
 - **Fanout Cache 决策**（decision 005）：查询 → 命中即复用、未命中就补跑；`trigger_reason` 只是叙述性标签
 - **Cache key 三段 hash**：`sha256(settings) | sha256(slots-原顺序) | sha256(canonicalJSON(sigMessages))`
   - `settings`：`{system_prompt, tools_enabled, reference_max_tokens}` 三项
@@ -228,7 +228,7 @@ npm test
 # 关键新增断言：
 #   - MoM always 非流式 3 advisor + 1 aggregator = 4 条 trace / 共享 gateway_request_id
 #   - Advisor 视图收到完整 messages 历史(flatten 后含 tool_result)
-#   - Aggregator 收到原始 messages + Expert Panel References 追加到最后一条 user
+#   - Aggregator 收到原始 messages + AGGREGATOR_GUIDANCE + AGGREGATOR_REFERENCES_HEADER + references 追加到最后一条 user（ISS-031）
 #   - 4 段 token(input/output/cache_write/cache_read)在 usage/cost 中的严格计价
 #   - cache_hit 时 usage/cost 归零但 pricing 保留
 #   - passthrough 用 client_model 作为 selected_model
@@ -392,7 +392,7 @@ A: **每次都拿到全部上下文**(整段 messages 数组)。`src/advisor/vie
 
 **Q2: Aggregator 是否拿到完整上下文？**
 
-A: **是**。`src/aggregator/aggregator-runtime.ts:runAggregatorNonStreaming` 直接 `...original` 请求体的 messages,只在最后一条 user message 尾部追加 "Expert Panel References:" 文本;前缀 message 对象引用严格不变(是 aggregator 层的核心不变量,给 Anthropic prompt caching 用)。所以完整历史 + N 条 advisor references 是 aggregator 的输入。
+A: **是**。`src/aggregator/aggregator-runtime.ts:runAggregatorNonStreaming` 直接 `...original` 请求体的 messages,只在最后一条 user message 尾部追加 aggregator 使用说明块(`AGGREGATOR_GUIDANCE` + `AGGREGATOR_REFERENCES_HEADER` + concat references,ISS-031 起从旧 "Expert Panel References:" 单标题升级为 guidance + 新标题两段结构);前缀 message 对象引用严格不变(是 aggregator 层的核心不变量,给 Anthropic prompt caching 用);请求 `system` 字段也字节级透传 Claude Code 原 system,不注入 aggregator 相关文本。所以完整历史 + 使用说明 + N 条 advisor references 是 aggregator 的输入。
 
 **Q3: 同 session 多轮请求,cost 如何累加？**
 
