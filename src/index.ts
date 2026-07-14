@@ -6,6 +6,8 @@ import { startServer } from './gateway/server.js';
 
 const DB_PATH = process.env.MOM_DB_PATH ?? 'mom.db';
 const MOM_CONFIG_PATH = process.env.MOM_CONFIG_PATH ?? 'data/mom.config.json';
+const BENCHMARKS_PATH =
+  process.env.MOM_BENCHMARKS_PATH ?? 'data/benchmarks.json';
 const PORT = Number(process.env.MOM_PORT ?? 3000);
 
 async function main(): Promise<void> {
@@ -24,7 +26,10 @@ async function main(): Promise<void> {
     }
     throw err;
   }
-  const app = await startServer(PORT, runtime);
+  const app = await startServer(PORT, runtime, {
+    momConfigPath: MOM_CONFIG_PATH,
+    benchmarksPath: BENCHMARKS_PATH,
+  });
   app.log.info(`MoM gateway listening on ${PORT}`);
 }
 

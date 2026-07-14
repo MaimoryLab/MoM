@@ -27,3 +27,5 @@ Phase 4 Dashboard API 开始设计时。具体信号：`src/dashboard-api/` 目�
 ## 与当前实施的关系
 
 Phase 5.0 已交付纯 mock 版本，构建通过、五页 + i18n 全跑通；本 followup 是 Phase 5.1 的核心工作。当前兜底：mock 数据永远可用，回填过程中任何页面单独切换到真数据不影响其他页面。切换路径：`import { xxx } from '../mock/xxx'` → `import { xxx } from '../lib/api'`，逐文件替换。
+
+**Phase 4 完成后（2026-07-14 / ISS-032）**：`web/src/lib/api.ts` 已出 typed fetch 骨架（`getConfig` / `saveConfig` / `listTraces` / `getTrace` / `getTracesByGateway` / `getMetrics` / `getBenchmarks`）与所有响应类型镜像；后端全部 8 个 `/api/*` 端点已落地并通过 42 个单测。Phase 5.1 可以直接开工——按叙事优先级建议顺序：**Settings（保存能真落盘，展示价值最直观）→ Cost（真 metrics 一次到位）→ Overview（benchmarks 静态 JSON 已配好）→ Pipeline（by-gateway trace 消费）→ Live（依赖 Phase 6 comparison 端点，最后做）**。

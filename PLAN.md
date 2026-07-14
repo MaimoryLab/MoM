@@ -13,7 +13,7 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 | Phase 1 | 骨架 + 协议透传（含 Streaming） | ✅ 已完成 | Node/TS 单进程服务、Anthropic Messages 端点、SSE 流式透传、node:sqlite、Vite 前端骨架 |
 | Phase 2 | Advisor 视图 + Fan-out + Concat 拼接 | 📋 待开始 | MoM 核心流程，always 触发、无缓存 |
 | Phase 3 | 触发粒度 + Fanout 缓存 + Cache 装饰 + 成本分账 | 📋 待开始 | user_turn / per_iteration 双模式、advisor 缓存、system_and_3 marker、Trace 落盘 |
-| Phase 4 | Dashboard 后端 API | 📝 略写 | traces / metrics / settings / comparison 四组 API |
+| Phase 4 | Dashboard 后端 API | 📋 已规划 | config / traces / metrics / benchmarks / comparison-501 五组 API + orchestrator hot reload |
 | Phase 5 | Dashboard 前端五页 + 预览版 | 🎨 预览版已交付 | Overview / Live / Pipeline / Cost / Settings，双语 i18n，mock 数据可跑通设计审 |
 | Phase 6 | Judge 模式 + Baseline 后端接入 | 📝 略写 | Judge 5 维雷达打分、baseline 异步对比调用；Dashboard 端已在 Phase 5 预览版实现 UI |
 
@@ -454,21 +454,198 @@ Advisor 请求侧按 system_and_3 布局装 4 个 `cache_control` marker。每�
 
 ---
 
-## Phase 4: Dashboard 后端 API（略写）
+## Phase 4: Dashboard 后端 API
 
 ### 目标
-Dashboard 前端所需 REST API 全部就位。
+把 Dashboard 前端消费所需的 REST API 一次性落地：Config 读写（hot reload orchestrator）、Traces 分页+单条+按 gateway 分组、Metrics 单端点大对象、Benchmarks 静态 JSON、Comparison 占位。前端 `web/src/lib/api.ts` 只出 TS 类型骨架与 typed fetch wrapper，**不改任何 Page 引用**——Page 继续读 `mock/*`，Phase 5.1 单独做替换。10 项设计决策见 `decisions/008-phase4-dashboard-api-shape.md`，追踪 issue `ISS-032`。
 
-### 初步构想
-- `GET /api/settings` / `POST /api/settings` — 直接读写 `settings` 表
-- `GET /api/traces?limit=100&offset=0` — 分页返回 trace summary（不含全量 request/response，避免大 body）
-- `GET /api/traces/:id` — 单条 trace 全量
-- `GET /api/metrics?window=last_24h|last_7d` — 从 traces 聚合，含 total_usage 分层（advisor / aggregator / judge），成本 / 延迟 / cache 命中率
-- `GET /api/comparison/:trace_id` — 见 Phase 6
+### 与 Phase 4 初稿的关键偏离（含理由）
 
-### 待讨论的问题
-- Metrics 是否需要预聚合到 `metrics_cache` 表？MVP 数量少可以直接实时算，量大后再引入
-- 是否需要认证？MVP 假定本地运行、无认证；上线远期版本需要加
+1. **/api/settings → /api/config**：Phase 1 起 `settings` 表已被移除，配置改为 `data/mom.config.json` + `.env` 双源；端点命名沿用配置对象名 `MoMConfig`，语义准确
+2. **/api/traces 结构升级为三路 API**：分页列表（`/api/traces`）+ 单条 detail（`/api/traces/:request_id`）+ **组合查（`/api/traces/by-gateway/:gateway_request_id`）**。Pipeline 页需要一次拿完一个入口请求的 N+1 条上游 trace，若靠 offset 分页遍历太笨重
+4. **/api/metrics 合并成一个大对象**：Cost 页需要 5 段数据（summary / per_turn / by_role / cache_hit_by_model / timeline）同步 render；拆多端点等于 4 次 round-trip + 前端并发合并 loading。合成一个响应 <100 KiB，MVP 期净收益
+5. **新增 `/api/benchmarks`**：Overview 页 Pareto + combo 数据是评测组维护的静态输入，不是从 traces 聚合。走 `data/benchmarks.json`（仓库提交，缺失时 200 + 全空）
+6. **/api/comparison/:trace_id 显式返 501**：Phase 6 才有真实数据；本期返 501 而非 404，让前端知道"路径存在但暂未实现"
+7. **`POST /api/config` 走 hot reload 而非重启**：orchestrator 是 `createOrchestrator(runtime)` 纯工厂，rebuild <10ms；引入 `OrchestratorHolder` mutable holder 让 `messages-handler` 每次 handle 时读最新
+8. **api_key_masked 固定形状 `前3****后2`**：不泄漏秘钥长度信息
+9. **traces 空态就是空态**：不 fallback demo；违反第一性原理约束
+10. **实时 SQL 聚合 + 不启用 metrics_cache 表**：MVP QPS < 10 req/s，`traces` 表 <10k 行时全表扫足够快
+11. **不开 CORS**：Vite dev proxy（Phase 5.0 已配好）+ 生产同域挂载（`web/dist` → `/dashboard/*`）
+12. **API 命名走 domain 语义**（`selected_model` / `role` / `input_tokens`），mock 层的 i18n labelKey 是前端职责，不影响 API
+
+### 前置条件
+- Phase 3 的 TraceRequest schema、`saveTraceRequest` / `getTraceRequestById` / `getTraceRequestsBySessionId` / `getRecentTraceRequests` 已实现
+- `createOrchestrator(runtime): Orchestrator` 工厂已解耦（Fastify 依赖已消除）
+- `getConfig(momConfigPath)` / `saveMoMConfig(path, config)` / `stampMoMConfigSource(path)` / `assertModeRequirements(mom)` 齐全
+- `snapshotPricing` / `calculateCostFromSnapshot` / `toTraceUsage` 齐全（Phase 3 起）
+
+### 组件改动
+
+**类型契约（前后端共享）**
+
+- **新增** `src/types/dashboard-api.ts`
+  - `ConfigResponse` — `{ mom: MoMConfig, provider: { base_url, auth_style, api_key_masked }, mom_config_source: string }`
+  - `SaveConfigRequest` / `SaveConfigResponse`
+  - `TraceSummary` — 轻结构，取 `TraceRequest` 常用字段（`request_id / session_id / gateway_request_id / role / selected_model / provider / started_at / duration_ms / status / trigger_reason / cache_hit / usage / pricing / error`，**不含 `settings_snapshot` / `request_summary` / `response_summary`**）
+  - `TracesListQuery` — `{ limit?, offset?, role?, status?, gateway_request_id? }`
+  - `TracesListResponse` — `{ items: TraceSummary[], total: number, limit: number, offset: number }`
+  - `TraceByGatewayResponse` — `{ gateway_request_id: string, requests: TraceRequest[] }`
+  - `MetricsWindow = 'last_24h' | 'last_7d' | 'all'`
+  - `MetricsResponse` — `{ window, summary, per_turn, by_role, cache_hit_by_model, timeline }`，每段字段见 decision 008
+  - `BenchmarksResponse` — `{ hero_stats, pareto_data, pareto_frontier, per_benchmark }`（形状对齐 mock/benchmarks.ts）
+  - `ApiErrorResponse` — 与 `/trace/requests` 一致：`{ type: 'error', error: { type, message } }`
+
+**Dashboard API 路由（Fastify）**
+
+- **新增** `src/dashboard-api/config-api.ts`
+  - `registerConfigAPI(app: FastifyInstance, ctx: { runtime: RuntimeConfig, momConfigPath: string, holder: OrchestratorHolder }): void`
+  - `GET /api/config`：读 `ctx.runtime.mom` + `ctx.runtime.provider`（脱敏）+ `ctx.runtime.mom_config_source`；`maskApiKey(key)` 输出 `前3 + '****' + 后2`；短 key（< 5 字符）时补齐到 8 字符全星
+  - `POST /api/config`：
+    - 请求体校验：`typeof body.mom === 'object'`；`assertMoMConfigShape(mom)` 做浅层字段类型校验（不复制 zod，用手写 typeguard，风格延续项目"零第三方依赖"传统）
+    - `assertModeRequirements(mom)` 跑护栏；失败 → 400 `invalid_request_error`
+    - `saveMoMConfig(ctx.momConfigPath, mom)` 原子写盘（rename）
+    - 就地替换 `ctx.runtime.mom = mom` + 重算 `ctx.runtime.mom_config_source = stampMoMConfigSource(ctx.momConfigPath)`
+    - `ctx.holder.rebuild()` 构造新 orchestrator（丢弃老 fanout cache）
+    - 返 `{ mom, mom_config_source }`
+
+- **新增** `src/dashboard-api/traces-api.ts`
+  - `registerTracesAPI(app: FastifyInstance): void`（不需要 runtime，直连 DB）
+  - `GET /api/traces?limit=&offset=&role=&status=&gateway_request_id=`
+    - `limit` 默认 100，上限 500；`offset` 默认 0
+    - 过滤字段全部走 SQL WHERE（`role`、`status` 走列，`gateway_request_id` 走索引）
+    - 返 `items` 走 `TraceSummary` 结构（从 JSON 全量拆出常用字段，`settings_snapshot` 剥离）
+    - `total` = 满足过滤条件的 COUNT(*)
+  - `GET /api/traces/:request_id`
+    - `getTraceRequestById()` 返 `TraceRequest` 全量
+    - 404 `not_found` 当 id 不存在
+  - `GET /api/traces/by-gateway/:gateway_request_id`
+    - 走 `idx_traces_gateway_request_id` 索引
+    - 返 `{ gateway_request_id, requests: [] }`（按 started_at ASC）；空数组不 404
+
+- **新增** `src/dashboard-api/metrics-api.ts`
+  - `registerMetricsAPI(app: FastifyInstance): void`
+  - `GET /api/metrics?window=&limit=`
+    - `window` 默认 `all`；`last_24h` = `started_at > now - 86400*1000`；`last_7d` = `started_at > now - 604800*1000`
+    - `limit` 默认 32（per_turn 与 timeline 段的 cap）
+    - 单个函数 `computeMetrics(window, limit)` 内部封装所有 SQL 查询，返 `MetricsResponse`
+    - 每段查询：
+      - `summary.request_count` — `COUNT(DISTINCT gateway_request_id)`
+      - `summary.mom_trigger_count` — `COUNT(DISTINCT gateway_request_id) WHERE trigger_reason != 'mom_off'`
+      - `summary.avg_latency_ms` — 对每个 gateway_request_id 做 `MAX(finished_at) - MIN(started_at)`，再 AVG
+      - `summary.total_cost_usd` — 遍历所有 trace，SQL 抽 usage + pricing JSON 字段后在 JS 里 `calculateCostFromSnapshot`（因 pricing 是 nullable + 字段深），不用 SQL 聚合
+      - `summary.cache_hit_rate` — advisor 层 `SUM(cache_hit=1) / COUNT(*) WHERE role='advisor'`
+      - `summary.total_usage.{advisor,aggregator,judge}` — `SUM(input_tokens), SUM(output_tokens), ...` GROUP BY role（judge 永为 0）
+      - `per_turn` — `GROUP BY gateway_request_id ORDER BY MIN(started_at) DESC LIMIT ?`；每 turn 算 `total_cost_usd = advisor_cost + aggregator_cost`（pricing 缺失时该字段为 null，参考 decision 008 代价 2）
+      - `by_role` — GROUP BY role
+      - `cache_hit_by_model` — GROUP BY selected_model + role
+      - `timeline` — 与 per_turn 同源，按 started_at ASC，取前 `limit` 个 gateway_request
+
+- **新增** `src/dashboard-api/benchmarks-api.ts`
+  - `registerBenchmarksAPI(app: FastifyInstance, ctx: { benchmarksPath: string }): void`
+  - `GET /api/benchmarks`
+    - `readFileSync(ctx.benchmarksPath, 'utf8')` → `JSON.parse` → 校验 shape → 返
+    - `ENOENT` → 200 + 空态 `{ hero_stats: null, pareto_data: [], pareto_frontier: [], per_benchmark: [] }`
+    - JSON 非法 / shape 校验失败 → 500 `internal_error`（不返空态，让开发者知道文件坏了）
+    - 每次请求都读文件（<10 KiB，OS pagecache 命中；MVP 阶段不做 in-memory cache）
+
+- **占位** `src/dashboard-api/comparison-api.ts`（Phase 6 才有实现）
+  - `registerComparisonAPI(app: FastifyInstance): void`
+  - `GET /api/comparison/:trace_id` → 501 `not_implemented`
+
+**Orchestrator holder（hot reload 支撑）**
+
+- **新增** `src/orchestrator/orchestrator-holder.ts`
+  - `createOrchestratorHolder(runtime: RuntimeConfig): OrchestratorHolder`
+  - `OrchestratorHolder = { get(): Orchestrator; rebuild(): void }`
+  - 内部 `let current = createOrchestrator(runtime);`；`rebuild()` 重赋 `current = createOrchestrator(runtime)`
+  - Holder 与 runtime 引用绑定；`POST /api/config` 就地替换 `runtime.mom` + `runtime.mom_config_source`，`rebuild()` 时 `createOrchestrator` 从最新 runtime 读
+
+**Gateway 整合**
+
+- **修改** `src/gateway/server.ts`
+  - `createServer(runtime, momConfigPath, benchmarksPath)` 签名扩展；`benchmarksPath` 默认 `data/benchmarks.json`
+  - 内部构造 `holder = createOrchestratorHolder(runtime)`
+  - 挂载：`app.post('/v1/messages', createMessagesHandler(runtime, holder))`
+  - `registerTraceAPI(app)`（沿用 ISS-011，不动）
+  - `registerConfigAPI(app, { runtime, momConfigPath, holder })`
+  - `registerTracesAPI(app)`
+  - `registerMetricsAPI(app)`
+  - `registerBenchmarksAPI(app, { benchmarksPath })`
+  - `registerComparisonAPI(app)`
+
+- **修改** `src/gateway/messages-handler.ts`
+  - `createMessagesHandler(runtime, holder)`：从 `holder.get()` 拿最新 orchestrator 而不是闭包持有
+  - 逻辑不变（`handleNonStreaming` / `handleStreaming` 内部改为 `holder.get().nonStreaming(...)`）
+
+- **修改** `src/index.ts`
+  - 读 `MOM_BENCHMARKS_PATH` env（默认 `data/benchmarks.json`）
+  - `startServer(port, runtime, MOM_CONFIG_PATH, MOM_BENCHMARKS_PATH)`
+
+**静态数据**
+
+- **新增** `data/benchmarks.json`（**gitignore 白名单**：`data/` 目录里除 `mom.config.json` 外的文件默认 gitignore 掉，`benchmarks.json` 显式提交）
+  - 内容对齐 `web/src/mock/benchmarks.ts` 的 `paretoData / paretoFrontier / perBenchmark / heroStats`
+  - 字段名走 API domain 命名（snake_case）——`hero_stats.score_of_flagship_pct` 而不是 mock 里的 `scoreOfFlagshipPct`
+
+**前端类型骨架（不改 Page）**
+
+- **新增** `web/src/lib/api.ts`
+  - `import type` 引入 `src/types/dashboard-api.ts` 里所有响应类型
+  - `apiGet<T>(path: string): Promise<T>` / `apiPost<T>(path: string, body: unknown): Promise<T>` — 类型化 fetch + `{ type: 'error', error: { type, message } }` 统一错误映射（抛 `ApiError`）
+  - 五个 wrapper：`getConfig()` / `saveConfig(mom)` / `listTraces(query)` / `getTrace(id)` / `getMetrics(window)` / `getBenchmarks()`
+  - **Phase 5.1 替换 mock 时 Page 用这个文件**，本次交付**不改任何 Page 引用**
+
+- **不改** `web/vite.config.ts`（Phase 5.0 起 `server.proxy['/api']` 已配好）
+
+**测试**
+
+- **新增** `test/dashboard-api-config.test.ts`
+  - `GET /api/config` 200 + provider 脱敏 + `api_key_masked` 形状
+  - `POST /api/config` 200 hot reload：`saveMoMConfig` 写盘、runtime.mom 就地替换、`holder.rebuild()` 调用
+  - `POST /api/config` 400：mom 缺失 / 非对象 / `assertModeRequirements` 失败
+  - `POST /api/config` 拒绝设 provider 字段（悄悄忽略而非 400 —— 就当前端多送了字段）
+
+- **新增** `test/dashboard-api-traces.test.ts`
+  - `GET /api/traces` 分页 limit / offset / role / status 过滤
+  - `TraceSummary` 剔除 `settings_snapshot`
+  - `GET /api/traces/:id` 404 / 200
+  - `GET /api/traces/by-gateway/:gid` 空数组不 404，按 started_at 升序
+
+- **新增** `test/dashboard-api-metrics.test.ts`
+  - 空表 → 全零 summary + 空数组
+  - 3 个 gateway_request（含 passthrough）→ `request_count=3` / `mom_trigger_count=2` / `cache_hit_rate` 计算正确
+  - window 过滤：`last_24h` 只算窗口内 trace
+  - `per_turn` 按 started_at DESC
+
+- **新增** `test/dashboard-api-benchmarks.test.ts`
+  - 文件存在 → 200 + 完整字段
+  - 文件缺失（`ENOENT`）→ 200 + 空态
+  - 文件非法 JSON → 500 `internal_error`
+
+**文档同步**
+
+- **修改** `docs/001ARCHITECTURE.md` §3 补 `src/dashboard-api/*` 分层归属；§5 补链路 G（Dashboard config hot reload）；§6 补 "API 生效方式：POST /api/config 后 rebuild orchestrator"
+- **修改** `docs/002STRUCTURE.md` 追 `src/dashboard-api/` + `src/orchestrator/orchestrator-holder.ts` + `src/types/dashboard-api.ts` + `data/benchmarks.json` + `web/src/lib/api.ts` + `test/dashboard-api-*.test.ts`
+- **修改** `docs/006API.md` §1.5 从"已规划"移到 §1.1 "当前已实现"；补 §2.8 dashboard-api SDK 入口清单
+- **修改** `docs/003ISSUES.md` ISS-032 状态 [讨论中] → [已解决]
+- **修改** `docs/004CHANGELOG.md` 追 `[2026-07-14-*]` 关联 ISS-032 + decisions/008
+
+### 验证方式
+
+1. `npm run typecheck` / `npm run build` / `npm run build:web` 三条命令退出 0
+2. `npm test` 全部通过（含 5 组新测试；沿用之前 tsx --test 的既有配置）
+3. `curl http://localhost:3000/api/config` → 200 + `provider.api_key_masked` 是 `前3****后2` 形状
+4. `curl -X POST http://localhost:3000/api/config -H 'content-type: application/json' -d @new-mom.json` → 200；`cat data/mom.config.json` 已更新；再次 `POST /v1/messages` 后 `sqlite3 mom.db 'SELECT ...'` 看到用新配置的 trace（说明 orchestrator rebuild 生效）
+5. `curl 'http://localhost:3000/api/traces?limit=5&role=advisor'` → 返 `TraceSummary[]`，无 `settings_snapshot`
+6. `curl 'http://localhost:3000/api/metrics?window=last_24h&limit=10'` → 单响应含 5 段字段
+7. `curl http://localhost:3000/api/benchmarks` → 200 + 空文件时全空数组
+8. Vite dev（`cd web && npm run dev`）+ 后端 dev（`npm run dev`）双开 → 浏览器打开 `http://localhost:5173/dashboard/` → DevTools Network 面板确认 `/api/config` 从 5173 转发到 3000 成功
+
+### 单元测试
+- `test/dashboard-api-config.test.ts`
+- `test/dashboard-api-traces.test.ts`
+- `test/dashboard-api-metrics.test.ts`
+- `test/dashboard-api-benchmarks.test.ts`
 
 ---
 
