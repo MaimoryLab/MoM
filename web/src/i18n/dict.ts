@@ -94,6 +94,7 @@ export const en = {
     rankingPreviewBadge: 'Preview data · Phase 7',
     rankingAxisX: 'Turn (10 = current)',
     rankingAxisY: 'Rank (1 = best)',
+    viewPipeline: 'View pipeline for this turn',
   },
 
   pipeline: {
@@ -122,6 +123,14 @@ export const en = {
       done: 'done',
     },
     cacheHit: 'cache hit',
+    selectTurn: 'Turn',
+    selectTurnPlaceholder: '— select a turn —',
+    noTurns: 'No aggregator turns found yet.',
+    emptyHint: 'Run one Live turn first, then come back here.',
+    loading: 'Loading turn…',
+    loadError: 'Could not load turn',
+    compressedNote: 'Compressed from',
+    passthroughNote: 'This turn ran in passthrough mode — no MoM fan-out.',
   },
 
   cost: {
@@ -332,6 +341,7 @@ export const zh: Dict = {
     rankingPreviewBadge: '预览数据 · Phase 7',
     rankingAxisX: '第几轮（第 10 轮 = 当前）',
     rankingAxisY: '排名（1 最佳）',
+    viewPipeline: '查看本轮请求流程',
   },
 
   pipeline: {
@@ -360,6 +370,14 @@ export const zh: Dict = {
       done: '已完成',
     },
     cacheHit: 'cache 命中',
+    selectTurn: '选择 turn',
+    selectTurnPlaceholder: '— 选一轮 —',
+    noTurns: '还没有 aggregator turn 记录。',
+    emptyHint: '先去 Live 页跑一次，再回来看。',
+    loading: '加载中…',
+    loadError: '无法加载该 turn',
+    compressedNote: '真实耗时',
+    passthroughNote: '此轮走 passthrough，未触发 MoM fan-out。',
   },
 
   cost: {

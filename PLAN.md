@@ -16,8 +16,10 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 | Phase 4 | Dashboard 后端 API | 📋 已规划 | config / traces / metrics / benchmarks / comparison-501 五组 API + orchestrator hot reload |
 | Phase 5 | Dashboard 前端五页 + 预览版 | 🎨 预览版已交付 | Overview / Live / Pipeline / Cost / Settings，双语 i18n，mock 数据可跑通设计审 |
 | Phase 6 | Judge 模式 + Baseline 后端接入 | 🚧 部分完成 | Live judge_compare + baseline 并发 + `POST /api/live/run` SSE 全链路已交付（ISS-033）；`aggregation_mode=judge` 结构化整合与 Ranking 真数据推 PLAN7 |
+| Phase 7 | Live Markdown + Pipeline 真时序 + Live→Pipeline 联动 + Ranking 伪随机占位 | 📋 待开始 | LivePage MoM/Baseline 输出改 markdown 渲染；PipelinePage 接 `/api/traces/by-gateway/:gwId` 真时序回放；Live Run 完带 gwId 跳 Pipeline；Ranking 卡改 seed=gwId 伪随机 + MoM 偏置靠前 |
+| Phase 8 | Cost / Settings 真数据 + Judge integration + Ranking 真 3 家判分 + 判分深化 | 📋 已规划 | PLAN7 中未落入 Phase 7 的所有剩余项汇总；含 aggregation_mode=judge 结构化整合、Cost/Settings 页 mock→真数据、Ranking aggregator-only + Fable5 并发 + 相对排名、Judge 匿名映射 / 降级率 / Pipeline judge 段建模、跨 tab SSE 旁听 |
 
-> 依赖链：Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5（真数据接入），Phase 6 可与 4 并行。
+> 依赖链：Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5（真数据接入），Phase 6 可与 4 并行；Phase 7 依赖 Phase 4 的 `/api/traces` 与 Phase 6 的 `/api/live/run`；Phase 8 大部分子项彼此独立，可按展会需要挑取。
 > Phase 5 已先以 mock 数据出预览版，锁定 UI 与 API 契约再回填 Phase 4。
 
 ---
@@ -785,3 +787,138 @@ Scope 只算 MoM 流程内部（3 个 advisor + aggregator），Baseline 与 Jud
 9. **Streaming 不推到后期**：Phase 1 就实现 SSE passthrough；Phase 2 的 aggregator 一并支持 streaming（advisor 侧非流式）
 10. **CLI / NPM 包 / Claude Code 插件形态属远期**：MVP 直接 `npm run dev` 启动
 11. **多 provider 属远期**：MVP 单一 baseURL，靠 provider 侧多 model 名支撑
+
+---
+
+## Phase 7：Live Markdown + Pipeline 真时序回放 + Live→Pipeline 联动 + Ranking 伪随机占位
+
+### 目标
+
+在 Phase 6 打通 Live 页 MoM/Baseline/Judge 实时对比的基础上，让"实时对比页 + 请求流程页"两页联动可视化，展会叙事完整：用户在 LivePage 发 Run → 看 markdown 渲染的对比结果 → 一键跳 PipelinePage 看这条 turn 的真实 N+1 上游 trace 时序回放。
+
+### 交付物（5 项范围）
+
+1. **LivePage MoM/Baseline 输出 Markdown 渲染**：`MomColumn` / `BaselineColumn` 从原 `<pre>` 字符串改为 `react-markdown` + `remark-gfm` 渲染（表格 / 任务列表 / 删除线 / 代码块）。流式中间态每次 `mom_delta` 后立即重渲；不引入语法高亮以控制包体积。抽出 `components/primitives/MarkdownBody.tsx`。
+2. **Live → Pipeline 联动按钮**：LivePage 结果卡下方加 "→ 查看请求流程" 按钮，只在 `live.gatewayRequestId` 就绪后可用；点击更新 `window.location.hash` 到 `#pipeline?turn=<gwId>`；App 顶部路由解析 hash query 并透传给 PipelinePage。
+3. **PipelinePage 接真 trace 数据**：页顶挂 "选择 turn" 下拉（默认拉 `GET /api/traces?limit=20&role=aggregator`）+ URL `?turn=<gwId>` 参数双入口。选中或首次进入后拉 `GET /api/traces/by-gateway/:gwId`，得到 N+1 条 upstream trace（N 条 advisor + 1 条 aggregator，或降级到 passthrough 单条）。空态：无 turn 或 gwId 不存在时显示"先在 Live 页跑一次"引导。
+4. **PipelinePage 时序动画真数据回放**：不再用 canned `pipelineTimeline.ms`；从每条 trace 的 `started_at / finished_at` 减去最早 `started_at` 得到相对 ms。总时长 > 10s 时按比例压缩到 5s（保留相对节奏，只压缩绝对时长）。速率切换 0.5x / 1x / 2x 仍工作。节点 label / model / tokens / cost 全部从真 trace 字段读；Diff Modal 从 aggregator trace 的 `request_summary.message_count` 与其他 trace 拼接展示 context before/after。
+5. **Ranking 卡伪随机占位 + MoM 偏置靠前**：`web/src/mock/live-ranking.ts` 改为纯函数 `generateRanking(seed: string)` — seed 来自 `gwId`（无 gwId 时用 `'preview'`），返回最近 10 turn 的 MoM/Baseline/Fable5 三家 rank。伪随机分布约束：MoM 落 rank 1 概率 70% / rank 2 概率 30%；其余两家在剩余位次上均匀分布。RankingChart 在 `useLiveRun.gatewayRequestId` 变化后重新生成，视觉每次 Run 都在动。"Preview · Phase 7" 徽章保留，说明这是占位。
+
+### 关键约定
+
+- **入口边界不变**：Phase 6 的 `POST /api/live/run` / `GET /api/comparison/:gwId` / `GET /api/traces/by-gateway/:gwId` 三个后端 API 都已就位；Phase 7 纯前端接入 + 一个前端组件 `MarkdownBody`。零后端改动。
+- **路由方案**：不引入 React Router，沿用 App.tsx 已有的手工路由（当前根据 hash / tab 状态切页）。Phase 7 补一步 hash query 解析：`#pipeline?turn=<gwId>` 或 `#pipeline`；解析出的 turnId 通过 prop 或 context 传 PipelinePage。
+- **Markdown 安全**：LivePage 输出来自 provider 的 LLM 回复，属于外部内容。react-markdown 默认已 sanitize HTML；不额外引入 `rehype-raw`（会启用原生 HTML 注入，安全风险）。代码块 fenced 保持文本，不高亮。
+- **时序压缩规则**：`compressTimeline(traces, capMs=5000)` — 若 `max(finished_at) - min(started_at) > capMs`，所有节点 startMs / endMs 按 `capMs / totalMs` 比例缩放；否则原样。压缩阈值写常量，便于调试。
+- **Ranking 决定性**：`seed` 相同则输出相同，Run 内多次渲染视觉稳定。用简单 `mulberry32(hash(seed))` 生成 [0,1) 序列，逐维应用 MoM 偏置。
+- **不做的（明确推 Phase 8+）**：Cost / Settings 真数据接入、`aggregation_mode: judge` 结构化整合、Ranking 3 家真实并发调用与判分、跨 tab SSE 旁听、Judge 匿名映射日志留档。见 [`PLAN7.md`](./PLAN7.md) 中 PLAN7-01 / 04 / 05 / 07 / 08 / 09。
+
+### 目录变更预告
+
+**新增**：
+- `web/src/components/primitives/MarkdownBody.tsx` — react-markdown + remark-gfm 封装，Live 输出 / 未来其他页共用
+- `web/src/lib/timing.ts` — `compressTimeline(traces, capMs)` 与 `nodeStatusAt(startMs, endMs, elapsedMs)` 纯函数
+- `web/src/lib/rankSeed.ts` — `generateRanking(seed)` 纯函数（含 mulberry32）
+- `docs/decisions/010-phase7-live-pipeline.md` — Phase 7 拍板与 Markdown/路由/时序压缩三处决策
+
+**修改**：
+- `web/package.json` — 加 `react-markdown` / `remark-gfm` 依赖
+- `web/src/pages/LivePage.tsx` — MomColumn/BaselineColumn 换 MarkdownBody；结果卡下方加 "→ 查看请求流程" 按钮
+- `web/src/pages/PipelinePage.tsx` — 大改：下拉 + URL 解析 + 真 trace 数据源 + 真时序回放；从旧 mock 保留 pipeline 图形结构与 Diff Modal shell
+- `web/src/App.tsx`（或路由入口）— 解析 `#pipeline?turn=<gwId>` hash query，传 PipelinePage
+- `web/src/mock/live-ranking.ts` — 精简到只导出 `generateRanking` 与类型；删旧固定 9 条历史 + preset 联动 mock
+- `web/src/mock/pipeline-trace.ts` — 保留 `PipelineCopy` 类型（结构声明）与 Diff Modal 的 fallback 空态字符串；`pipelineTimeline` 常量与 canned copy 删除
+
+**保留 / 未变**：
+- `web/src/hooks/useLiveRun.ts` — Phase 6 交付，Phase 7 不改
+- 后端 `src/*` 完全零改动
+- 其他四页（Overview / Cost / Settings / Overview 已真数据）保持现状
+
+### 验收清单
+
+- [ ] `npm run typecheck` 通过（后端 + 前端）
+- [ ] `npm run build:web` 通过，vite 产物在 `web/dist/`
+- [ ] 手动跑通：
+  - LivePage 点预置或输入 prompt → Run → MoM 输出流式 markdown 渲染，代码块 / 表格显示正确
+  - Run 完毕后 "→ 查看请求流程" 按钮可点，URL hash 变为 `#pipeline?turn=<uuid>`
+  - PipelinePage 首次进入自动加载 `turn` 参数指向的 trace，节点从 `pending` → `running` → `done` 动画节奏与真 trace 相对时序一致
+  - PipelinePage 顶部下拉可切换到其他最近 turn，切换后动画重放
+  - Ranking 卡随每次新 Run 出不同 rank 序列，MoM 明显靠前
+- [ ] 文档四件套 + decisions/010 同步更新
+- [ ] draft PR 开好，Self-check 段贴 typecheck / build:web 结果
+
+---
+
+## Phase 8：剩余项汇总（PLAN7 未落入 Phase 7 的所有条目）
+
+### 目标
+
+Phase 7 收敛到"Live Markdown + Pipeline 真时序 + Live→Pipeline 联动 + Ranking 伪随机占位" 5 项后，PLAN7.md 中其余条目在此章节兜底登记，避免遗失。Phase 8 内各子项彼此独立，按展会需要挑取实现顺序，不必一次完成。
+
+### 交付物（8 项子任务，编号沿用 PLAN7 记号方便回溯）
+
+**8-01 · Aggregation mode `judge`（结构化整合替代 concat）**
+- `src/judge/judge-integration-prompt.ts`（`JUDGE_INTEGRATION_PROMPT_EN` / `JUDGE_INTEGRATION_PROMPT_ZH`）
+- `src/judge/judge-integration-runtime.ts:runJudgeIntegration(results, momConfig, provider)`
+- `src/aggregator/reference-builder.ts` 分支：`aggregation_mode === 'judge'` 时 references 走结构化 5 类 `consensus / disagreements / partial_coverage / unique_insights / blind_spots` 而非 concat
+- Judge 解析失败（safeJsonParse + 正则均失败）降级到 concat，`TraceRequest` 加 `judge_integration_fallback: boolean` flag
+- 落 `role='judge_integration'` 的 TraceRequest（usage / pricing / cost_usd 计入 `total_cost_usd`）
+- 依赖：Phase 6 `src/judge/*` 已就位；可提炼 `callJudge(prompt, messages, settings)` 为通用引擎
+
+**8-02 · Ranking 真数据（Aggregator-only + Fable5 + 相对排名）**
+- `src/live/live-runtime.ts` 在 `baseline_on=true` 且开启 ranking 收集时，额外并发发起 aggregator-only（不带 references）与 fable5-baseline（固定 Fable5 模型）两条调用
+- Judge prompt 扩展为"3 家 5 维，输出各家 rank"
+- `comparisons` 表加 `ranking_json TEXT`；或新表 `rankings`
+- 前端 `RankingChart` 换用 `getComparison(gwId).ranking` 拉真数据；移除 "Preview · Phase 7" 徽章
+- 历史 9 turn 采用真跑积累或另开脚本回放
+- 依赖：本项与 8-01 平行；判分 prompt 是不同 prompt 无耦合
+
+**8-03 · Cost 页真数据接入**
+- `web/src/pages/CostPage.tsx` 内 `useEffect` 拉 `getMetrics('all', 32)`
+- SavedBanner / KPI 四卡 / CostStackedBar / CostPie / CacheHitBars / CostTimeline 全部映射到 `MetricsResponse`
+- 空态：`traces` 为空时显示"跑几个真请求以看到成本分析"文案
+- 删除 `web/src/mock/cost.ts`
+- 依赖：Phase 4 `/api/metrics` 已就位
+
+**8-04 · Settings 页真数据接入**
+- `web/src/pages/SettingsPage.tsx` 内 `useEffect` 拉 `getConfig()`；Save 按钮改调 `saveConfig(mom)`
+- 保留 Language 卡本地 state（前端 UI 语言与后端 config 无关）
+- Provider 卡展示 `getConfig().provider`（`api_key_masked`）
+- 删除 `web/src/mock/config.ts`
+- 依赖：Phase 4 `/api/config` + hot reload 已就位
+
+**8-05 · Cost 页 Judge 段建模**
+- `CostStackedBar` 加第 5 段 `judge`（judge 成本仅 Live 页 Run 有，标注"非 turn 常规成本"）
+- 4 段/5 段切换开关：`total_cost_usd += judge_integration.cost_usd`（仅 8-01 完成后有 integration 成本）；`comparison_cost_usd`（judge_compare + baseline）独立展示，不进 total
+- dashboard-api 层区分 `judge_integration` vs `judge_compare` 两类（基于 `gateway_request_id` 是否 in `comparisons` 表）
+- 依赖：8-01（否则 total_cost_usd 里 judge 段永远为 0）
+
+**8-06 · Judge 匿名映射日志留档**
+- `comparisons` 表加 `judge_ab_mapping TEXT`（`{a: 'mom' | 'baseline'}`），记录本次随机分配
+- 用于后期分析：同一 prompt 多次 Run，统计 judge 打分是否与 A/B 位置相关
+- 依赖：纯字段扩展，兼容改动
+
+**8-07 · Judge 失败降级 flag 上 Dashboard Cost 页**
+- Cost 页新增 KPI 卡"Judge 降级率"
+- `/api/metrics` 补 `summary.judge_fallback_rate`
+- Live 页 `judge_done` 事件已带 `fallback` flag，前端可 tooltip 说明"本轮 judge 解析走了 fallback 分支"
+- 依赖：后端 metrics-api 扩展
+
+**8-08 · Cross-tab / 分享链接 SSE 旁听**
+- 新增 `GET /api/comparison/:gateway_request_id/stream`（SSE）
+- 服务端 `src/live/live-bus.ts`（EventEmitter），comparison 更新时向所有订阅了同一 gwId 的连接推事件
+- 前端从 URL 或 localStorage 恢复 gwId 后，若 comparison 尚未完成走 `/stream` 端点旁听
+- 依赖：新组件不与已交付路径耦合
+
+### Phase 8 内部优先级建议
+
+- **展会前锦上添花**：8-03（Cost 真数据）、8-04（Settings 真数据）——一致性观感提升，工程量小
+- **展会后按需**：8-01（Judge integration）、8-02（Ranking 真数据）——涉及后端与判分深化
+- **视需要**：8-05 / 8-06 / 8-07（判分深化，与 Cost 页联动）；8-08（分享链接场景才需要）
+
+### 不在 Phase 8 范围（永久搁置或推 Phase 9+）
+
+- CLI / NPM 包 / Claude Code 插件形态（PLAN.md 已说远期）
+- 多 provider（PLAN.md 已说远期）
+- `mom_mode: auto`（PLAN.md 已否定，间歇性触发破坏缓存前缀）
+- Manual 触发指令 `/mom on|off`（PLAN.md 已否定，产品定位无感触发）

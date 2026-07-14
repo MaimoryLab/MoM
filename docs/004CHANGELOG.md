@@ -1,3 +1,39 @@
+## [2026-07-14-5] feat(web): Phase 7 Live Markdown + Pipeline 真时序回放 + Live→Pipeline 联动 + Ranking 伪随机占位 [ISS-034]
+
+### 改动
+- **新增 `web/src/components/primitives/MarkdownBody.tsx`**：react-markdown + remark-gfm 封装。默认 sanitize；不开 rehype-raw；代码块用 `ui-monospace`，不引 syntax highlighter；支持流式增量渲染；可选 `cursor` prop 显示末尾闪烁光标
+- **新增 `web/src/lib/timing.ts`**：`compressTimeline(spans, capMs=TIMELINE_CAP_MS)` + `nodeStatusAt(startMs, endMs, elapsed)` + `TIMELINE_CAP_MS=5000`。真实 turn 总时长 > 5s 时全节点 startMs/endMs 按 `cap/rawTotal` 等比缩放
+- **新增 `web/src/lib/rankSeed.ts`**：`hashSeed(str)` FNV-1a 32-bit + `mulberry32(seed)` 决定性伪随机 + `weightedPick(r, options)` 加权抽签
+- **改造 `web/src/App.tsx`**：Router 改 hash-based；新增 `parseHash` / `formatHash` / `navigateTo(page, turn?)`（导出） / `useHashRoute()`；PipelinePage 收 `turnFromUrl` prop
+- **改造 `web/src/pages/LivePage.tsx`**：MomColumn/BaselineColumn 用 `MarkdownBody` 替换 `<pre>` + 内嵌光标；Judge/Cost 卡下方加"→ 查看请求流程"按钮（仅 `live.gatewayRequestId` 就绪后可点，`navigateTo('pipeline', gwId)`）；`RankingChart` prop 从 `preset` 改为 `seed=live.gatewayRequestId ?? 'preview'`
+- **改造 `web/src/pages/PipelinePage.tsx`**：完全重写。页顶 `TurnSelect` 下拉从 `/api/traces?limit=20&role=aggregator` 拉最近 20 turn + URL `?turn=<gwId>` 双入口；选中拉 `/api/traces/by-gateway/:gwId`；`buildTurnData` 组装 ViewNode 列表（user / advisorN / assembly / aggregator / final 或降级 passthrough 单节点）；`compressTimeline` 反演相对时序 + 5s 压缩；`FanoutFlow` / `PassthroughFlow` 两种主视图；`DiffModal` 从 aggregator trace 的 `request_summary` + advisor previews 组装
+- **改造 `web/src/mock/live-ranking.ts`**：改为 `getRankingSeries(seed)` 纯函数。删旧固定 9 条历史 + preset 联动的第 10 条 mock；MoM rank 分布 70%/30%（rank 1/2）；其余两家（aggregatorOnly + flagship）在剩余 rank 上均匀分配；`seed=gwId` 时视觉每次 Run 变，`seed='preview'` 时稳定
+- **改造 `web/src/components/charts/RankingChart.tsx`**：prop `preset` → `seed`；`useMemo(() => getRankingSeries(seed), [seed])`
+- **改造 `web/src/i18n/dict.ts`**：`live.*` 加 `viewPipeline` 中英各一；`pipeline.*` 加 `selectTurn` / `selectTurnPlaceholder` / `noTurns` / `emptyHint` / `loading` / `loadError` / `compressedNote` / `passthroughNote` 8 个 key 中英各一
+- **改造 `web/package.json`**：新增 `react-markdown@^9.1.0` / `remark-gfm@^4.0.1` 运行时依赖
+- **改造 `PLAN.md`**：阶段总览加 Phase 7 行 + 新增 Phase 8 行；末尾追加 Phase 7 全文章节（5 项交付物 + 关键约定 + 目录变更 + 验收清单）；末尾追加 Phase 8 章节（PLAN7 未落入 Phase 7 的 8 个子项汇总）
+
+### 涉及文件
+- 前端新增：`web/src/components/primitives/MarkdownBody.tsx` / `web/src/lib/timing.ts` / `web/src/lib/rankSeed.ts`
+- 前端修改：`web/src/App.tsx` / `web/src/pages/LivePage.tsx` / `web/src/pages/PipelinePage.tsx` / `web/src/mock/live-ranking.ts` / `web/src/components/charts/RankingChart.tsx` / `web/src/i18n/dict.ts` / `web/package.json`
+- 后端：零改动
+- 文档：`docs/decisions/010-phase7-live-pipeline.md` 新增；`docs/003ISSUES.md` 新增 ISS-034 [已解决]；`docs/001ARCHITECTURE.md` §2 补 Phase 7 状态；`docs/002STRUCTURE.md` 追加 3 个新文件；`docs/006API.md` 无契约变化（沿用 Phase 4 + Phase 6 API）；`PLAN.md` 阶段总览 + Phase 7/8 章节
+
+### 自检
+- `npm run typecheck`：exit 0
+- `npm run build`：exit 0
+- `npm run build:web`：exit 0（vite 产物 826 KB / gzip 235 KB，无 tsc error）
+- `npm test`：193 tests / pass 186 / fail 7 — 7 项失败在 Phase 6 tip 就已存在（`test/orchestrator-cost.test.ts` 里 usage/pricing 相关），Phase 7 零后端改动无关
+
+### 待人工验证
+- LivePage 点预置或输入 prompt → Run → MoM 输出流式 markdown 渲染，代码块 / 表格显示正确
+- Run 完毕 "→ 查看请求流程" 按钮可点，URL hash 变为 `#pipeline?turn=<uuid>`
+- PipelinePage 首次进入自动加载 `turn` 参数指向的 trace，节点动画节奏与真 trace 相对时序一致
+- PipelinePage 顶部下拉可切换到其他最近 turn，切换后动画重放
+- Ranking 卡随每次新 Run 出不同 rank 序列，MoM 明显靠前
+
+---
+
 ## [2026-07-14-4] feat(live): Phase 6 Live Compare full stack — /api/live/run SSE + judge compare + comparisons table [ISS-033]
 
 ### 改动

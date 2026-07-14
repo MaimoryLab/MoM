@@ -96,7 +96,7 @@ MoM/
 │   ├── index.html
 │   └── src/
 │       ├── main.tsx               # React 挂载入口 + I18nProvider 包裹 App
-│       ├── App.tsx                # 侧边栏 + useState 路由，五页切换
+│       ├── App.tsx                # Phase 7 起：hash-based Router，parseHash / formatHash / navigateTo(page, turn?) / useHashRoute；#pipeline?turn=<gwId> 双入口；PipelinePage 收 turnFromUrl prop
 │       ├── theme.ts               # 色板 / 字号阶梯 / 圆角 / 阴影常量集中定义（ISS-030 改：royal-blue 冷主色 + 冷灰 advisor 色带 + 冷白底 + font.size 十档语义常量 base 18px）
 │       ├── global.css             # 全局冷白底、base font 18px、blink / pulse-mom keyframe、字体栈
 │       ├── i18n/                  # 新增 — ISS-028；自研 i18n（不引入 i18next）
@@ -109,23 +109,25 @@ MoM/
 │       │   └── useEventSource.ts  # 空壳，签名与未来 SSE 一致；未消费
 │       ├── pages/                 # 新增 — ISS-028；五页
 │       │   ├── OverviewPage.tsx   # Pareto 主图 + benchmark combo 副图 + 3 KPI（效果层）
-│       │   ├── LivePage.tsx       # 预置 prompt shelf（click 立即 Run）+ 独立 textarea + Baseline checkbox + Run/Cancel 主 CTA；Phase 6 起接 useLiveRun 真调 /api/live/run：MoM 真 SSE 增量、Baseline 到达后打字机、Judge 5 维雷达 + verdict + fallback 标注、成本对比条、底部 Ranking chart（Phase 7 预览数据）
-│       │   ├── PipelinePage.tsx   # user→3 advisor→装配→aggregator→final 动画 + Replay + 节点抽屉
+│       │   ├── LivePage.tsx       # 预置 prompt shelf（click 立即 Run）+ 独立 textarea + Baseline checkbox + Run/Cancel 主 CTA；Phase 6 起接 useLiveRun 真调 /api/live/run；Phase 7 起 MoM/Baseline 输出走 MarkdownBody + Judge/Cost 卡下方加"→ 查看请求流程"按钮 + RankingChart seed=gwId
+│       │   ├── PipelinePage.tsx   # Phase 7 起大改：TurnSelect 拉 /api/traces?role=aggregator + URL ?turn=<gwId> 双入口；选中拉 /api/traces/by-gateway/:gwId；compressTimeline 反演相对时序（>5s 等比压缩）；FanoutFlow / PassthroughFlow 两种视图；DiffModal 从 aggregator trace 组装
 │       │   ├── CostPage.tsx       # 节省 banner + 4 KPI + 每轮堆叠柱 + 饼图 + cache 命中矩阵 + 累计时间线
 │       │   └── SettingsPage.tsx   # 语言 / Provider 只读 / Aggregator / Advisor slots / Judge / Comparison / Pricing
 │       ├── components/            # 新增 — ISS-028
 │       │   ├── layout/            # Sidebar / PageShell
-│       │   ├── primitives/        # Card / KpiCard / Badge / Button
-│       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029)
+│       │   ├── primitives/        # Card / KpiCard / Badge / Button / MarkdownBody (Phase 7 起，react-markdown + remark-gfm 封装，支持流式增量渲染)
+│       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029; Phase 7 起 prop 从 preset 改为 seed)
 │       ├── mock/                  # 新增 — ISS-028；Phase 5.0 伪数据（Phase 5.1 逐步替换为 lib/api.ts）
 │       │   ├── benchmarks.ts      # Pareto 6 点（MoM + 4 flagship + Aggregator-only）+ per-benchmark combo
 │       │   ├── live-samples.ts    # Phase 6 起精简为 5 个预置 prompt 中英文本（PRESET_ORDER + getPresetPrompt + PresetKey/JudgeScores 类型）；mock 回复 / advisor previews / judge 分全部退休
-│       │   ├── live-ranking.ts    # 新增 — ISS-029；最近 10 turn 的 judge 相对排名（9 turn 历史 + preset-联动的第 10 turn）
-│       │   ├── pipeline-trace.ts  # canned trace + 动画时序
+│       │   ├── live-ranking.ts    # ISS-029 起；Phase 7 起改为 getRankingSeries(seed) 纯函数（mulberry32 + hashSeed + weightedPick 生成 10 turn；MoM rank 分布 70%/30% rank 1/2；其余两家均匀）
+│       │   ├── pipeline-trace.ts  # ISS-028 起；Phase 7 起数据源退休（PipelinePage 改走真 trace），保留 PipelineCopy 类型与 Diff modal fallback 字符串（Phase 8 可清）
 │       │   ├── cost.ts            # 32 turns session 成本 + cache 命中
 │       │   └── config.ts          # Settings 初值 + 模型下拉候选
 │       └── lib/                   # 新增 — Phase 4（ISS-032）
-│           └── api.ts             # Dashboard API 类型镜像 + typed fetch wrappers（getConfig/saveConfig/listTraces/getTrace/getTracesByGateway/getMetrics/getBenchmarks）；Phase 5.1 起 Page 才切引用
+│           ├── api.ts             # Dashboard API 类型镜像 + typed fetch wrappers（getConfig/saveConfig/listTraces/getTrace/getTracesByGateway/getMetrics/getBenchmarks/getComparison/postLiveRun）
+│           ├── timing.ts          # 新增 — Phase 7（ISS-034）；compressTimeline(spans, capMs=5000) + nodeStatusAt(startMs, endMs, elapsed) + TIMELINE_CAP_MS
+│           └── rankSeed.ts        # 新增 — Phase 7（ISS-034）；hashSeed(str) FNV-1a + mulberry32(seed) 决定性伪随机 + weightedPick(r, options)
 ├── docs/                          # 文档体系
 │   ├── 000README.md               # 文档体系规范
 │   ├── 001ARCHITECTURE.md         # 系统架构

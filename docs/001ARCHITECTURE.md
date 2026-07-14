@@ -305,8 +305,8 @@ Vite + React + TS 独立子工程（`web/`），构建产物挂在网关 `/dashb
 五页，通过左侧固定 Sidebar 切换：
 
 - **Overview** `pages/OverviewPage.tsx` — Pareto 效果-成本散点（Aggregator-only / MoM / Flagship 三点）+ per-benchmark combo（折线 score + 柱状 tokens）+ 3 KPI（quality vs flagship / cost vs flagship / wins-ties-losses）
-- **Live Compare** `pages/LivePage.tsx` — 顶部 5 个预置 prompt shelf（click 立即 Run）+ textarea 自定义输入 + Baseline checkbox + Run/Cancel 主 CTA + MoM 真 SSE 增量流出 + Baseline 到达后打字机播放 + Judge 5 维雷达（correctness/completeness/depth/clarity/usefulness，Phase 6 起真调用）+ 成本对比条 + 底部相对排名图（Phase 7 预览数据）
-- **Pipeline** `pages/PipelinePage.tsx` — user → 3 advisor 并行 → references 装配盒 → aggregator → final 的水平流程图；节点激活动画；Replay 时间轴；节点抽屉展示 request/response 全文与 references 拼接位置；Diff toggle 切"有/无 MoM 的 aggregator messages"红绿高亮
+- **Live Compare** `pages/LivePage.tsx` — 顶部 5 个预置 prompt shelf（click 立即 Run）+ textarea 自定义输入 + Baseline checkbox + Run/Cancel 主 CTA + MoM 真 SSE 增量流出（Phase 7 起 `MarkdownBody` 渲染，支持代码块 / 表格 / 列表） + Baseline 到达后打字机播放（同样走 markdown）+ Judge 5 维雷达（correctness/completeness/depth/clarity/usefulness，Phase 6 起真调用）+ 成本对比条 + "→ 查看请求流程" 按钮（Phase 7 起，`live.gatewayRequestId` 就绪后带 gwId 跳 Pipeline 页）+ 底部相对排名图（Phase 7 起 seed=gwId 伪随机 + MoM 偏置 rank 1/2）
+- **Pipeline** `pages/PipelinePage.tsx` — Phase 7 起接真 trace 数据：页顶 TurnSelect 拉 `/api/traces?limit=20&role=aggregator` 下拉 + URL `?turn=<gwId>` 双入口；选中拉 `/api/traces/by-gateway/:gwId` 得 N+1 上游 trace；节点时序从每条 trace 的 `started_at / finished_at` 反演（`compressTimeline`），总时长 > 5s 自动等比压缩；`FanoutFlow` 视图展示 user → N advisor 并行 → assembly → aggregator → final，Speed toggle 0.5x/1x/2x 与 Replay 按钮工作；`DiffModal` 从 aggregator trace `request_summary` + advisor previews 组装；passthrough turn 走 `PassthroughFlow` 单节点视图
 - **Cost** `pages/CostPage.tsx` — 会话节省 banner + 4 KPI（total / per-turn / cache_hit / advisor:aggregator:judge 占比）+ 每轮堆叠柱（advisor slots + aggregator + judge）+ 组成饼图 + 5 角色 cache_read/write/miss 横向条 + 累计成本时间线（MoM vs Flagship-only）
 - **Settings** `pages/SettingsPage.tsx` — 语言切换（中/EN，`localStorage` 持久化） + Provider 遮罩摘要（只读，秘钥编辑走 `.env`） + Aggregator / Advisor slots / Judge / Comparison / Pricing 表单
 
@@ -316,15 +316,17 @@ Vite + React + TS 独立子工程（`web/`），构建产物挂在网关 `/dashb
 
 ### 数据源
 
-Phase 5.0 完全走 `web/src/mock/*`，无后端调用：
+Phase 5.0 起 mock 逐 Phase 退休：
 
-- `mock/benchmarks.ts` — Pareto 三点 + per-benchmark combo
+- `mock/benchmarks.ts` — Pareto 三点 + per-benchmark combo（当前仍 mock，未挪到 `/api/benchmarks`；后端接口已就位）
 - `mock/live-samples.ts` — Phase 6 起精简为 5 个预置 prompt 的中英文本（`getPresetPrompt(preset, lang)`）；MoM/Baseline/Judge 回复已退休，改由 `/api/live/run` 真调用产生
-- `mock/pipeline-trace.ts` — canned trace + 动画时序
-- `mock/cost.ts` — 32 turns session 成本 + cache 命中
-- `mock/config.ts` — Settings 初值 + 模型下拉候选
+- `mock/pipeline-trace.ts` — Phase 7 起退休：pipeline 页数据源改走 `/api/traces?role=aggregator` + `/api/traces/by-gateway/:gwId`；文件保留 `PipelineCopy` 类型定义与 Diff modal fallback 空态字符串（本轮尚未清理，Phase 8+ 可删）
+- `mock/live-ranking.ts` — Phase 7 起改为 `getRankingSeries(seed)` 纯函数：MoM rank 分布 70%/30%（rank 1/2）+ 其余两家均匀分配剩余 rank；seed=gwId 时视觉每次 Run 变
+- `mock/cost.ts` — 32 turns session 成本 + cache 命中（Phase 8 接 `/api/metrics`）
+- `mock/config.ts` — Settings 初值 + 模型下拉候选（Phase 8 接 `/api/config`）
 
-`hooks/useTypewriter.ts` 前端播放假流式；`hooks/useEventSource.ts` 空壳、签名与未来 SSE 一致（Phase 5.1 回填时替换 mock 引用）。
+`hooks/useTypewriter.ts` 前端播放假流式；`hooks/useEventSource.ts` 空壳，签名与未来 SSE 一致。
+Phase 7 起 `App.tsx` 用 hash-based 路由 (`#pipeline?turn=<gwId>`)，`navigateTo(page, turn?)` 由 App 导出供 LivePage 跳转；`lib/timing.ts` 与 `lib/rankSeed.ts` 提供两个纯函数库（时序压缩 + 决定性伪随机）；`components/primitives/MarkdownBody.tsx` 是 react-markdown + remark-gfm 封装，供 LivePage 输出栏与未来其他 markdown 场景共用。
 
 ### 视觉体系
 

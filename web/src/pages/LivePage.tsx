@@ -3,6 +3,7 @@ import { PageShell } from '../components/layout/PageShell';
 import { Card } from '../components/primitives/Card';
 import { Badge } from '../components/primitives/Badge';
 import { Button } from '../components/primitives/Button';
+import { MarkdownBody } from '../components/primitives/MarkdownBody';
 import { JudgeRadar } from '../components/charts/JudgeRadar';
 import { RankingChart } from '../components/charts/RankingChart';
 import { useI18n } from '../i18n/context';
@@ -11,6 +12,7 @@ import { formatCost, formatLatency, formatTokens } from '../i18n/format';
 import { color, font, radius, space } from '../theme';
 import { useLiveRun } from '../hooks/useLiveRun';
 import { useTypewriter } from '../hooks/useTypewriter';
+import { navigateTo } from '../App';
 import type { ComparisonBaselineSnapshot, ComparisonMomSnapshot } from '../lib/api';
 
 const EMPTY_SCORES = {
@@ -81,6 +83,13 @@ export function LivePage() {
           <CostCompare mom={live.mom} baseline={live.baseline} />
         </Card>
       </div>
+      {live.gatewayRequestId && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button variant="secondary" onClick={() => navigateTo('pipeline', live.gatewayRequestId)}>
+            {t.live.viewPipeline} →
+          </Button>
+        </div>
+      )}
       <Card
         title={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm }}>
@@ -90,7 +99,7 @@ export function LivePage() {
         }
         subtitle={t.live.rankingSubtitle}
       >
-        <RankingChart preset={PRESET_ORDER[0]} />
+        <RankingChart seed={live.gatewayRequestId ?? 'preview'} />
       </Card>
     </PageShell>
   );
@@ -198,39 +207,7 @@ function OutputCard({
       }
       subtitle={subtitle}
     >
-      <pre
-        style={{
-          margin: 0,
-          background: color.bgSubtle,
-          border: `1px solid ${color.border}`,
-          borderRadius: radius.md,
-          padding: space.md,
-          fontSize: font.size.sm,
-          lineHeight: 1.55,
-          color: color.textPrimary,
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          fontFamily: 'ui-monospace, "SF Mono", monospace',
-          minHeight: 260,
-          maxHeight: 420,
-          overflow: 'auto',
-        }}
-      >
-        {body}
-        {showCursor && (
-          <span
-            style={{
-              display: 'inline-block',
-              width: 8,
-              height: 18,
-              background: kind === 'mom' ? color.mom : color.flagship,
-              marginLeft: 2,
-              verticalAlign: 'text-bottom',
-              animation: 'blink 1s steps(1) infinite',
-            }}
-          />
-        )}
-      </pre>
+      <MarkdownBody text={body} cursor={showCursor ? kind : null} />
       <div style={{ display: 'flex', gap: space.md, fontSize: font.size.sm, color: color.textSecondary, alignItems: 'center' }}>
         {footer}
       </div>

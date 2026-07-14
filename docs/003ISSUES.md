@@ -1290,3 +1290,46 @@ Phase 5.0 交付预览版时，Live Compare 页只能"点预置 → 前端打字
 -> PLAN.md Phase 6（本 issue 完成后 Phase 6 状态从"📝 略写"改为"🚧 部分完成（仅 judge compare）"）
 -> PLAN7.md（未做项汇总）
 
+---
+
+## [ISS-034] Phase 7 Live Markdown + Pipeline 真时序 + Live→Pipeline 联动 + Ranking 伪随机占位
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-14
+**解决日期**：2026-07-14
+**解决方案**：新增 `web/src/components/primitives/MarkdownBody.tsx`（react-markdown + remark-gfm，禁用 raw HTML）替换 LivePage MoM/Baseline `<pre>` 输出，支持流式增量渲染；App.tsx 改 hash-based 路由 + `?turn=<gwId>` 解析，导出 `navigateTo(page, turn)`；LivePage 结果卡下方加"→ 查看请求流程"按钮，Run 完点击带 gwId 跳 `#pipeline?turn=<gwId>`；PipelinePage 完全重写：页顶 TurnSelect 下拉从 `/api/traces?limit=20&role=aggregator` 拉最近 turn + URL `?turn=<gwId>` 双入口，选中拉 `/api/traces/by-gateway/:gwId` 得 N+1 上游 trace，节点时序从每条 trace 的 `started_at / finished_at` 反演，总时长 > 5s 时按比例压缩（`compressTimeline` 纯函数）；`web/src/lib/timing.ts`（`compressTimeline` / `nodeStatusAt` / `TIMELINE_CAP_MS`）与 `web/src/lib/rankSeed.ts`（`hashSeed` / `mulberry32` / `weightedPick`）两个新库；`web/src/mock/live-ranking.ts` 改为 `getRankingSeries(seed)` 纯函数，seed=gwId 时 MoM 落 rank1 概率 70% / rank2 概率 30%，其余两家均匀；RankingChart prop 从 `preset` 改为 `seed`。i18n 加 `t.live.viewPipeline` + 8 个 pipeline keys（selectTurn / selectTurnPlaceholder / noTurns / emptyHint / loading / loadError / compressedNote / passthroughNote）。零后端改动。
+
+**现象**：
+Phase 6 交付后 LivePage 已实时跑通 MoM + Baseline + Judge 三路，但输出栏是 `<pre>` 直吐字符串——markdown 代码块 / 表格 / 列表全部丢格式；PipelinePage 仍读 `mock/pipeline-trace.ts` 的 canned trace 与固定 5s 时序动画，与真实 turn 无联动；Ranking 卡数据是 9 条固定历史 + preset 联动的第 10 条，不随 Run 变化。展会 demo 缺"看输出 → 追流程"的一气呵成叙事。
+
+**后果**：
+1. **观感断层**：Live 页 markdown 不渲染，代码 demo 观感差；Pipeline 页与 Live 页视觉上完全隔离
+2. **叙事链断裂**：展会现场无法演示"这次 Run 的具体流程"，只能演示两段固定动画
+3. **Ranking 静态**：每次 Run 视觉不变，缺"多轮持续对比"的错觉支撑
+
+**方案讨论**：（已收敛，用户 4 决策 + 我 3 自主决策）
+- **范围**：Live Markdown + Live→Pipeline 联动 + Pipeline 真时序 4 项；Cost / Settings 真数据 / Ranking 3 家判分 / aggregation_mode=judge 推 Phase 8（写入 PLAN.md 新 Phase 8 章节）
+- **路由方案**：不引入 React Router，用 hash + URLSearchParams 手工解析（Router 改造 20 行内可控），Sidebar navigate 走 `navigateTo(page)` 更新 hash
+- **时序压缩规则**：`TIMELINE_CAP_MS=5000`；`rawTotal > cap` 时按 `cap / rawTotal` 比例缩放所有 startMs/endMs（保留相对节奏）；否则原样。压缩后在页顶显示"真实耗时 Xs → 5s"标注
+- **Ranking 决定性伪随机**：`mulberry32(hashSeed(gwId))` 输出 [0,1) 序列，`weightedPick` 分配 MoM rank 1/2（70%/30%），其余两家在剩余 rank 上均匀分布；`RankingChart useMemo(() => getRankingSeries(seed), [seed])` 保证同一 Run 内视觉稳定
+- **Markdown 安全**：react-markdown 默认 sanitize HTML；不引 `rehype-raw`；不引 syntax highlighter（包体积；产物 826 KB gzip 235 KB，加高亮会翻倍）
+- **passthrough turn 兼容**：TurnSelect 拉 `role=aggregator`；若拉 `by-gateway` 结果只含 passthrough 单条，Pipeline 页显示 `PassthroughFlow`（单节点 + 说明标注）
+- **Diff Modal 内容来源**：aggregator trace 的 `request_summary`（message_count / max_tokens / tool_use_count）+ advisor trace 的 `preview`（`stop_reason` 或 `{tokens}t · {ms}ms`），非完整消息内容——完整 diff 需要 `settings_snapshot` 里 concat 后的 references 文本，属于展会后深化
+
+**关联**：
+-> web/src/components/primitives/MarkdownBody.tsx（新增）
+-> web/src/lib/timing.ts（新增：compressTimeline / nodeStatusAt / TIMELINE_CAP_MS）
+-> web/src/lib/rankSeed.ts（新增：hashSeed / mulberry32 / weightedPick）
+-> web/package.json（新增 react-markdown ^9.1.0 / remark-gfm ^4.0.1 依赖）
+-> web/src/App.tsx（Router 改 hash-based + 导出 navigateTo）
+-> web/src/pages/LivePage.tsx（MomColumn/BaselineColumn 用 MarkdownBody；加"→ 查看请求流程"按钮；RankingChart prop 改 seed=gwId）
+-> web/src/pages/PipelinePage.tsx（大改：TurnSelect + 拉真 trace + compressTimeline + FanoutFlow/PassthroughFlow/DiffModal 重构）
+-> web/src/mock/live-ranking.ts（改为 getRankingSeries(seed) 纯函数）
+-> web/src/components/charts/RankingChart.tsx（prop preset→seed）
+-> web/src/i18n/dict.ts（加 viewPipeline + 8 pipeline keys 双语）
+-> decisions/010-phase7-live-pipeline.md（本次拍板）
+-> PLAN.md Phase 7 与 Phase 8 章节（本 issue 完成后 Phase 7 状态改为"已完成"）
+-> 004CHANGELOG.md 2026-07-14-3
+
