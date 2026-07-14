@@ -1,3 +1,56 @@
+## [2026-07-14-4] feat(live): Phase 6 Live Compare full stack — /api/live/run SSE + judge compare + comparisons table [ISS-033]
+
+### 改动
+- **新增 `src/judge/` 目录 3 个文件**
+  - `judge-prompt.ts` — `JUDGE_COMPARE_PROMPT_EN` / `JUDGE_COMPARE_PROMPT_ZH`（匿名 A/B、JSON-only、5 维定义 correctness/completeness/depth/clarity/usefulness）+ `buildJudgeCompareUserMessage`
+  - `judge-parse.ts` — `parseJudgeCompare(raw)` 二阶段：`JSON.parse` 剥 code fence → 失败退到正则抽首个 `{...}` 块；`fallback` 标记后一路径命中；分数 clamp 到 `[0,100]`
+  - `judge-runtime.ts` — `runJudgeCompare` 随机匿名 A/B 后 dispatch + demap；始终不抛，`error` 归入结果；`rand?` 参数便于测试
+- **新增 `src/live/` 目录 5 个文件**
+  - `live-types.ts` — `ComparisonRecord` / `ComparisonMomRow` / `ComparisonBaselineRow` / `ComparisonJudgeRow` / `ComparisonStatus`
+  - `live-events.ts` — `writeLiveEvent` / `encodeLiveEvent`（SSE 8 事件编码，兼容已 `end` 的 output）
+  - `live-store.ts` — `createComparison` / `updateComparisonMom` / `updateComparisonBaseline(+Error)` / `updateComparisonJudge(+Error)` / `getComparisonById` 走 node:sqlite prepared statements
+  - `baseline.ts` — `runBaselineCall` 单模型 non-streaming，永不抛
+  - `live-runtime.ts` — `runLiveTurn` 编排：并发 orchestrator streaming（`DevNullWritable` sink + `createSSEParser` 观察者收集 momText）+ baseline call → Promise.all → 串行 judge compare；每阶段 emit SSE + upsert comparisons + 落 `role='baseline'/'judge'` TraceRequest
+- **新增 `src/gateway/live-api.ts`**：`registerLiveAPI(app, {holder})` 挂 `POST /api/live/run`（body 校验 → reply.hijack + text/event-stream → `runLiveTurn`）+ `GET /api/comparison/:gateway_request_id`（`getComparisonById` → `ComparisonResponse` / 404）
+- **改造 `src/gateway/server.ts`**：挂载 `registerLiveAPI(app, {holder})` 取代 `registerComparisonAPI(app)`
+- **删除 `src/dashboard-api/comparison-api.ts`**：501 占位彻底移除（其职责由 live-api.ts 承担）
+- **改造 `src/orchestrator/orchestrator-holder.ts`**：`OrchestratorHolder` 加 `getRuntime()` 方法，供 live-api 拿最新 runtime 引用
+- **改造 `src/storage/db.ts`**：SCHEMA 追加 `comparisons` 表（PK=gateway_request_id + mom/baseline/judge 三段字段 + 2 个索引）
+- **改造 `src/types/mom.ts`**：`TraceRequest.role` union 追加 `'baseline' | 'judge'`；`TraceErrorType` 追加 `baseline_error | judge_error`；新增 `JudgeScores` / `JudgeCompareResult`；`BaselineResult` 扩展 `text / started_at / finished_at / error`
+- **改造 `src/types/dashboard-api.ts`**：追加 `LiveRunRequest` / `LiveRunEvent`（8-事件 union） / `ComparisonResponse` / `ComparisonStatus` / `JudgeScoresApi` / `ComparisonMomSnapshot` / `ComparisonBaselineSnapshot` / `ComparisonJudgeSnapshot` / `ComparisonUsage`
+
+- **改造 `web/src/lib/api.ts`**：追加 Phase 6 类型镜像 + `postLiveRun(body, signal): AsyncGenerator<LiveRunEvent>` SSE 客户端（fetch + `ReadableStream` + 帧解析）+ `getComparison(gwId)` wrapper
+- **新增 `web/src/hooks/useLiveRun.ts`**：驱动一次 turn 的状态机；async iterable + AbortController；返回 `{status, momText, mom, baseline, judge, run, cancel, reset,...}`
+- **改造 `web/src/pages/LivePage.tsx`**：预置按钮 click 立即 Run（不填入 textarea）+ 独立多行 textarea + Baseline checkbox + Run/Cancel 主 CTA；MoM 栏真 SSE 增量渲染 + 光标；Baseline 栏到达后 `useTypewriter` 视觉打字机；Judge 雷达 + verdict + fallback 标注；Ranking chart 顶挂 "Phase 7 Preview" 徽章
+- **改造 `web/src/mock/live-samples.ts`**：精简到只留 5 preset 中英 prompt 文本（`PRESET_ORDER` / `getPresetPrompt` / `PresetKey` / `JudgeScores` 类型保留），mock 回复 / advisor previews / judge 分全部退休
+- **改造 `web/src/i18n/dict.ts`**：`live.*` 追加 6 个 key（`cancel` / `pendingBaseline` / `pendingJudge` / `judgeFallbackNote` / `errorTitle` / `rankingPreviewBadge`）中英各一
+
+- **新增 `test/judge-parse.test.ts`**：9 case 覆盖 strict / code fence / regex fallback / clamp / round / missing dim / missing side / no JSON / truncated
+- **新建 `PLAN7.md`**：Phase 6 未做项汇总（PLAN7-01 aggregation_mode=judge、PLAN7-02 Ranking 真数据、PLAN7-03 分享链接 SSE 旁听、PLAN7-04/05/06 Cost/Settings/Pipeline 真接入、PLAN7-07/08/09 判分深化）
+
+### 涉及文件
+- 后端新增：`src/judge/{judge-prompt,judge-parse,judge-runtime}.ts` / `src/live/{live-types,live-events,live-store,baseline,live-runtime}.ts` / `src/gateway/live-api.ts`
+- 后端修改：`src/gateway/server.ts` / `src/orchestrator/orchestrator-holder.ts` / `src/storage/db.ts` / `src/types/mom.ts` / `src/types/dashboard-api.ts`
+- 后端删除：`src/dashboard-api/comparison-api.ts`
+- 前端修改：`web/src/lib/api.ts` / `web/src/pages/LivePage.tsx` / `web/src/mock/live-samples.ts` / `web/src/i18n/dict.ts`
+- 前端新增：`web/src/hooks/useLiveRun.ts`
+- 测试新增：`test/judge-parse.test.ts`
+- 文档：`docs/decisions/009-phase6-live-fullstack.md` 新增；`docs/003ISSUES.md` ISS-033 [进行中] → [已解决]；`docs/001ARCHITECTURE.md` §2/§4/§5(链路 I)/§6/§7 补 Phase 6 状态；`docs/002STRUCTURE.md` 追加 `src/judge/*` `src/live/*` `web/src/hooks/useLiveRun.ts`，更新 db/types 说明；`docs/006API.md` §1.1 补 Live 两条端点 + §1.5 转"无待做" + §1.7 详细契约（POST /api/live/run SSE + GET /api/comparison/:gwId）+ §2.9 Judge SDK + §2.10 Live Runtime SDK + §4 类型清单；`PLAN.md` Phase 6 状态改 🚧 部分完成；`PLAN7.md` 新增
+
+### 自检
+- `npm run typecheck`：通过（0 error）
+- `npm run build`：通过
+- `npm --prefix web run build`：通过（vite `dist/index-*.js` gzip 184.85 kB）
+- `npm run test`：193 tests / 186 pass / 7 fail —— 7 个 fail 全为 pre-existing（`orchestrator-cost.test.ts` / `orchestrator-cost-edge.test.ts` 期望 `TraceRequest.cost_usd` 字段但该字段从未在类型上存在，已确认主分支同样失败；本轮新增的 9 case judge-parse 测试全通过）
+- 手工验证：Live 页需要真 provider 才能端到端跑；未在本机跑真 provider（未配置 `.env`），reviewer 需以真配置手测（详见 PR body Manual Follow-up）
+
+### 关联
+-> ISS-033
+-> decisions/009-phase6-live-fullstack.md
+-> PLAN7.md
+
+---
+
 ## [2026-07-14-3] feat(dashboard-api): implement Phase 4 REST API + orchestrator hot reload [ISS-032]
 
 ### 改动

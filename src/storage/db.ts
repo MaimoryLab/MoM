@@ -26,6 +26,37 @@ CREATE TABLE IF NOT EXISTS metrics_cache (
   computed_at INTEGER NOT NULL,
   data TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS comparisons (
+  gateway_request_id     TEXT PRIMARY KEY,
+  session_id             TEXT,
+  lang                   TEXT NOT NULL,
+  prompt_text            TEXT NOT NULL,
+  started_at             INTEGER NOT NULL,
+  updated_at             INTEGER NOT NULL,
+  status                 TEXT NOT NULL,
+  mom_text               TEXT,
+  mom_finished_at        INTEGER,
+  mom_usage_json         TEXT,
+  mom_cost_usd           REAL,
+  baseline_model         TEXT,
+  baseline_text          TEXT,
+  baseline_finished_at   INTEGER,
+  baseline_usage_json    TEXT,
+  baseline_cost_usd      REAL,
+  baseline_error_json    TEXT,
+  judge_model            TEXT,
+  judge_finished_at      INTEGER,
+  judge_scores_json      TEXT,
+  judge_verdict          TEXT,
+  judge_fallback         INTEGER DEFAULT 0,
+  judge_ab_mapping_json  TEXT,
+  judge_error_json       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_comparisons_session_id ON comparisons(session_id, started_at)
+  WHERE session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_comparisons_started_at ON comparisons(started_at DESC);
 `;
 
 let db: DatabaseSync | null = null;

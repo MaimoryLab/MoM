@@ -107,6 +107,35 @@ export interface AggregatorResult {
   response_summary: ResponseSummary | null;
 }
 
+/** 5-dim rubric fixed by Phase 6; keys match the frontend JudgeRadar labels. */
+export interface JudgeScores {
+  correctness: number;
+  completeness: number;
+  depth: number;
+  clarity: number;
+  usefulness: number;
+}
+
+/** Comparative judge (MoM vs baseline) result — Phase 6 Live page consumer. */
+export interface JudgeCompareResult {
+  model: string;
+  raw: string;
+  scores: { mom: JudgeScores; baseline: JudgeScores } | null;
+  verdict_summary: string | null;
+  /** True when strict JSON.parse failed but regex-extract-and-parse succeeded. */
+  fallback: boolean;
+  /** True when both parse paths failed — scores/verdict_summary will be null. */
+  parse_error: boolean;
+  /** Anonymized mapping used in the prompt; kept for post-hoc bias analysis. */
+  ab_mapping: { A: 'mom' | 'baseline'; B: 'mom' | 'baseline' };
+  usage: Usage;
+  latency_ms: number;
+  started_at: number;
+  finished_at: number;
+  error: TraceError | null;
+}
+
+/** Structured-integration judge result — reserved for PLAN7-01 (aggregation_mode='judge'). */
 export interface JudgeResult {
   model: string;
   raw: string;
@@ -125,8 +154,12 @@ export interface JudgeResult {
 export interface BaselineResult {
   model: string;
   response: AnthropicMessagesResponse | null;
+  text: string;
   usage: Usage;
   latency_ms: number;
+  started_at: number;
+  finished_at: number;
+  error: TraceError | null;
 }
 
 /**
@@ -143,7 +176,7 @@ export interface TraceRequest {
   /** Gateway-side uuid identifying the incoming request that spawned this upstream call. */
   gateway_request_id: string;
   /** Role of this upstream call in the MoM flow. */
-  role: 'advisor' | 'aggregator' | 'passthrough';
+  role: 'advisor' | 'aggregator' | 'passthrough' | 'baseline' | 'judge';
   /** Client-side `request.model` (what eval sent to the gateway). */
   client_model: string;
   /** Model actually forwarded to provider. For advisor = slot; for aggregator = aggregator.model; for passthrough = client_model. */
@@ -200,7 +233,9 @@ export type TraceErrorType =
   | 'provider_error'
   | 'gateway_error'
   | 'advisor_error'
-  | 'aggregator_error';
+  | 'aggregator_error'
+  | 'baseline_error'
+  | 'judge_error';
 
 export interface TraceError {
   type: TraceErrorType;

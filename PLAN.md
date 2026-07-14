@@ -15,7 +15,7 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 | Phase 3 | 触发粒度 + Fanout 缓存 + Cache 装饰 + 成本分账 | 📋 待开始 | user_turn / per_iteration 双模式、advisor 缓存、system_and_3 marker、Trace 落盘 |
 | Phase 4 | Dashboard 后端 API | 📋 已规划 | config / traces / metrics / benchmarks / comparison-501 五组 API + orchestrator hot reload |
 | Phase 5 | Dashboard 前端五页 + 预览版 | 🎨 预览版已交付 | Overview / Live / Pipeline / Cost / Settings，双语 i18n，mock 数据可跑通设计审 |
-| Phase 6 | Judge 模式 + Baseline 后端接入 | 📝 略写 | Judge 5 维雷达打分、baseline 异步对比调用；Dashboard 端已在 Phase 5 预览版实现 UI |
+| Phase 6 | Judge 模式 + Baseline 后端接入 | 🚧 部分完成 | Live judge_compare + baseline 并发 + `POST /api/live/run` SSE 全链路已交付（ISS-033）；`aggregation_mode=judge` 结构化整合与 Ranking 真数据推 PLAN7 |
 
 > 依赖链：Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5（真数据接入），Phase 6 可与 4 并行。
 > Phase 5 已先以 mock 数据出预览版，锁定 UI 与 API 契约再回填 Phase 4。
