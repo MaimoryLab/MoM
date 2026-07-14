@@ -1134,6 +1134,49 @@ PLAN 原 Phase 5 只写了三层（Settings / Traces / Metrics）+ Phase 6 的�
 -> docs/006API.md §2.6 配置装配签名清单
 -> docs/000README.md 自检自测约定"运行时行为改动"示例
 
+---
+
+## [ISS-031] Advisor prompt 松散、Aggregator 完全无引导语——references 送到 aggregator 手上无使用说明
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[技术债]
+**发现日期**：2026-07-14
+**解决日期**：2026-07-14
+**解决方案**：从第一性原理重写 `ADVISOR_SYSTEM_PROMPT`（hermes 风格：informed judgement + 下一步含具体 tool call + 风险）与 `ADVISORY_INSTRUCTION`（同语气一句话）；`src/advisor/prompts.ts` 新增 `AGGREGATOR_GUIDANCE` + `AGGREGATOR_REFERENCES_HEADER` 两个常量；`src/aggregator/reference-builder.ts` 在 `appendReferencesToLastUser` 里注入完整 payload（GUIDANCE + HEADER + references）到最后一条 user 尾部，保持前缀 message 引用不变量与 aggregator 请求 `system` 字段字节级透传不变。测试 `test/reference-builder.test.ts` × 4、`test/orchestrator-cost.test.ts` × 1 同步更新到新特征匹配；`ADVISOR_SYSTEM_PROMPT` / `ADVISORY_INSTRUCTION` 导出符号名保持不变，cache-decorator + view-transformer 相关测试通过 import 自动跟随，无需硬编码修改。
+
+**现象**：
+1. `src/advisor/prompts.ts:ADVISOR_SYSTEM_PROMPT` 是四条平铺短句拼成一行，只写了"不能调工具、别道歉、给分析"，没有告诉 advisor 它看到的其实是 **mid-task 会话**（可能含 tool_use / tool_result / 交错 turn），也没说清楚应当输出的形态是"对当前状态的 informed judgement + 下一步动作 + 风险"而非"直接答用户"
+2. `src/aggregator/aggregator-runtime.ts:runAggregator*` 只把 references **字节级追加**到最后一条 user message 尾部，前缀是一行 `Expert Panel References:` 就没了——aggregator（Claude Code 侧 system prompt 是"一名 coding agent"）完全不知道这些引用是谁写的、是不是权威、要不要引用、能不能违背；`AggregatorSettings` 也没有 `system_prompt` 字段
+3. 参考实现（`hermes-agent/agent/moa_loop.py` L429/L610、`opensquilla/src/opensquilla/provider/ensemble.py` L1014）都对 aggregator 有明确的 synth 指令："综合最佳答案或下一次工具调用 / 不要提及 ensemble、candidates、model names / 如果需要工具就调工具，否则给融合结果"，MoM 现状缺失
+
+**后果**：
+1. Advisor 面对含 tool_use 的会话时容易滑到"直接给用户写答案"，而不是"给下一次 tool call 的判断"，与 Claude Code 的 agent-loop 定位错配
+2. Aggregator 端语义漂移：references 可能被当成用户提供的资料而非 advisor 输出，或者被完整重复输出到最终回答中"暴露 ensemble"，或者被过度信任导致覆盖 aggregator 自己的推理
+3. Advisor / Aggregator 两个 prompt 位点从字面看是"MoM 的核心心脏"，但目前只有 6 行 + 1 行标题，远未反映 MoA 三个参考实现里已经收敛的做法，改进价值高、改动局部
+
+**初步判断**：
+已确认。定位链路：
+- Advisor system: `src/advisor/advisor-runtime.ts:46` 读 `momConfig.advisor.system_prompt ?? ADVISOR_SYSTEM_PROMPT`
+- Advisor 末尾合成 marker: `src/advisor/view-transformer.ts:82` 追加 `ADVISORY_INSTRUCTION`（同时是 cache-decorator 识别"合成 marker 跳过"的锚点）
+- Aggregator 引导注入位置: `src/aggregator/reference-builder.ts:appendReferencesToLastUser` 追加到最后一条 user 尾部（前缀 message 引用不变——Anthropic prompt caching 约束）
+- Aggregator system 保持客户端原样（001ARCHITECTURE.md §2 字节级透传原则）
+
+**方案讨论**：（已收敛）
+- Advisor prompt: 从第一性原理重写为 hermes 风格 "informed judgement + 下一步 + 风险"，保留 `ADVISOR_SYSTEM_PROMPT` / `ADVISORY_INSTRUCTION` 两个导出符号名（cache-decorator + 4 处测试通过 import 引用，自动跟随），只改文本
+- Aggregator guidance: 在 `prompts.ts` 新增 `AGGREGATOR_GUIDANCE` 与 `AGGREGATOR_REFERENCES_HEADER`；`reference-builder.ts` 在最后一条 user 尾部注入时先输出 `AGGREGATOR_GUIDANCE`，再输出 `AGGREGATOR_REFERENCES_HEADER` 标题 + references 内容
+- 注入位置只改**最后一条 user message**——沿用原有"前缀 message 引用不变"的不变量，Anthropic prompt caching 前缀命中不受影响
+- **不改** `AggregatorSettings` schema：本次只做 prompt 内容改进，可配置化留待有实际需求时再加
+- **不改** aggregator 请求的 `system` 字段：001ARCHITECTURE.md §2 明文"字节级透传"，一改就 cache 全 miss；Aggregator 拿到的是 `system=Claude Code 原 system` + `messages 前缀原样` + `最后一条 user 尾部含 aggregator 引导 + references`
+
+**关联**：
+-> src/advisor/prompts.ts（本次改文件）
+-> src/aggregator/reference-builder.ts（本次改文件）
+-> hermes-agent/agent/moa_loop.py:429-434, 610-618（advisor + aggregator 参考 prompt）
+-> opensquilla/src/opensquilla/provider/ensemble.py:1014-1024（aggregator 参考 prompt）
+-> docs/001ARCHITECTURE.md §2 "Aggregator 侧字节级透传原则"
+-> docs/004CHANGELOG.md [2026-07-14-1]
+
 
 <!--
 新增条目模板：

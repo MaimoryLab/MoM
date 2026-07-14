@@ -465,7 +465,7 @@ describe('advisor & aggregator context scope (answering user Q)', () => {
     for (let i = 0; i < 4; i++) {
       assert.deepEqual(aggMsgs[i], messages[i], `prefix[${i}] must be identical`);
     }
-    // 最后一条(user + tool_result)被 clone,尾部追加 "Expert Panel References"
+    // 最后一条(user + tool_result)被 clone,尾部追加 aggregator guidance + Advisor Panel References
     const aggLast = aggMsgs[4]!;
     assert.equal(aggLast.role, 'user');
     const aggLastContent = aggLast.content as {
@@ -478,7 +478,8 @@ describe('advisor & aggregator context scope (answering user Q)', () => {
     assert.ok(aggLastContent.length >= 1);
     const appended = aggLastContent[aggLastContent.length - 1]!;
     assert.equal(appended.type, 'text');
-    assert.match(appended.text!, /Expert Panel References:/);
+    assert.match(appended.text!, /You have been provided with a set of responses from various models/);
+    assert.match(appended.text!, /Advisor Panel References \(for the aggregator only, not user-visible\):/);
     assert.match(appended.text!, /\[Reference 1 — adv-a\]/);
     assert.match(appended.text!, /\[Reference 2 — adv-b\]/);
     assert.match(appended.text!, /\[Reference 3 — adv-c\]/);

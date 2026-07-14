@@ -31,7 +31,7 @@ MoM/
 │   │   ├── trigger.ts             # 新增 — Phase 3；isNewUserTurn / computeTriggerReason（七种 TriggerReason 标签）
 │   │   └── fanout.ts              # promisePool + fanoutAdvisors + fanoutAdvisorsWithCache（off 时绕过 cache；命中即复用，未命中真跑再 set）
 │   ├── advisor/                   # Phase 2
-│   │   ├── prompts.ts             # ADVISOR_SYSTEM_PROMPT / ADVISORY_INSTRUCTION
+│   │   ├── prompts.ts             # ADVISOR_SYSTEM_PROMPT / ADVISORY_INSTRUCTION（ISS-031 重写）；AGGREGATOR_GUIDANCE / AGGREGATOR_REFERENCES_HEADER（ISS-031 新增，供 reference-builder 注入）
 │   │   ├── view-transformer.ts    # convertToAdvisorView / truncateToolResult
 │   │   └── advisor-runtime.ts     # runAdvisor（Phase 3 起在请求前过 applyAdvisorCacheControl；ISS-009 起返回值补 started_at / finished_at / selected_model / response_summary）
 │   ├── aggregator/                # Phase 2

@@ -4,6 +4,10 @@ import type {
   TextBlock,
 } from '../types/anthropic.js';
 import type { AdvisorResult, MoMConfig } from '../types/mom.js';
+import {
+  AGGREGATOR_GUIDANCE,
+  AGGREGATOR_REFERENCES_HEADER,
+} from '../advisor/prompts.js';
 
 const CHARS_PER_TOKEN_ESTIMATE = 4;
 
@@ -26,6 +30,16 @@ export function buildConcatReferences(
     return `${label}]\n${body}`;
   });
   return pieces.join('\n\n');
+}
+
+/**
+ * Compose the aggregator injection payload: guidance block + references
+ * header + concatenated advisor references. Kept as a single string so
+ * `appendReferencesToLastUser` stays byte-exact and the caller can log the
+ * appended content verbatim via `AggregatorResult.references_appended`.
+ */
+function composeAggregatorPayload(references: string): string {
+  return `${AGGREGATOR_GUIDANCE}\n\n${AGGREGATOR_REFERENCES_HEADER}\n${references}`;
 }
 
 function cloneWithAppendedText(
@@ -65,16 +79,17 @@ export function appendReferencesToLastUser(
   if (messages.length === 0) return messages;
   const lastIdx = messages.length - 1;
   const last = messages[lastIdx]!;
-  const guidance = `\n\n---\n\nExpert Panel References:\n${references}`;
+  const payload = composeAggregatorPayload(references);
+  const appended = `\n\n---\n\n${payload}`;
 
   const next = messages.slice(0, lastIdx);
   if (last.role === 'user') {
-    next.push(cloneWithAppendedText(last, guidance));
+    next.push(cloneWithAppendedText(last, appended));
   } else {
     next.push(last);
     next.push({
       role: 'user',
-      content: [{ type: 'text', text: `Expert Panel References:\n${references}` }],
+      content: [{ type: 'text', text: payload }],
     });
   }
   return next;
