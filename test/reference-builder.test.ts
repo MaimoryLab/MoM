@@ -87,7 +87,7 @@ describe('appendReferencesToLastUser — critical invariant', () => {
     const out = appendReferencesToLastUser(messages, 'REF1');
     const last = out[out.length - 1]!;
     const text = (last.content as Array<{ type: string; text: string }>)[0]!.text;
-    assert.match(text, /^analyse this\n\n---\n\nYou are the aggregator in a Mixture-of-Models process\./);
+    assert.match(text, /^analyse this\n\n---\n\nYou have been provided with a set of responses from various models/);
     assert.match(text, /Advisor Panel References \(for the aggregator only, not user-visible\):\nREF1/);
   });
 
@@ -104,7 +104,7 @@ describe('appendReferencesToLastUser — critical invariant', () => {
     const out = appendReferencesToLastUser(messages, 'REF');
     const blocks = out[out.length - 1]!.content as Array<{ type: string; text: string }>;
     assert.equal(blocks[0]!.text, 'first');
-    assert.match(blocks[1]!.text, /^last\n\n---\n\nYou are the aggregator in a Mixture-of-Models process\./);
+    assert.match(blocks[1]!.text, /^last\n\n---\n\nYou have been provided with a set of responses from various models/);
     assert.match(blocks[1]!.text, /Advisor Panel References \(for the aggregator only, not user-visible\):\nREF/);
   });
 
@@ -122,7 +122,7 @@ describe('appendReferencesToLastUser — critical invariant', () => {
     assert.equal(blocks.length, 2);
     assert.equal(blocks[0]!.type, 'tool_result');
     assert.equal(blocks[1]!.type, 'text');
-    assert.match(blocks[1]!.text ?? '', /You are the aggregator in a Mixture-of-Models process\./);
+    assert.match(blocks[1]!.text ?? '', /You have been provided with a set of responses from various models/);
     assert.match(blocks[1]!.text ?? '', /Advisor Panel References \(for the aggregator only, not user-visible\):\nREF/);
   });
 
@@ -136,7 +136,7 @@ describe('appendReferencesToLastUser — critical invariant', () => {
     assert.equal(out[2]!.role, 'user');
     const text = (out[2]!.content as Array<{ type: string; text: string }>)[0]!.text;
     // 合成的 user 是**纯** payload,没有 "---" 分隔符前缀
-    assert.match(text, /^You are the aggregator in a Mixture-of-Models process\./);
+    assert.match(text, /^You have been provided with a set of responses from various models/);
     assert.match(text, /Advisor Panel References \(for the aggregator only, not user-visible\):\nREF/);
     assert.strictEqual(out[0], messages[0]); // prefix identity preserved
     assert.strictEqual(out[1], messages[1]);

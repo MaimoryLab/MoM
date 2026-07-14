@@ -1,3 +1,42 @@
+## [2026-07-14-2] refactor(prompts): swap advisor + aggregator prompts to MoA-classic short form [ISS-031]
+
+### 改动
+- **`src/advisor/prompts.ts:ADVISOR_SYSTEM_PROMPT` / `ADVISORY_INSTRUCTION` 换成同一句短判断语**
+  - 新文本："The conversation above is the current state of the task. Give your most intelligent judgement: what is going on, what should happen next, what risks or mistakes you see, and how the acting agent should proceed."
+  - 引入文件级 `const ADVISOR_JUDGEMENT_PROMPT`，两个导出符号都指向它——单源可维护，`ADVISOR_SYSTEM_PROMPT === ADVISORY_INSTRUCTION` 是设计意图（system 位与合成 marker 位说同一句话，语义与 cache-decorator 精确匹配保持一致）
+  - 两个符号名不变 → `cache-decorator` 通过 `import { ADVISORY_INSTRUCTION }` 自动跟随，无需硬编码修改
+- **`src/advisor/prompts.ts:AGGREGATOR_GUIDANCE` 换成 MoA 经典 synth 语**
+  - 新文本："You have been provided with a set of responses from various models to the latest user query. Your task is to synthesize these responses into a single, high-quality response. It is crucial to critically evaluate the information provided in these responses, recognizing that some of it may be biased or incorrect. Your response should not simply replicate the given answers but should offer a refined, accurate, and comprehensive reply to the instruction. Ensure your response is well-structured, coherent, and adheres to the highest standards of accuracy and reliability."
+  - `AGGREGATOR_REFERENCES_HEADER` 不变——保留 "Advisor Panel References (for the aggregator only, not user-visible):" 作为 references 起点，仍带"不面向用户"的语义提示
+  - 注入路径 `src/aggregator/reference-builder.ts:composeAggregatorPayload` 与 `appendReferencesToLastUser` 不改，仍是最后一条 user 尾部注入 `GUIDANCE + '\n\n' + HEADER + '\n' + references`
+- **测试同步（5 处特征匹配从旧 opener 换成新 opener）**
+  - `test/reference-builder.test.ts` 4 处 `You are the aggregator in a Mixture-of-Models process.` → `You have been provided with a set of responses from various models`
+  - `test/orchestrator-cost.test.ts` 1 处 `You are the aggregator in a Mixture-of-Models process.` → `You have been provided with a set of responses from various models`
+  - `test/cache-decorator.test.ts` / `test/view-transformer.test.ts` 通过 `import { ADVISORY_INSTRUCTION }` 自动跟随新文本，无需改动
+- **不变量**
+  - `ADVISOR_SYSTEM_PROMPT` / `ADVISORY_INSTRUCTION` 导出符号名保持不变 → cache-decorator 合成 marker 精确匹配依然生效
+  - `AGGREGATOR_REFERENCES_HEADER` 常量与其文本均不变 → 现有测试断言与人工排查线索不受影响
+  - Aggregator 请求的 `system` 字段仍字节级透传 Claude Code 原 system → Anthropic prompt caching 前缀命中不受影响
+  - `AggregatorSettings` schema 不动（本次仍不引入 `system_prompt` 可配置字段）
+
+### 涉及文件
+- `src/advisor/prompts.ts`：`ADVISOR_SYSTEM_PROMPT` / `ADVISORY_INSTRUCTION` 复用同一常量并改为短判断语；`AGGREGATOR_GUIDANCE` 改为 MoA 经典 synth 语；文件顶部旧的长注释一并精简
+- `test/reference-builder.test.ts`：4 处正则从旧 aggregator opener 换成新 opener
+- `test/orchestrator-cost.test.ts`：1 处正则从旧 aggregator opener 换成新 opener
+- `docs/004CHANGELOG.md`：新增本条 [2026-07-14-2]
+
+### 自检
+- `npm run typecheck`：0（通过）
+- `npm run build`：0（通过）
+- `npm run build:web`：0（通过）
+- `npm test`：tests 142 / pass 135 / fail 7 —— 与 [2026-07-14-1] 及 main 分支同 suite 完全一致（同 7 条 ISS-010 遗留 `cost_usd` 失败，与本次改动无关）
+- `npx tsx --test test/reference-builder.test.ts test/cache-decorator.test.ts test/view-transformer.test.ts`：22/22 全通过（覆盖本次改动的 4 个 reference-builder 断言 + advisor 视图合成 marker 相关断言）
+
+### 关联
+-> ISS-031
+
+---
+
 ## [2026-07-14-1] refactor(prompts): rewrite advisor prompt from first principles + inject aggregator guidance [ISS-031]
 
 ### 改动

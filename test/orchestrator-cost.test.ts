@@ -478,7 +478,7 @@ describe('advisor & aggregator context scope (answering user Q)', () => {
     assert.ok(aggLastContent.length >= 1);
     const appended = aggLastContent[aggLastContent.length - 1]!;
     assert.equal(appended.type, 'text');
-    assert.match(appended.text!, /You are the aggregator in a Mixture-of-Models process\./);
+    assert.match(appended.text!, /You have been provided with a set of responses from various models/);
     assert.match(appended.text!, /Advisor Panel References \(for the aggregator only, not user-visible\):/);
     assert.match(appended.text!, /\[Reference 1 — adv-a\]/);
     assert.match(appended.text!, /\[Reference 2 — adv-b\]/);
