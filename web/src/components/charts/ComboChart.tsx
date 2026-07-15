@@ -2,12 +2,39 @@ import {
   Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { perBenchmark } from '../../mock/benchmarks';
+import benchmarks from '../../../../data/benchmarks.json';
 import { color, font, shadow } from '../../theme';
 import { useI18n } from '../../i18n/context';
+import { normalizeBenchmarkRows } from '../../lib/benchmark-data';
+
+function axisMax(value: number): number {
+  if (value <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  return Math.ceil(value / magnitude) * magnitude;
+}
 
 export function ComboChart() {
   const { t } = useI18n();
+  const perBenchmark = normalizeBenchmarkRows(benchmarks.per_benchmark);
+  const scores = perBenchmark.flatMap((row) => [
+    row.momScore,
+    row.aggScore,
+    row.flagshipScore,
+  ]);
+  const costs = perBenchmark.flatMap((row) => [
+    row.momCost,
+    row.aggCost,
+    row.flagshipCost,
+  ]);
+  const minScore = scores.length > 0 ? Math.min(...scores) : 0;
+  const maxScore = scores.length > 0 ? Math.max(...scores) : 100;
+  const maxCost = costs.length > 0 ? Math.max(...costs) : 1;
+  const scoreDomain: [number, number] = [
+    Math.max(0, Math.floor(minScore / 10) * 10),
+    Math.min(100, Math.ceil(maxScore / 10) * 10),
+  ];
+  const costDecimals = maxCost < 0.1 ? 3 : maxCost < 10 ? 1 : 0;
+
   return (
     <div style={{ width: '100%', height: 420 }}>
       <ResponsiveContainer>
@@ -21,7 +48,7 @@ export function ComboChart() {
           />
           <YAxis
             yAxisId="score"
-            domain={[50, 100]}
+            domain={scoreDomain}
             stroke={color.axisLabel}
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
             label={{ value: t.overview.comboAxisScore, angle: -90, position: 'left', fill: color.textSecondary, fontSize: font.size.xs, offset: 8 }}
@@ -29,10 +56,10 @@ export function ComboChart() {
           <YAxis
             yAxisId="cost"
             orientation="right"
-            domain={[0, 0.025]}
+            domain={[0, axisMax(maxCost)]}
             stroke={color.axisLabel}
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
-            tickFormatter={(v: number) => `$${v.toFixed(3)}`}
+            tickFormatter={(v: number) => `$${v.toFixed(costDecimals)}`}
             label={{ value: t.overview.comboAxisCost, angle: 90, position: 'right', fill: color.textSecondary, fontSize: font.size.xs, offset: 8 }}
           />
           <Tooltip content={<ComboTooltip />} cursor={{ fill: color.gridLine, fillOpacity: 0.4 }} />

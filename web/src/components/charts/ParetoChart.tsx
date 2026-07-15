@@ -2,21 +2,65 @@ import {
   CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer,
   Scatter, Tooltip, XAxis, YAxis, ZAxis,
 } from 'recharts';
-import { paretoData, paretoFrontier } from '../../mock/benchmarks';
+import benchmarks from '../../../../data/benchmarks.json';
 import { color, font, shadow } from '../../theme';
 import { useI18n } from '../../i18n/context';
+import type { ParetoPoint } from '../../lib/api';
 
 // Recharts ComposedChart with cartesian axes: scatter for models,
 // dashed line for the Pareto frontier.
 
+const MODEL_SHAPES = ['square', 'triangle', 'diamond', 'circle', 'wye'] as const;
+
+type ModelShape = (typeof MODEL_SHAPES)[number] | 'star';
+
+type ChartPoint = {
+  id: string;
+  score: number;
+  cost: number;
+  label: string;
+  size: number;
+  fill: string;
+  shape: ModelShape;
+};
+
+function toChartPoint(
+  point: ParetoPoint,
+  translatedLabels: Readonly<Record<string, string>>,
+  index: number,
+): ChartPoint {
+  const isMoM = point.is_mom ?? false;
+
+  return {
+    id: point.id,
+    score: point.score,
+    cost: point.cost,
+    label:
+      translatedLabels[point.label_key] ??
+      point.label_key,
+    size: isMoM ? 260 : 130,
+    fill: isMoM ? color.mom : color.flagship,
+    shape: isMoM
+      ? 'star'
+      : MODEL_SHAPES[index % MODEL_SHAPES.length],
+  };
+}
+
 export function ParetoChart() {
   const { t } = useI18n();
-  const models = paretoData.map((p) => ({
-    ...p,
-    label: t.models[p.labelKey],
-    size: p.isMoM ? 260 : 130,
-  }));
-  const other = (id: string) => models.filter((m) => m.id === id);
+  const { pareto_data: paretoData, pareto_frontier: paretoFrontier } = benchmarks;
+  const models = paretoData.map((point, index) =>
+    toChartPoint(point, t.models, index),
+  );
+  const maxCost = Math.max(...models.map((model) => model.cost), 1);
+  const scores = models.map((model) => model.score);
+  const minScore = scores.length > 0 ? Math.min(...scores) : 0;
+  const maxScore = scores.length > 0 ? Math.max(...scores) : 100;
+  const scoreDomain: [number, number] = [
+    Math.max(0, Math.floor(minScore / 10) * 10),
+    Math.min(100, Math.ceil(maxScore / 10) * 10),
+  ];
+
   return (
     <div style={{ width: '100%', height: 420 }}>
       <ResponsiveContainer>
@@ -25,8 +69,7 @@ export function ParetoChart() {
           <XAxis
             type="number"
             dataKey="cost"
-            domain={[0, 20]}
-            ticks={[0, 5, 10, 15, 20]}
+            domain={[0, Math.ceil(maxCost * 1.1)]}
             stroke={color.axisLabel}
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
             label={{ value: t.overview.paretoAxisX, position: 'insideBottom', fill: color.textSecondary, fontSize: font.size.xs, offset: -8 }}
@@ -34,8 +77,7 @@ export function ParetoChart() {
           <YAxis
             type="number"
             dataKey="score"
-            domain={[60, 90]}
-            ticks={[60, 70, 80, 90]}
+            domain={scoreDomain}
             stroke={color.axisLabel}
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
             label={{ value: t.overview.paretoAxisY, angle: -90, position: 'left', fill: color.textSecondary, fontSize: font.size.xs, offset: 10 }}
@@ -54,12 +96,15 @@ export function ParetoChart() {
             isAnimationActive={false}
             connectNulls
           />
-          <Scatter name={t.models.momComposite}  data={models.filter((m) => m.isMoM)} fill={color.mom}      shape="star"     />
-          <Scatter name={t.models.flagship}      data={other('fable5')}                fill={color.flagship} shape="circle"   />
-          <Scatter name={t.models.gpt5}          data={other('gpt5')}                  fill={color.flagship} shape="square"   />
-          <Scatter name={t.models.sonnet46}      data={other('sonnet46')}              fill={color.flagship} shape="triangle" />
-          <Scatter name={t.models.haiku45}       data={other('haiku45')}               fill={color.flagship} shape="diamond"  />
-          <Scatter name={t.models.aggregatorOnly} data={other('aggOnly')}              fill={color.aggregatorOnly} shape="cross" />
+          {models.map((model) => (
+            <Scatter
+              key={model.id}
+              name={model.label}
+              data={[model]}
+              fill={model.fill}
+              shape={model.shape}
+            />
+          ))}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

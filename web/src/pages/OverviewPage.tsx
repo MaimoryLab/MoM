@@ -4,11 +4,12 @@ import { KpiCard } from '../components/primitives/KpiCard';
 import { ParetoChart } from '../components/charts/ParetoChart';
 import { ComboChart } from '../components/charts/ComboChart';
 import { useI18n } from '../i18n/context';
-import { heroStats, paretoData } from '../mock/benchmarks';
+import benchmarks from '../../../data/benchmarks.json';
 import { color, space } from '../theme';
 
 export function OverviewPage() {
   const { t, lang } = useI18n();
+  const { pareto_data: paretoData } = benchmarks;
   const scoreOf = (id: string) => paretoData.find((p) => p.id === id)?.score ?? 0;
   const momScore = scoreOf('mom');
   const fable5Score = scoreOf('fable5');
