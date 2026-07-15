@@ -122,15 +122,17 @@ export const en = {
 
   chat: {
     title: 'Chat',
-    subtitle: 'Ask MoM anything — head to Live Compare to see baseline / judge / cost.',
-    historyLabel: 'Recent runs',
+    subtitle: '',
+    historyLabel: 'Recent',
     historyPlaceholder: '— pick a past run —',
-    historyEmpty: 'No runs yet — submit your first one below.',
+    historyEmpty: 'No runs yet.',
     newRun: 'New chat',
     userLabel: 'You',
     momLabel: 'MoM',
     pending: 'MoM is thinking…',
-    empty: 'Send a message to start — MoM replies below, iMessage-style.',
+    empty: '',
+    presetsHint: 'Pick a preset or type below',
+    presetsEmpty: 'No presets configured.',
   },
 
   pipeline: {
@@ -405,15 +407,17 @@ export const zh: Dict = {
 
   chat: {
     title: '提问',
-    subtitle: '直接问 MoM — 想看 Baseline / Judge / 成本对比请去「Live Compare」。',
-    historyLabel: '历史记录',
+    subtitle: '',
+    historyLabel: '历史',
     historyPlaceholder: '— 选一次历史 —',
-    historyEmpty: '还没有记录，在下方发送第一条。',
+    historyEmpty: '还没有记录。',
     newRun: '新对话',
     userLabel: '你',
     momLabel: 'MoM',
     pending: 'MoM 正在思考…',
-    empty: '在上方输入并发送，MoM 会像 iMessage 一样在下方回复。',
+    empty: '',
+    presetsHint: '选一个预置问题，或直接输入',
+    presetsEmpty: '未配置预置问题。',
   },
 
   pipeline: {

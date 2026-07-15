@@ -1,3 +1,25 @@
+## [2026-07-15-5] refactor(web): rewrite chat page to classic chatbot layout [ISS-037]
+
+### 改动
+- `web/src/pages/ChatPage.tsx` 整体重写为传统 chatbot 布局，替换首轮 [2026-07-15-3] 的 PageShell + Card + iMessage 卡结构：
+  - 去掉 `PageShell`，改用自定义 flex 列（`min-height: 100vh` + `flex-direction: column`），让 composer 能 `position: sticky; bottom: 0`
+  - Header 只保留 title 与右侧 history 下拉，**去掉 subtitle**（用户反馈"无意义"）
+  - 消息区空态：预设卡片 grid 居中显示（auto-fill minmax 260px），顶部一行 hint `选一个预置问题，或直接输入`，去掉首轮那张灰底 `发送一个 prompt 或选中一条已有记录以查看结果` box
+  - 消息区有 comparison：用户气泡在右、MoM 气泡在左；MoM 气泡内 `MarkdownBody` 传 `flush` prop，完全展开无内部 maxHeight/滚动（用户反馈"回复直接完全展开就行，不用折叠"）
+  - Sticky composer 单一 textarea + Submit 按钮，`Enter` 发送 / `Shift+Enter` 换行；上方渐变遮罩让消息滑到下方时视觉自然过渡
+- `web/src/i18n/dict.ts`：`chat.subtitle` / `chat.empty` 置空字符串（保 dict type 不删字段）、`historyLabel` 从 `Recent runs` / `历史记录` 缩短为 `Recent` / `历史`、`historyEmpty` 缩短；新增 `chat.presetsHint` / `chat.presetsEmpty` 中英
+- `docs/002STRUCTURE.md`：`ChatPage.tsx` 那一行的一句话职责重写以反映新布局
+
+### 涉及文件
+- web/src/pages/ChatPage.tsx：整页重写为 flex 列 + sticky composer + 预设居中 + MarkdownBody flush
+- web/src/i18n/dict.ts：chat.* 段调整（subtitle/empty 置空、hint 新增）
+- docs/002STRUCTURE.md：ChatPage 一句话职责
+
+### 关联
+-> ISS-037
+
+---
+
 ## [2026-07-15-4] refactor(web): switch Pareto x-axis to total CNY per Q&A [ISS-038]
 
 ### 改动

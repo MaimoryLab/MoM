@@ -1465,22 +1465,23 @@ Phase 6/7 交付 Live 页 SSE 实时流 + Pipeline 页真时序回放后，用�
 **类型**：[体验]
 **发现日期**：2026-07-15
 **解决日期**：2026-07-15
-**解决方案**：ChatPage 只保留 RunSelect + Composer(无 baseline 开关) + StatusStrip + iMessage 气泡对话卡。用户提问在右(灰蓝底 momSoft),MoM 回复在左(白底+边框,MarkdownBody 渲染),回复气泡下方保留 `⏱ latency · tokens · cost` 元数据小字。撤除 Baseline / Judge / Cost 三张卡与"查看请求流程"按钮。后端保持不变——ChatPage 发起 Run 时硬编码 `baseline_on: true`,让切到 Live 页仍能看到完整对比。
+**解决方案**：两轮迭代——首轮 [2026-07-15-3] 把 ChatPage 撤到"RunSelect + Composer + StatusStrip + iMessage 卡"仍套 PageShell 与 Card 外壳,用户反馈"回答在下面反人类,box 多余,输入框应 sticky,预设应居中,subtitle 无意义,MoM 回复不该折叠"。二轮 [2026-07-15-5] 重写为传统 chatbot 布局:自定义 flex 列取代 PageShell,header 只留 title + 历史下拉(无 subtitle),消息区空态时预设卡片居中展示(hint = "选一个预置问题,或直接输入"),有 comparison 时用户气泡在右、MoM 气泡在左、MarkdownBody `flush` 完全展开无内滚;composer sticky 到底部,Enter 发送 / Shift+Enter 换行。后端仍硬编码 `baseline_on: true`。
 
 **现象**：
-ISS-036 交付的 ChatPage 布局是 RunSelect + Composer(带 baseline 开关) + StatusStrip + `<MomColumn>` / `<BaselineColumn>` 并排 + `<JudgeCard>` / `<CostCard>` 并排 + 「查看请求流程」按钮。等价于把 LivePage 的对比看板压到 Chat 页下面,和"提问"的心智模型不吻合——用户在这里主要是想跟 MoM 对话,不是看对比。
+ISS-036 交付的 ChatPage 布局是 RunSelect + Composer(带 baseline 开关) + StatusStrip + `<MomColumn>` / `<BaselineColumn>` 并排 + `<JudgeCard>` / `<CostCard>` 并排 + 「查看请求流程」按钮。等价于把 LivePage 的对比看板压到 Chat 页下面,和"提问"的心智模型不吻合——用户在这里主要是想跟 MoM 对话,不是看对比。首轮 [2026-07-15-3] 撤了 Baseline/Judge/Cost 但仍套 PageShell + Card,导致"回答在输入框下面/subtitle 无意义/'发送 prompt' 空态 box 累赘/输入框不在底部/MoM 回复被 MarkdownBody 默认 maxHeight 折叠",不像传统 chatbot。
 
 **后果**：
-Chat 页与 Live 页信息冗余;展会现场用户在 Chat 页得到"和 Live 一样的六个卡"体验,弱化"这是 chat"的直觉。
+Chat 页与 Live 页信息冗余;首轮改动后仍与 ChatGPT/Claude.ai 这类熟悉的 chatbot 布局差异明显,用户认为"反人类"。
 
 **初步判断**：
-已确认。用户明确要求 Chat 只留一个 chat 的入口,对比留给 Live 页。
+已确认。用户明确要求 Chat 只留 chat 入口(对比留给 Live 页),且必须是传统 chatbot 布局(sticky composer 在底 / 预设居中在空态 / MoM 回复完全展开)。
 
 **关联**：
--> web/src/pages/ChatPage.tsx（大改：撤 BaselineColumn/JudgeCard/CostCard/查看流程按钮,加 ConversationView + UserBubble + MomBubble + ErrorBubble + PendingBubble + BubbleRow）
--> web/src/pages/live-shared.tsx（Composer 的 baselineOn/onBaselineToggle 两个 prop 合并为可选 `baseline?: {on, onToggle}`,不传即隐藏 checkbox）
--> web/src/i18n/dict.ts（chat.subtitle 改述"想看 baseline/judge/cost 请去 Live";新增 chat.userLabel / chat.momLabel / chat.pending / chat.empty 中英）
--> 004CHANGELOG.md [2026-07-15-3]
+-> web/src/pages/ChatPage.tsx（两轮改动:首轮撤对比卡 + iMessage 气泡;二轮 [2026-07-15-5] 重写为 flex 布局 + sticky composer + 预设居中 + MarkdownBody flush）
+-> web/src/pages/live-shared.tsx（首轮:Composer 的 baseline 参数改为可选 `baseline?: {on, onToggle}`;二轮:Composer 不再被 ChatPage 使用,只 LivePage 需要——但 LivePage 是 viewer-only 也不用,实际 Composer 目前无消费方,保留供未来复用）
+-> web/src/components/primitives/MarkdownBody.tsx（无改动;二轮通过传入 `flush` prop 让 MoM 回复不套外壳、无 maxHeight，完全展开）
+-> web/src/i18n/dict.ts（首轮:chat.subtitle 改述 + 新增 4 键;二轮:chat.subtitle / chat.empty 置空(不删字段保 dict type 对齐)、historyLabel 缩短、新增 chat.presetsHint / chat.presetsEmpty 中英）
+-> 004CHANGELOG.md [2026-07-15-3] [2026-07-15-5]
 
 ---
 
