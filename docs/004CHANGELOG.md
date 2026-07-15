@@ -1,3 +1,49 @@
+## [2026-07-15-2] feat(web): pipeline markdown, chat page split, ranking axis padding [ISS-036]
+
+### 改动
+- **Pipeline 页 Advisor + DiffModal 全走 Markdown 渲染**（Q1）
+  - `web/src/components/primitives/MarkdownBody.tsx` 加 `flush` prop：`true` 时不套 border/bgSubtle/padding/max-height/overflow，让父容器主控滚动 —— 避免 DiffModal 内嵌时"外壳滚一次 + 内壳再滚一次"
+  - PipelinePage AdvisorCard 里的 preview box 换成 `<MarkdownBody minHeight={80} maxHeight={200} cursor={isRunning?'mom':null}>`；pending 状态保留原 `…` 占位样式（浅色 border box）；running 时光标由 MarkdownBody 自身渲染
+  - DiffModal 两栏 `<pre>` 换成 `<div style={{padding: space.lg}}><MarkdownBody flush /></div>`；`before` / `after` 拼好的 references 现在渲染 markdown 语法（Advisor 输出的列表 / 代码块 / 加粗全部生效）
+- **DiffModal 点空白关闭**（Q1）
+  - 外层遮罩 div 加 `onClick={onClose}`；内层内容 div 加 `onClick={(e) => e.stopPropagation()}`；Esc 快捷键按用户要求不加
+- **拆 Chat 页 + Live 转 viewer-only**（Q2）
+  - 新增 `web/src/pages/ChatPage.tsx`（提问模式）+ 路由 `#chat`；Sidebar `PageKey / ORDER` 追加 `chat`，位于 `live` 之后
+  - 新增 `web/src/pages/live-shared.tsx` — LivePage + ChatPage 共享组件：`StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard / Composer / RunSelect`；两页读同一份 `LiveJobProvider` Context，切页面不丢 job
+  - **`StatusStrip` 语义调整**：有 `live.prompt` 时首行显示 `USER PROMPT: <clipped prompt>`（截断到 140 字符加 `…`），系统状态标签（"全部完成" / "MoM 完成" 等）降级为右侧灰字副标签 — 展会观众第一眼看到问题本身而非系统术语
+  - `LivePage.tsx` 完全重写：删掉左侧 Composer + JobsCard 栏；顶部右侧 `<RunSelect>` 下拉选历史 + "+ 新对话"按钮跳 Chat；下方是 Status → MoM/Baseline → Judge/Cost → Pipeline 按钮 → Ranking 的单列纵向布局，观感更像展厅大屏
+  - `ChatPage.tsx`：顶部右侧 `<RunSelect>` 选历史（可切回旧问答） → Composer（预设 + textarea + baseline 开关 + Submit） → 提交后展示 Status/MoM/Baseline/Judge/Cost；无 Ranking（那是 Live 页的价值主张）
+  - i18n dict：EN + zh 新增 `nav.chat` / `chat.*` 段（`title/subtitle/historyLabel/historyPlaceholder/historyEmpty/newRun`）、`live.userPromptLabel` / `live.recentRunsLabel` / `live.recentRunsPlaceholder` / `live.recentRunsEmpty`；删 `live.rankingPreviewBadge`（Phase 7 预览徽章过时）
+- **Ranking 图 rank 3 底部留白 + 删预览徽章**（Q3）
+  - `RankingChart.tsx` YAxis `domain={[0.6, 3.4]}`（对称扩，仍只显示 `ticks={[1,2,3]}`）；rank 3 数据点离 X 轴有呼吸空间，rank 1 也不贴顶
+  - 删 `LivePage` 里 Ranking Card 的 `<Badge>{t.live.rankingPreviewBadge}</Badge>`
+
+### 涉及文件
+- `web/src/components/primitives/MarkdownBody.tsx`：加 `flush` prop + `import type { CSSProperties } from 'react'`
+- `web/src/components/charts/RankingChart.tsx`：`YAxis domain` 从 `[1,3]` 改 `[0.6, 3.4]`
+- `web/src/components/layout/Sidebar.tsx`：`PageKey / ORDER` 追加 `chat`
+- `web/src/App.tsx`：`PAGES` 追加 `chat`；`import ChatPage from './pages/ChatPage'`；添加路由分支
+- `web/src/pages/LivePage.tsx`：**重写** — viewer-only；删除 Composer / JobsCard 相关全部私有组件
+- `web/src/pages/ChatPage.tsx`：**新增** — 提问模式，复用 live-shared 组件
+- `web/src/pages/live-shared.tsx`：**新增** — 共享组件模块
+- `web/src/pages/PipelinePage.tsx`：AdvisorCard preview box 换 MarkdownBody；DiffModal 两栏换 flush MarkdownBody；DiffModal 外层遮罩 onClick 关闭
+- `web/src/i18n/dict.ts`：新增 chat 段 + 4 个 live.* 键；删 `live.rankingPreviewBadge`（英中各一处）
+- `docs/002STRUCTURE.md`：pages 段更新为六页；MarkdownBody / RankingChart / ChatPage / live-shared 描述
+- `docs/003ISSUES.md`：ISS-036 状态从 [进行中] 改 [已解决]，补 2026-07-15 解决日期
+- `docs/004CHANGELOG.md`：新增本条 [2026-07-15-2]
+
+### 自检
+- `npm run typecheck`：退出 0（`> mom@0.1.0 typecheck / tsc -p tsconfig.json --noEmit`）
+- `web && npm run build`：退出 0，Vite 打包 1116 modules → `dist/assets/index-CQeZKafN.js  830.88 kB`（bundle 体积与 [2026-07-15-1] 持平，MarkdownBody flush 分支只加了 30 行）
+- 未启动 dev server 手工验证 —— 用户 5173 端口已被本地 Chrome 占用（观察到活跃连接），故 typecheck + build 通过即视为静态验证通过；页面交互（点空白关闭 / Markdown 渲染 / chat 提问 / RunSelect 切历史）由用户在浏览器现场验证
+
+### 关联
+-> ISS-036
+-> [2026-07-14-5]（Phase 7 Live Markdown + Pipeline 真时序）
+-> [2026-07-15-1]（Phase 7 收尾）
+
+---
+
 ## [2026-07-15-1] feat(live): async job model + real texts on traces + prompt presets externalized [ISS-035]
 
 ### 改动

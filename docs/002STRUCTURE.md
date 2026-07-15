@@ -106,16 +106,18 @@ MoM/
 │       ├── hooks/                 # 新增 — ISS-028
 │       │   ├── useLiveRun.ts      # 更新 — ISS-035；重写为 LiveJobProvider + useLiveJob(Context)：submitLiveRun 触发后 3s 轮询 getComparison(gwId)；state 提到 App 层，切页面不丢；useTypewriter 已删（不再需要打字机）
 │       │   └── useEventSource.ts  # 空壳，签名与未来 SSE 一致；未消费
-│       ├── pages/                 # 新增 — ISS-028；五页
+│       ├── pages/                 # 新增 — ISS-028；六页
 │       │   ├── OverviewPage.tsx   # Pareto 主图 + benchmark combo 副图 + 3 KPI（效果层）
-│       │   ├── LivePage.tsx       # 更新 — ISS-035；重构为双栏：左侧 Composer + Jobs 列表（GET /api/comparisons 每 3s 拉），右侧 Comparison Viewer（Status/MoM/Baseline/Judge/Cost/Ranking + 跳 Pipeline 按钮）；MomColumn/BaselineColumn subtitle 展示快照的 advisor/aggregator/baseline 模型 id；从 /api/presets 拉预设，缺失时隐藏 shelf
-│       │   ├── PipelinePage.tsx   # Phase 7 起大改：TurnSelect 拉 /api/traces?role=aggregator + URL ?turn=<gwId> 双入口；选中拉 /api/traces/by-gateway/:gwId；compressTimeline 反演相对时序（>5s 等比压缩）；FanoutFlow / PassthroughFlow 两种视图；DiffModal 从 aggregator trace 组装
+│       │   ├── LivePage.tsx       # 更新 — ISS-036；viewer-only 展示模式：上方 RunSelect 选历史 comparison，下方 Status/MoM/Baseline/Judge/Cost/Ranking + 跳 Pipeline；提问入口移到 ChatPage
+│       │   ├── ChatPage.tsx       # 新增 — ISS-036；提问模式：预设 shelf + textarea + baseline 开关 + 提交，下方展示 MoM/Baseline/Judge/Cost；跟 LivePage 共享 LiveJobProvider Context
+│       │   ├── live-shared.tsx    # 新增 — ISS-036；LivePage + ChatPage 共享组件（StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard / Composer / RunSelect）；StatusStrip 有 comparison 时替换系统状态标签为用户 prompt
+│       │   ├── PipelinePage.tsx   # 更新 — ISS-036；Advisor answer 走 MarkdownBody（渲染 LLM 输出的列表 / 代码块 / 加粗）；DiffModal 两栏走 MarkdownBody（flush 模式，外壳滚动）；DiffModal 点空白关闭
 │       │   ├── CostPage.tsx       # 节省 banner + 4 KPI + 每轮堆叠柱 + 饼图 + cache 命中矩阵 + 累计时间线
 │       │   └── SettingsPage.tsx   # 语言 / Provider 只读 / Aggregator / Advisor slots / Judge / Comparison / Pricing
 │       ├── components/            # 新增 — ISS-028
 │       │   ├── layout/            # Sidebar / PageShell
-│       │   ├── primitives/        # Card / KpiCard / Badge / Button / MarkdownBody (Phase 7 起，react-markdown + remark-gfm 封装，支持流式增量渲染)
-│       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029; Phase 7 起 prop 从 preset 改为 seed)
+│       │   ├── primitives/        # Card / KpiCard / Badge / Button / MarkdownBody (Phase 7 起，react-markdown + remark-gfm 封装；ISS-036 加 flush prop 用于嵌入已有容器不双滚动)
+│       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029; Phase 7 起 prop 从 preset 改为 seed；ISS-036 起 YAxis domain 加对称 padding [0.6, 3.4] 避免 rank 3 贴 X 轴)
 │       ├── mock/                  # 新增 — ISS-028；Phase 5.0 伪数据（Phase 5.1 逐步替换为 lib/api.ts）
 │       │   ├── benchmarks.ts      # Pareto 6 点（MoM + 4 flagship + Aggregator-only）+ per-benchmark combo
 │       │   ├── live-ranking.ts    # ISS-029 起；Phase 7 起改为 getRankingSeries(seed) 纯函数（mulberry32 + hashSeed + weightedPick 生成 10 turn；MoM rank 分布 70%/30% rank 1/2；其余两家均匀）

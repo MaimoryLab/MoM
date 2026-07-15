@@ -3,6 +3,7 @@ import { PageShell } from '../components/layout/PageShell';
 import { Card } from '../components/primitives/Card';
 import { Badge } from '../components/primitives/Badge';
 import { Button } from '../components/primitives/Button';
+import { MarkdownBody } from '../components/primitives/MarkdownBody';
 import { useI18n } from '../i18n/context';
 import { color, font, radius, shadow, space } from '../theme';
 import { formatCost, formatLatency } from '../i18n/format';
@@ -517,15 +518,21 @@ function AdvisorCard({ status, node }: { status: NodeStatus; node: ViewNode }) {
         <StatusPill status={status} />
       </div>
       <code style={{ fontFamily: 'ui-monospace, monospace', color: color.textMuted, fontSize: font.size.xxs }}>{node.model}</code>
-      <div style={{
-        fontSize: font.size.sm, color: color.textPrimary, lineHeight: 1.55,
-        background: isPending ? 'transparent' : color.surface,
-        border: `1px solid ${color.border}`, borderRadius: 6,
-        padding: space.sm, minHeight: 80,
-      }}>
-        {isPending ? <span style={{ color: color.textMuted }}>…</span> : node.preview ?? '—'}
-        {isRunning && <span style={{ display: 'inline-block', width: 8, height: 16, background: color.mom, marginLeft: 2, verticalAlign: 'text-bottom', animation: 'blink 1s steps(1) infinite' }} />}
-      </div>
+      {isPending ? (
+        <div style={{
+          fontSize: font.size.sm, color: color.textMuted, lineHeight: 1.55,
+          background: 'transparent',
+          border: `1px solid ${color.border}`, borderRadius: 6,
+          padding: space.sm, minHeight: 80,
+        }}>…</div>
+      ) : (
+        <MarkdownBody
+          text={node.preview ?? '—'}
+          minHeight={80}
+          maxHeight={200}
+          cursor={isRunning ? 'mom' : null}
+        />
+      )}
       <div style={{ display: 'flex', gap: 14, fontSize: font.size.xxs, color: color.textSecondary, fontFamily: 'ui-monospace, monospace' }}>
         <span>⏱ {formatLatency(node.latencyMs ?? 0, lang)}</span>
         <span>· {node.tokens ?? 0}t</span>
@@ -665,15 +672,21 @@ function DiffModal({
     ? lastUser + refs
     : advisorFallbackSummary(turn, aggregatorRaw);
   return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(20, 26, 46, 0.32)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 40,
-    }}>
-      <div style={{
-        background: color.surface, borderRadius: radius.lg, maxWidth: 1100, width: '100%', maxHeight: '85vh', overflow: 'auto',
-        boxShadow: '0 20px 60px rgba(20, 26, 46, 0.28)',
-        display: 'flex', flexDirection: 'column',
-      }}>
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(20, 26, 46, 0.32)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 40,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: color.surface, borderRadius: radius.lg, maxWidth: 1100, width: '100%', maxHeight: '85vh', overflow: 'auto',
+          boxShadow: '0 20px 60px rgba(20, 26, 46, 0.28)',
+          display: 'flex', flexDirection: 'column',
+        }}
+      >
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: space.lg, borderBottom: `1px solid ${color.border}` }}>
           <div>
             <h3 style={{ margin: 0, fontSize: font.size.lg, fontWeight: font.weight.semibold }}>{t.pipeline.diffTitle}</h3>
@@ -697,12 +710,9 @@ function DiffColumn({ title, content, tone }: { title: string; content: string; 
       <div style={{ padding: `${space.sm} ${space.lg}`, background: bg, fontSize: font.size.xs, color: color.textSecondary, fontWeight: font.weight.medium, letterSpacing: '0.03em' }}>
         {title}
       </div>
-      <pre style={{
-        margin: 0, padding: space.lg, fontSize: font.size.xs, fontFamily: 'ui-monospace, monospace',
-        color: color.textPrimary, lineHeight: 1.55, overflow: 'auto', whiteSpace: 'pre-wrap',
-      }}>
-        {content}
-      </pre>
+      <div style={{ padding: space.lg, flex: 1 }}>
+        <MarkdownBody text={content} flush />
+      </div>
     </div>
   );
 }

@@ -1395,6 +1395,67 @@ Phase 6/7 交付 Live 页 SSE 实时流 + Pipeline 页真时序回放后，用�
 -> docs/006API.md（§1.1 增 /api/presets + /api/comparisons；§1.6 详细契约替换 SSE 描述为 202+轮询；§2.10 Live Runtime SDK 更新）
 -> 004CHANGELOG.md [2026-07-15-1]
 
+---
+
+## [ISS-036] Phase 7 打磨：Pipeline Markdown 渲染、Live 拆 Chat 页、Ranking 图去徽章 + 底部留白
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-15
+**解决日期**：2026-07-15
+
+**现象**：
+[2026-07-15-1] / [2026-07-14-5] 交付后现场使用发现 3 组体验问题：
+
+1. **Pipeline 页 Markdown 缺失 + Diff 弹窗只能点关闭按钮**
+   - `PipelinePage.tsx:526` Advisor 卡片里 `{node.preview}` 纯文本渲染；LLM 输出的列表、代码块、加粗全部塌成一行
+   - `PipelinePage.tsx:700-705` DiffModal 用 `<pre>` 硬渲染 `beforeText` / `afterText`，markdown 语法同样不解析
+   - `PipelinePage.tsx:668-671` DiffModal 遮罩层无 `onClick`，点空白区域不关闭；只有右上角 `× 关闭` 按钮能关
+
+2. **Live 页把"提问工具"和"演示大屏"塞在同一页**
+   - `LivePage.tsx:80` `gridTemplateColumns: '360px 1fr'` 左右分栏 —— 左边 Composer + Jobs，右边所有 KPI/对比
+   - 展会现场演讲者需要在提问区专注输入 / 从历史里选题，同时观众想看的是并排大字对比。同一屏兼顾两者，两边都拘束
+   - `StatusStrip` 里 `t.live.statusJudgeDone` = "全部完成"，观众看到大屏只知道"系统跑完了"，看不到"这个人问了什么"
+
+3. **Ranking 图第 3 名压 X 轴 + 预览徽章过时**
+   - `RankingChart.tsx:31` `YAxis domain={[1,3]} reversed` → rank=3 数据点正好落在 X 轴上，观感被 grid line 压掉
+   - `LivePage.tsx:128` `<Badge>{t.live.rankingPreviewBadge}</Badge>` 展示 "预览数据 · Phase 7"，Phase 7 已收尾无意义
+
+**后果**：
+1. Advisor answer / Diff 弹窗看的是原始 markdown 语法，观众直接放弃阅读；DiffModal 需要"精确瞄准关闭按钮"是低质量交互
+2. 展会现场演讲者切页面变多；观众看不到 prompt 全文，只有一个"全部完成"抽象状态
+3. Ranking 图 rank 3 数据点被 X 轴吞了；预览徽章过时
+
+**方案**（已与用户 1 轮对齐）：
+
+**Q1 → 修 Pipeline Markdown + 点空白关闭**
+- Advisor answer / DiffModal 两栏统一走 `MarkdownBody`（web/src/components/primitives/MarkdownBody.tsx，Live 页已复用）
+- Advisor 卡片传 `minHeight={80} maxHeight={200}`，保持 3 栏并排紧凑
+- DiffModal 两栏传 `minHeight={0} maxHeight={undefined}`，由外壳 `85vh` 主控滚动
+- 遮罩层加 `onClick={onClose}`，内层内容 div `onClick={(e) => e.stopPropagation()}`；不加 Esc 快捷键（用户明确表示不必要）
+
+**Q2 → 拆 Chat 页 + Live 页转纯观看**
+- 新增 `web/src/pages/ChatPage.tsx`，路由 `#chat`；Sidebar 顺序 overview → live → **chat** → pipeline → cost → settings（Chat 放在 Live 之后，观看 → 提问 → 时序）
+- Chat 页布局：上方选择历史 comparison（复用 pipeline 的下拉），下方 Composer + 提交后并排显示 MoM/Baseline Markdown + Judge + Cost；无 Ranking（Ranking 是 Live 页的价值主张）
+- Live 页去掉左侧 Composer + Jobs 栏；上方保留"选择历史 comparison"下拉，下方是并排 MoM/Baseline + Judge/Cost + Ranking
+- 两页共享同一份 `LiveJobProvider` state
+- StatusStrip 终态时把系统标签替换为 `用户提问：<prompt>`；prompt 长于 140 字符截断加 `…`
+
+**Q3 → RankingChart 底部留白 + 删徽章**
+- `YAxis domain={[0.6, 3.4]}` 上下对称扩，仍只显示 ticks=[1,2,3]，rank 1 / rank 3 都有呼吸空间
+- 删 `LivePage.tsx:128` 徽章 + i18n `rankingPreviewBadge` en/zh 两处键
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（Advisor + DiffModal 走 MarkdownBody；DiffModal 点空白关闭）
+-> web/src/pages/LivePage.tsx（去 Composer + Jobs，改为上方下拉 + 下方观看栏；StatusStrip 显示用户 prompt）
+-> web/src/pages/ChatPage.tsx（**新增**）
+-> web/src/App.tsx（PAGES 加 chat）
+-> web/src/components/layout/Sidebar.tsx（PageKey / ORDER 加 chat）
+-> web/src/components/charts/RankingChart.tsx（YAxis domain 加 padding）
+-> web/src/i18n/dict.ts（新增 chat.* 键；删 live.rankingPreviewBadge；新增 live.userPromptLabel）
+-> 004CHANGELOG.md [2026-07-15-2]
+
 <!--
 新增条目模板：
 

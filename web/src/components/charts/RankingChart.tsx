@@ -28,7 +28,7 @@ export function RankingChart({ seed }: Props) {
           />
           <YAxis
             reversed
-            domain={[1, 3]}
+            domain={[0.6, 3.4]}
             ticks={[1, 2, 3]}
             allowDecimals={false}
             stroke={color.axisLabel}

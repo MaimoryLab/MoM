@@ -1,30 +1,41 @@
-// Live Compare — viewer-only demo dashboard.
+// Chat — the compose surface for MoM.
 //
-// Post-ISS-036 the compose surface moved to ChatPage. This page is now a big
-// side-by-side viewer that shows one comparison at a time (from
-// LiveJobProvider state) plus a Rolling-Rank chart underneath. The audience
-// sees prompt + MoM answer + baseline answer + judge verdict + cost delta,
-// nothing to interact with except swapping which past run is being viewed.
+// Same LiveJobProvider Context as LivePage, but the layout puts Composer on
+// top with recent-runs dropdown next to it, then the comparison view below
+// (MoM vs Baseline + Judge/Cost). No ranking chart — that lives on Live Compare.
 
 import { useEffect, useState } from 'react';
 import { PageShell } from '../components/layout/PageShell';
-import { Card } from '../components/primitives/Card';
 import { Button } from '../components/primitives/Button';
-import { RankingChart } from '../components/charts/RankingChart';
 import { useI18n } from '../i18n/context';
 import { space } from '../theme';
 import { useLiveJob } from '../hooks/useLiveRun';
 import { navigateTo } from '../App';
-import { listComparisons, type ComparisonListItem } from '../lib/api';
 import {
-  BaselineColumn, CostCard, JudgeCard, MomColumn, RunSelect, StatusStrip,
+  getPresets, listComparisons,
+  type ComparisonListItem, type PresetEntry,
+} from '../lib/api';
+import {
+  BaselineColumn, Composer, CostCard, JudgeCard, MomColumn, RunSelect, StatusStrip,
 } from './live-shared';
 
-export function LivePage() {
+export function ChatPage() {
   const { t, lang } = useI18n();
+  const [prompt, setPrompt] = useState('');
+  const [baselineOn, setBaselineOn] = useState(true);
+  const [presets, setPresets] = useState<PresetEntry[]>([]);
+  const [presetsError, setPresetsError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ComparisonListItem[]>([]);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const live = useLiveJob();
+
+  useEffect(() => {
+    let cancelled = false;
+    getPresets()
+      .then((res) => { if (!cancelled) setPresets(res.presets); })
+      .catch((err) => { if (!cancelled) setPresetsError(err instanceof Error ? err.message : String(err)); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,15 +45,27 @@ export function LivePage() {
     return () => { cancelled = true; };
   }, [live.current?.gateway_request_id, live.current?.status]);
 
+  const busy = live.polling;
+
+  const submit = (text: string) => {
+    const p = text.trim();
+    if (!p || busy) return;
+    live.submit({ prompt: p, baseline_on: baselineOn, lang });
+  };
+  const onSubmit = () => submit(prompt);
+  const onPreset = (preset: PresetEntry) => {
+    const text = lang === 'zh' ? preset.zh : preset.en;
+    setPrompt(text);
+    submit(text);
+  };
+
   const current = live.current;
   const currentGw = current?.gateway_request_id ?? null;
 
   return (
     <PageShell
-      title={t.nav.live}
-      subtitle={lang === 'zh'
-        ? 'MoM 输出 vs Baseline 输出 · 展示模式（去"提问"页发送新问题）'
-        : 'MoM output vs Baseline output. Viewer-only — head to Chat to submit a new question.'}
+      title={t.chat.title}
+      subtitle={t.chat.subtitle}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: space.md }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: space.md, flexWrap: 'wrap' }}>
@@ -51,12 +74,22 @@ export function LivePage() {
             items={jobs}
             error={jobsError}
             onChange={(gw) => live.select(gw)}
-            label={t.live.recentRunsLabel}
-            placeholder={t.live.recentRunsPlaceholder}
-            emptyLabel={t.live.recentRunsEmpty}
-            onNew={{ label: t.chat.newRun, onClick: () => navigateTo('chat') }}
+            label={t.chat.historyLabel}
+            placeholder={t.chat.historyPlaceholder}
+            emptyLabel={t.chat.historyEmpty}
           />
         </div>
+        <Composer
+          prompt={prompt}
+          onPromptChange={setPrompt}
+          onSubmit={onSubmit}
+          baselineOn={baselineOn}
+          onBaselineToggle={setBaselineOn}
+          presets={presets}
+          presetsError={presetsError}
+          onPreset={onPreset}
+          busy={busy}
+        />
         <StatusStrip live={current} polling={live.polling} transportError={live.transportError} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: space.md }}>
           <MomColumn snap={current} />
@@ -73,9 +106,6 @@ export function LivePage() {
             </Button>
           </div>
         )}
-        <Card title={t.live.rankingTitle} subtitle={t.live.rankingSubtitle}>
-          <RankingChart seed={currentGw ?? 'preview'} />
-        </Card>
       </div>
     </PageShell>
   );
