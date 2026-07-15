@@ -31,6 +31,10 @@ async function main(): Promise<void> {
     benchmarksPath: BENCHMARKS_PATH,
   });
   app.log.info(`MoM gateway listening on ${PORT}`);
+  app.log.info(`Dashboard (built):    http://localhost:${PORT}/dashboard/`);
+  app.log.info(
+    `Dashboard (vite dev): http://localhost:5173/dashboard/  (requires \`npm run dev:web\`)`,
+  );
 }
 
 main().catch((err) => {

@@ -1,3 +1,32 @@
+## [2026-07-15-1] docs+chore(readme): 前端 Dashboard 启动流程重写 + `npm run dev:all` 一键启动前后端
+
+### 改动
+- **`README.md` / `README.en.md` 的「启动」章节重写为两条互斥路径 + Claude Code 侧 + Live Compare 开启说明**
+  - 方式 A（推荐日常开发）：`npm run dev:all` 同时起网关（3000）+ vite dev（5173），日志前缀 `gateway` / `web` 区分；额外说明 vite dev 端口冲突时会自动往后找、`/api` 与 `/v1` 已由 vite proxy 自动转发到 3000、`ANTHROPIC_BASE_URL` 永远只指向网关端口
+  - 方式 B（部署或看现状）：`npm run build:web` → `npm run dev`，`/dashboard/` 由 `@fastify/static` 托管 `web/dist`
+  - 新增 Live Compare 开启说明：`data/mom.config.json.comparison.enabled = true` + `baseline_model` = provider 侧真实模型名；建议把 baseline 模型同步进 `pricing_table` 否则 baseline 成本为 null；该开关只作用于 `/api/live/run`，不影响 Claude Code 主入口 `/v1/messages`；`POST /api/config` 走 orchestrator 热重建，不必重启
+- **`package.json` 新增两个便捷 scripts + `concurrently` devDependency**
+  - `dev:web` = `npm run dev --workspace=web`（只跑 vite dev）
+  - `dev:all` = `concurrently -n gateway,web -c cyan,magenta "npm:dev" "npm:dev:web"`（并行跑网关 + vite dev）
+  - 旧 `dev` 保留只跑网关，避免破坏既有习惯；`concurrently ^9.1.0` 加入 devDependencies
+- **`src/index.ts` 网关启动日志追加两条 dashboard URL**
+  - `Dashboard (built):    http://localhost:${PORT}/dashboard/`
+  - `Dashboard (vite dev): http://localhost:5173/dashboard/  (requires \`npm run dev:web\`)`
+  - 5173 只是提示；vite 实际端口以其自身启动输出为准（README 已同步说明）
+
+### 涉及文件
+- `README.md`：「启动」章节整段重写
+- `README.en.md`：同 `README.md`，英文对齐
+- `package.json`：`scripts` 增 `dev:web` / `dev:all`；`devDependencies` 增 `concurrently ^9.1.0`
+- `package-lock.json`：`npm install` 后同步 `concurrently` 及其依赖树
+- `src/index.ts`：启动后追加两条 dashboard URL log
+- `docs/004CHANGELOG.md`：新增本条 [2026-07-15-1]
+
+### 关联
+- 无新增 ISSUE（README 描述性更新 + 无破坏性脚本扩展，按用户约定不新开条目）
+
+---
+
 ## [2026-07-14-5] feat(web): Phase 7 Live Markdown + Pipeline 真时序回放 + Live→Pipeline 联动 + Ranking 伪随机占位 [ISS-034]
 
 ### 改动
