@@ -245,21 +245,57 @@ export interface ComparisonResponse {
   status: ComparisonStatus;
   started_at: number;
   updated_at: number;
+  /** Advisor slot ids frozen at submit time (mom.advisor.slots). Null on records written before ISS-035. */
+  advisors_snapshot: string[] | null;
+  /** Aggregator model frozen at submit time. Null on pre-ISS-035 records. */
+  aggregator_model: string | null;
+  /** Baseline model frozen at submit time — may be null when baseline was disabled. */
+  baseline_model_snapshot: string | null;
   mom: ComparisonMomSnapshot | null;
+  /** Populated only when MoM pipeline failed. */
+  mom_error: { message: string } | null;
   baseline: ComparisonBaselineSnapshot | null;
   baseline_error: { message: string } | null;
   judge: ComparisonJudgeSnapshot | null;
   judge_error: { message: string } | null;
 }
 
-// POST /api/live/run SSE event payload types (event name = `type` here)
-export type LiveRunEvent =
-  | { type: 'created'; gateway_request_id: string; session_id: string }
-  | { type: 'mom_delta'; text: string }
-  | { type: 'mom_done'; text_full: string; usage: ComparisonUsage; cost_usd: number | null; latency_ms: number }
-  | { type: 'mom_error'; message: string }
-  | { type: 'baseline_done'; model: string; text: string; usage: ComparisonUsage; cost_usd: number | null; latency_ms: number }
-  | { type: 'baseline_error'; message: string }
-  | { type: 'judge_done'; model: string; scores: { mom: JudgeScoresApi; baseline: JudgeScoresApi }; verdict_summary: string | null; fallback: boolean }
-  | { type: 'judge_error'; message: string }
-  | { type: 'end'; status: ComparisonStatus };
+/**
+ * POST /api/live/run — fires and returns 202. Actual work runs in the
+ * background; poll GET /api/comparison/:gateway_request_id for status.
+ * (Was an SSE stream before ISS-035.)
+ */
+export interface LiveRunSubmitResponse {
+  gateway_request_id: string;
+}
+
+/** GET /api/comparisons — recent comparison jobs, newest first. */
+export interface ComparisonListItem {
+  gateway_request_id: string;
+  lang: 'zh' | 'en';
+  prompt: string;
+  status: ComparisonStatus;
+  started_at: number;
+  updated_at: number;
+  aggregator_model: string | null;
+  baseline_model_snapshot: string | null;
+}
+
+export interface ComparisonListResponse {
+  items: ComparisonListItem[];
+  total: number;
+  limit: number;
+}
+
+// GET /api/presets — Live prompt shelf entries loaded from data/presets.json
+export interface PresetEntry {
+  id: string;
+  title_zh: string;
+  title_en: string;
+  zh: string;
+  en: string;
+}
+
+export interface PresetsResponse {
+  presets: PresetEntry[];
+}

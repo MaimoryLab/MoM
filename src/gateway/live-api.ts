@@ -1,13 +1,18 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
+  ComparisonListItem,
+  ComparisonListResponse,
   ComparisonResponse,
   LiveRunRequest,
+  LiveRunSubmitResponse,
 } from '../types/dashboard-api.js';
 import type { OrchestratorHolder } from '../orchestrator/orchestrator-holder.js';
-import { getComparisonById } from '../live/live-store.js';
-import { runLiveTurn } from '../live/live-runtime.js';
+import { getComparisonById, listRecentComparisons } from '../live/live-store.js';
+import { submitLiveTurn } from '../live/live-runtime.js';
 
 const MAX_PROMPT_LENGTH = 32_000;
+const COMPARISONS_DEFAULT_LIMIT = 20;
+const COMPARISONS_MAX_LIMIT = 100;
 
 export interface RegisterLiveAPIOptions {
   holder: OrchestratorHolder;
@@ -47,6 +52,8 @@ export function registerLiveAPI(
 ): void {
   const { holder } = options;
 
+  // POST /api/live/run — fires the job, returns 202 with gateway_request_id.
+  // Actual work continues in the background; poll GET /api/comparison/:gwId.
   app.post('/api/live/run', async (req: FastifyRequest, reply: FastifyReply) => {
     let body: LiveRunRequest;
     try {
@@ -60,35 +67,40 @@ export function registerLiveAPI(
       return;
     }
 
-    // We rely on OrchestratorHolder's runtime reference for pricing / provider /
-    // MoM config; hot reloads pick up on the next Live run.
     const runtime = holder.getRuntime();
+    const { gateway_request_id } = submitLiveTurn(body, {
+      runtime,
+      log: req.log,
+    });
 
-    reply.raw.setHeader('content-type', 'text/event-stream');
-    reply.raw.setHeader('cache-control', 'no-cache');
-    reply.raw.setHeader('connection', 'keep-alive');
-    reply.hijack();
+    const response: LiveRunSubmitResponse = { gateway_request_id };
+    reply.code(202).send(response);
+  });
 
-    try {
-      await runLiveTurn(body, {
-        runtime,
-        log: req.log,
-        output: reply.raw,
-      });
-    } catch (err) {
-      // runLiveTurn is designed to not throw, but guard anyway.
-      const message = err instanceof Error ? err.message : String(err);
-      req.log.error(
-        { event: 'live_run_uncaught', error: message },
-        'live run threw despite defensive handling',
-      );
-      if (!reply.raw.writableEnded) {
-        reply.raw.write(
-          `event: end\ndata: ${JSON.stringify({ status: 'error' })}\n\n`,
-        );
-        reply.raw.end();
-      }
-    }
+  // GET /api/comparisons?limit=20 — recent comparison jobs, newest first.
+  app.get('/api/comparisons', async (req: FastifyRequest, reply: FastifyReply) => {
+    const query = req.query as { limit?: string };
+    const parsed = query.limit ? Number.parseInt(query.limit, 10) : COMPARISONS_DEFAULT_LIMIT;
+    const limit = Number.isFinite(parsed) && parsed > 0
+      ? Math.min(parsed, COMPARISONS_MAX_LIMIT)
+      : COMPARISONS_DEFAULT_LIMIT;
+
+    const { items, total } = listRecentComparisons({ limit });
+    const payload: ComparisonListResponse = {
+      items: items.map((r): ComparisonListItem => ({
+        gateway_request_id: r.gateway_request_id,
+        lang: r.lang,
+        prompt: r.prompt_text,
+        status: r.status,
+        started_at: r.started_at,
+        updated_at: r.updated_at,
+        aggregator_model: r.aggregator_model,
+        baseline_model_snapshot: r.baseline_model_snapshot,
+      })),
+      total,
+      limit,
+    };
+    reply.send(payload);
   });
 
   app.get('/api/comparison/:gateway_request_id', async (
@@ -126,6 +138,9 @@ export function registerLiveAPI(
       status: record.status,
       started_at: record.started_at,
       updated_at: record.updated_at,
+      advisors_snapshot: record.advisors_snapshot,
+      aggregator_model: record.aggregator_model,
+      baseline_model_snapshot: record.baseline_model_snapshot,
       mom: record.mom
         ? {
             text: record.mom.text,
@@ -134,6 +149,7 @@ export function registerLiveAPI(
             latency_ms: record.mom.latency_ms,
           }
         : null,
+      mom_error: record.mom_error ? { message: record.mom_error.message } : null,
       baseline: record.baseline
         ? {
             model: record.baseline.model,

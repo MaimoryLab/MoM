@@ -265,7 +265,16 @@ function buildTurnData(gwId: string, traces: TraceRequestFull[]): TurnData {
 
   const nodes: ViewNode[] = [];
   const user = byId.get('user');
-  if (user) nodes.push({ id: 'user', role: 'user', startMs: user.startMs, endMs: user.endMs });
+  // ISS-035: expose the incoming user prompt text via the User node's preview.
+  // aggregator trace carries `last_user_text` — that's the same field so we read from it.
+  const lastUserText = aggregator.last_user_text ?? null;
+  if (user) nodes.push({
+    id: 'user',
+    role: 'user',
+    startMs: user.startMs,
+    endMs: user.endMs,
+    preview: lastUserText ?? undefined,
+  });
 
   advisors.forEach((a, i) => {
     const n = byId.get(`advisor${i}`);
@@ -328,8 +337,34 @@ function costOf(t: TraceRequestFull): number {
 }
 
 function previewOf(t: TraceRequestFull): string {
+  // ISS-035: prefer full response_text when present (advisor / aggregator /
+  // passthrough success). Fall back to old preview for legacy traces + errors.
+  if (t.response_text && t.response_text.length > 0) return t.response_text;
   if (t.response_summary?.stop_reason) return `stop_reason=${t.response_summary.stop_reason}`;
   return `${t.usage.output_tokens} tok · ${t.duration_ms}ms`;
+}
+
+function previewClip(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen) + '…';
+}
+
+function advisorFallbackSummary(
+  turn: TurnData,
+  aggregator: TraceRequestFull | null,
+): string {
+  // Old traces (before ISS-035) don't carry references_appended / last_user_text.
+  // Rebuild a best-effort synthetic view from what we do have: advisor previews
+  // (which now include full text on new traces via previewOf's response_text
+  // path) and aggregator request metadata.
+  const advisorTraces = turn.nodes.filter((n) => n.role === 'advisor');
+  const meta = aggregator
+    ? `[legacy trace — request_summary: message_count=${aggregator.request_summary.message_count} tool_use_count=${aggregator.request_summary.tool_use_count}]`
+    : '';
+  const refs = advisorTraces
+    .map((a) => `<ref slot="${a.slot ?? '?'}" model="${a.model ?? ''}">\n${a.preview ?? ''}\n</ref>`)
+    .join('\n');
+  return [meta, refs].filter(Boolean).join('\n\n');
 }
 
 function ProgressBar({ pct }: { pct: number }) {
@@ -545,7 +580,12 @@ function FanoutFlow({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: space.lg, padding: `${space.md} 0` }}>
       {userNode && (
-        <FlowNode status={statusOf(userNode.id)} label={t.pipeline.stage.user} tone="mom" />
+        <FlowNode
+          status={statusOf(userNode.id)}
+          label={t.pipeline.stage.user}
+          sub={userNode.preview ? previewClip(userNode.preview, 200) : undefined}
+          tone="mom"
+        />
       )}
       <FlowArrows fanOut />
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(advisors.length, 1)}, minmax(0, 1fr))`, gap: space.md }}>
@@ -611,12 +651,19 @@ function DiffModal({
   onClose: () => void;
 }) {
   const { t } = useI18n();
-  const advisorTraces = turn.nodes.filter((n) => n.role === 'advisor');
-  const aggregatorRaw = aggregatorNode.raw;
-  const beforeText = aggregatorRaw
-    ? JSON.stringify({ message_count: aggregatorRaw.request_summary.message_count, max_tokens: aggregatorRaw.request_summary.max_tokens, tool_use_count: aggregatorRaw.request_summary.tool_use_count }, null, 2)
-    : '—';
-  const afterText = advisorTraces.map((a) => `<ref id="${a.slot}" model="${a.model}">${a.preview ?? ''}</ref>`).join('\n');
+  const aggregatorRaw = aggregatorNode.raw ?? null;
+  // ISS-035: Diff reads real texts from the aggregator trace when available.
+  // "before" = the user's last message alone (what would have hit the aggregator
+  // without MoM). "after" = the same user message + the concat'd references
+  // that MoM actually appended.
+  const lastUser = aggregatorRaw?.last_user_text ?? '';
+  const refs = aggregatorRaw?.references_appended ?? '';
+  const beforeText = lastUser.length > 0
+    ? lastUser
+    : advisorFallbackSummary(turn, aggregatorRaw);
+  const afterText = refs.length > 0
+    ? lastUser + refs
+    : advisorFallbackSummary(turn, aggregatorRaw);
   return (
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(20, 26, 46, 0.32)',

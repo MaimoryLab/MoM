@@ -9,6 +9,7 @@ mom.db-shm
 mom.db-wal
 data/*
 !data/benchmarks.json
+!data/presets.json
 .DS_Store
 .env
 .env.local

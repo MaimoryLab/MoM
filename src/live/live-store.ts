@@ -5,6 +5,7 @@ import type {
   ComparisonBaselineRow,
   ComparisonJudgeErrorRow,
   ComparisonJudgeRow,
+  ComparisonMomErrorRow,
   ComparisonMomRow,
   ComparisonRecord,
   ComparisonStatus,
@@ -19,6 +20,11 @@ export interface CreateComparisonInput {
   session_id: string | null;
   lang: 'zh' | 'en';
   prompt_text: string;
+  /** Model ids frozen at submit time — surfaced to the Live UI regardless of whether the run has finished. */
+  advisors_snapshot: string[];
+  aggregator_model: string;
+  /** null when baseline is off for this run. */
+  baseline_model_snapshot: string | null;
 }
 
 export function createComparison(input: CreateComparisonInput): void {
@@ -26,8 +32,9 @@ export function createComparison(input: CreateComparisonInput): void {
   db().prepare(
     `INSERT INTO comparisons (
       gateway_request_id, session_id, lang, prompt_text,
-      started_at, updated_at, status
-    ) VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+      started_at, updated_at, status,
+      advisors_snapshot_json, aggregator_model, baseline_model_snapshot
+    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
   ).run(
     input.gateway_request_id,
     input.session_id,
@@ -35,6 +42,9 @@ export function createComparison(input: CreateComparisonInput): void {
     input.prompt_text,
     now,
     now,
+    JSON.stringify(input.advisors_snapshot),
+    input.aggregator_model,
+    input.baseline_model_snapshot,
   );
 }
 
@@ -57,6 +67,18 @@ export function updateComparisonMom(
     Date.now(),
     gwId,
   );
+}
+
+export function updateComparisonMomError(
+  gwId: string,
+  err: ComparisonMomErrorRow,
+  nextStatus: ComparisonStatus,
+): void {
+  db().prepare(
+    `UPDATE comparisons
+       SET mom_error_json = ?, status = ?, updated_at = ?
+     WHERE gateway_request_id = ?`,
+  ).run(JSON.stringify(err), nextStatus, Date.now(), gwId);
 }
 
 export function updateComparisonBaseline(
@@ -138,10 +160,14 @@ interface ComparisonRow {
   started_at: number;
   updated_at: number;
   status: string;
+  advisors_snapshot_json: string | null;
+  aggregator_model: string | null;
+  baseline_model_snapshot: string | null;
   mom_text: string | null;
   mom_finished_at: number | null;
   mom_usage_json: string | null;
   mom_cost_usd: number | null;
+  mom_error_json: string | null;
   baseline_model: string | null;
   baseline_text: string | null;
   baseline_finished_at: number | null;
@@ -157,6 +183,17 @@ interface ComparisonRow {
   judge_error_json: string | null;
 }
 
+function safeParseArray(raw: string | null): string[] | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function deserialize(row: ComparisonRow): ComparisonRecord {
   const momUsage = row.mom_usage_json ? JSON.parse(row.mom_usage_json) : null;
   const mom: ComparisonMomRow | null =
@@ -169,6 +206,10 @@ function deserialize(row: ComparisonRow): ComparisonRecord {
           latency_ms: row.mom_finished_at - row.started_at,
         }
       : null;
+
+  const mom_error: ComparisonMomErrorRow | null = row.mom_error_json
+    ? JSON.parse(row.mom_error_json)
+    : null;
 
   const baselineUsage = row.baseline_usage_json
     ? JSON.parse(row.baseline_usage_json)
@@ -222,7 +263,11 @@ function deserialize(row: ComparisonRow): ComparisonRecord {
     started_at: row.started_at,
     updated_at: row.updated_at,
     status: row.status as ComparisonStatus,
+    advisors_snapshot: safeParseArray(row.advisors_snapshot_json),
+    aggregator_model: row.aggregator_model,
+    baseline_model_snapshot: row.baseline_model_snapshot,
     mom,
+    mom_error,
     baseline,
     baseline_error,
     judge,
@@ -235,4 +280,27 @@ export function getComparisonById(gwId: string): ComparisonRecord | null {
     .prepare('SELECT * FROM comparisons WHERE gateway_request_id = ?')
     .get(gwId) as unknown as ComparisonRow | undefined;
   return row ? deserialize(row) : null;
+}
+
+export interface ListRecentComparisonsQuery {
+  limit: number;
+}
+
+export interface ListRecentComparisonsResult {
+  items: ComparisonRecord[];
+  total: number;
+}
+
+/** Recent comparison rows, newest-first; used by GET /api/comparisons. */
+export function listRecentComparisons(
+  q: ListRecentComparisonsQuery,
+): ListRecentComparisonsResult {
+  const limit = Math.min(Math.max(1, q.limit), 100);
+  const rows = db()
+    .prepare('SELECT * FROM comparisons ORDER BY started_at DESC LIMIT ?')
+    .all(limit) as unknown as ComparisonRow[];
+  const totalRow = db()
+    .prepare('SELECT COUNT(*) as c FROM comparisons')
+    .get() as unknown as { c: number };
+  return { items: rows.map(deserialize), total: totalRow.c };
 }

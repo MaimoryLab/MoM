@@ -25,6 +25,8 @@ MoM/
 │   │   ├── server.ts              # Fastify 实例、路由挂载、静态挂载 web/dist；startServer(port, runtime, { momConfigPath, benchmarksPath })；Phase 4 起挂载所有 /api/* 路由 + OrchestratorHolder
 │   │   ├── messages-handler.ts    # createMessagesHandler(holder) — 通过 holder.get() 拿最新 orchestrator，支持 POST /api/config 后 hot reload；从 X-Session-ID header 提取 sessionId；拆分 non-streaming / streaming；streaming 分支上提 SSE header + hijack + 兜底 error 帧
 │   │   ├── trace-api.ts           # 新增 — ISS-011；registerTraceAPI(app) 注册 GET /trace/requests?session_id=<uuid>（eval 视角批量查询）
+│   │   ├── live-api.ts            # 更新 — ISS-035；POST /api/live/run 改 202 + submitLiveTurn 后台跑；GET /api/comparisons 最近 20 job 列表；GET /api/comparison/:gwId 快照（含 3 快照模型 id + mom_error）
+│   │   ├── presets-api.ts         # 新增 — ISS-035；GET /api/presets 读 data/presets.json（缺失/非法 → 空数组）
 │   │   ├── validator.ts           # 请求体最小校验（model / messages / max_tokens）
 │   │   └── sse.ts                 # parseSSELine / formatSSEEvent + createSSEParser（Phase 3 起）增量分帧器
 │   ├── orchestrator/              # Phase 2 / Phase 3 / Phase 4
@@ -50,17 +52,15 @@ MoM/
 │   │   ├── traces-api.ts          # GET /api/traces（分页+过滤）/ /api/traces/:request_id / /api/traces/by-gateway/:gateway_request_id；TraceSummary 剥离 settings_snapshot
 │   │   ├── metrics-api.ts         # GET /api/metrics — computeMetrics 纯函数聚合 5 段（summary / per_turn / by_role / cache_hit_by_model / timeline）；实时 SQL 聚合
 │   │   ├── benchmarks-api.ts      # GET /api/benchmarks — 读 data/benchmarks.json，ENOENT 返 200 空态，malformed 返 500
-│   ├── gateway/live-api.ts        # 新增 — Phase 6（ISS-033）；registerLiveAPI(app, {holder}) 注册 POST /api/live/run（reply.hijack → SSE 8 事件流）+ GET /api/comparison/:gateway_request_id（快照）
 │   ├── judge/                        # 新增 — Phase 6（ISS-033）；判分子系统（当前只有 judge compare；aggregation_mode=judge 的结构化整合推 PLAN7）
 │   │   ├── judge-prompt.ts          # JUDGE_COMPARE_PROMPT_EN / _ZH（匿名 A/B、JSON-only、5 维定义）+ buildJudgeCompareUserMessage(拼 prompt + Response A + Response B)
 │   │   ├── judge-parse.ts           # parseJudgeCompare(raw) — 二阶段：strict JSON.parse → 失败退到正则抽首个 {...} 块；clamp 5 维分到 [0,100]；两条都挂返 null
 │   │   └── judge-runtime.ts         # runJudgeCompare({lang, prompt, momText, baselineText, judge, provider, rand?}) → JudgeCompareResult；始终不抛，error 归入返回值 error 字段
-│   ├── live/                         # 新增 — Phase 6（ISS-033）；Live Compare 编排 + comparisons 存储
-│   │   ├── live-types.ts            # ComparisonRecord / ComparisonMomRow / ComparisonBaselineRow / ComparisonJudgeRow / ComparisonStatus 结构定义
-│   │   ├── live-events.ts           # LiveEvent = LiveRunEvent 别名 + encodeLiveEvent / writeLiveEvent（SSE 编码，兼容已 end 输出）
-│   │   ├── live-store.ts            # comparisons 表 CRUD：createComparison / updateComparisonMom / updateComparisonBaseline(+Error) / updateComparisonJudge(+Error) / getComparisonById；deserialize 把 JSON blob 反塞回 ComparisonRecord
+│   ├── live/                         # 新增 — Phase 6（ISS-033）；Live Compare 编排 + comparisons 存储；ISS-035 起去 SSE 改异步 job
+│   │   ├── live-types.ts            # ComparisonRecord / ComparisonMomRow / ComparisonBaselineRow / ComparisonJudgeRow / ComparisonStatus；ISS-035 加 ComparisonMomErrorRow + 3 快照字段
+│   │   ├── live-store.ts            # comparisons 表 CRUD；ISS-035 起 createComparison 收 3 快照参数 + updateComparisonMomError + listRecentComparisons；deserialize 把 JSON blob 反塞回 ComparisonRecord
 │   │   ├── baseline.ts              # runBaselineCall(original, baselineModel, provider) → BaselineResult；单模型 non-streaming，不抛，error 归 result.error
-│   │   └── live-runtime.ts          # runLiveTurn(input, {runtime, log, output})：并发 MoM streaming（DevNullWritable + SSE 观察者收集 momText）+ baseline call；Promise.all 归拢后串行 runJudgeCompare；每阶段 writeLiveEvent + 更新 comparisons + 落 role='baseline'/'judge' TraceRequest
+│   │   └── live-runtime.ts          # ISS-035 重写：submitLiveTurn 同步 createComparison + 立即返回 gwId；runLiveTurn 后台并发跑 orchestrator.nonStreaming + baseline + judge，落 comparisons + 3 类 TraceRequest（含 response_text / last_user_text 文本字段）
 │   ├── provider/
 │   │   ├── anthropic-normalize.ts # 过滤不可安全回传的 unsigned thinking blocks；SSE content block index 连续重映射
 │   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders(provider)；响应 normalization
@@ -71,7 +71,7 @@ MoM/
 │   └── types/
 │       ├── anthropic.ts           # Anthropic Messages API 请求/响应/SSE 事件类型
 │       ├── mom.ts                 # ProviderConfig / MoMConfig / RuntimeConfig / TraceRequest（role Phase 6 起 union 加 'baseline' | 'judge'；TraceErrorType 加 baseline_error | judge_error） / TraceUsage / PricingSnapshot / TraceError / RequestSummary / ResponseSummary / AdvisorResult / AggregatorResult / JudgeScores / JudgeCompareResult（Phase 6） / JudgeResult（保留给 PLAN7 integration） / BaselineResult / TriggerReason / Logger + DEFAULT_MOM_CONFIG
-│       ├── dashboard-api.ts       # 新增 — Phase 4；ConfigResponse / SaveConfigRequest/Response / TraceSummary / TracesListQuery/Response / TraceByGatewayResponse / MetricsResponse / BenchmarksResponse / ApiErrorEnvelope；Phase 6 追加 LiveRunRequest / LiveRunEvent（8 事件 union）/ ComparisonResponse / ComparisonStatus / JudgeScoresApi / ComparisonMomSnapshot / ComparisonBaselineSnapshot / ComparisonJudgeSnapshot / ComparisonUsage
+│       ├── dashboard-api.ts       # 新增 — Phase 4；ConfigResponse / SaveConfigRequest/Response / TraceSummary / TracesListQuery/Response / TraceByGatewayResponse / MetricsResponse / BenchmarksResponse / ApiErrorEnvelope；Phase 6 追加 LiveRunRequest / ComparisonResponse / ComparisonStatus / JudgeScoresApi / ComparisonMomSnapshot / ComparisonBaselineSnapshot / ComparisonJudgeSnapshot / ComparisonUsage；ISS-035 追加 LiveRunSubmitResponse / ComparisonListItem / ComparisonListResponse / PresetEntry / PresetsResponse + ComparisonResponse 加 3 快照字段 + mom_error；删除 LiveRunEvent SSE union
 │       └── index.ts               # 汇出 anthropic.ts / mom.ts
 ├── test/                          # node --test --import tsx 执行
 │   ├── view-transformer.test.ts   # Phase 2；convertToAdvisorView / truncateToolResult 覆盖
@@ -104,12 +104,11 @@ MoM/
 │       │   ├── context.tsx        # I18nProvider + useI18n；语言持久化 localStorage
 │       │   └── format.ts          # 成本 / 延迟 / token 数按 locale 格式化
 │       ├── hooks/                 # 新增 — ISS-028
-│       │   ├── useTypewriter.ts   # Live 页 baseline 到达后视觉打字机 / Pipeline 假流式（Phase 5.0 起）
-│       │   ├── useLiveRun.ts      # 新增 — Phase 6（ISS-033）；驱动 /api/live/run 一次 turn，SSE async iterable + AbortController；返回 {status, momText, mom, baseline, judge, run, cancel, reset,...}
+│       │   ├── useLiveRun.ts      # 更新 — ISS-035；重写为 LiveJobProvider + useLiveJob(Context)：submitLiveRun 触发后 3s 轮询 getComparison(gwId)；state 提到 App 层，切页面不丢；useTypewriter 已删（不再需要打字机）
 │       │   └── useEventSource.ts  # 空壳，签名与未来 SSE 一致；未消费
 │       ├── pages/                 # 新增 — ISS-028；五页
 │       │   ├── OverviewPage.tsx   # Pareto 主图 + benchmark combo 副图 + 3 KPI（效果层）
-│       │   ├── LivePage.tsx       # 预置 prompt shelf（click 立即 Run）+ 独立 textarea + Baseline checkbox + Run/Cancel 主 CTA；Phase 6 起接 useLiveRun 真调 /api/live/run；Phase 7 起 MoM/Baseline 输出走 MarkdownBody + Judge/Cost 卡下方加"→ 查看请求流程"按钮 + RankingChart seed=gwId
+│       │   ├── LivePage.tsx       # 更新 — ISS-035；重构为双栏：左侧 Composer + Jobs 列表（GET /api/comparisons 每 3s 拉），右侧 Comparison Viewer（Status/MoM/Baseline/Judge/Cost/Ranking + 跳 Pipeline 按钮）；MomColumn/BaselineColumn subtitle 展示快照的 advisor/aggregator/baseline 模型 id；从 /api/presets 拉预设，缺失时隐藏 shelf
 │       │   ├── PipelinePage.tsx   # Phase 7 起大改：TurnSelect 拉 /api/traces?role=aggregator + URL ?turn=<gwId> 双入口；选中拉 /api/traces/by-gateway/:gwId；compressTimeline 反演相对时序（>5s 等比压缩）；FanoutFlow / PassthroughFlow 两种视图；DiffModal 从 aggregator trace 组装
 │       │   ├── CostPage.tsx       # 节省 banner + 4 KPI + 每轮堆叠柱 + 饼图 + cache 命中矩阵 + 累计时间线
 │       │   └── SettingsPage.tsx   # 语言 / Provider 只读 / Aggregator / Advisor slots / Judge / Comparison / Pricing
@@ -119,7 +118,6 @@ MoM/
 │       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029; Phase 7 起 prop 从 preset 改为 seed)
 │       ├── mock/                  # 新增 — ISS-028；Phase 5.0 伪数据（Phase 5.1 逐步替换为 lib/api.ts）
 │       │   ├── benchmarks.ts      # Pareto 6 点（MoM + 4 flagship + Aggregator-only）+ per-benchmark combo
-│       │   ├── live-samples.ts    # Phase 6 起精简为 5 个预置 prompt 中英文本（PRESET_ORDER + getPresetPrompt + PresetKey/JudgeScores 类型）；mock 回复 / advisor previews / judge 分全部退休
 │       │   ├── live-ranking.ts    # ISS-029 起；Phase 7 起改为 getRankingSeries(seed) 纯函数（mulberry32 + hashSeed + weightedPick 生成 10 turn；MoM rank 分布 70%/30% rank 1/2；其余两家均匀）
 │       │   ├── pipeline-trace.ts  # ISS-028 起；Phase 7 起数据源退休（PipelinePage 改走真 trace），保留 PipelineCopy 类型与 Diff modal fallback 字符串（Phase 8 可清）
 │       │   ├── cost.ts            # 32 turns session 成本 + cache 命中

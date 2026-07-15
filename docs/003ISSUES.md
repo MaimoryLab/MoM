@@ -1216,30 +1216,6 @@ Phase 5.0 交付了预览版 Dashboard 五页（Overview / Live / Pipeline / Cos
 -> docs/006API.md §1.5（已规划端点清单）
 
 
-<!--
-新增条目模板：
-
-## [ISS-NNN] 问题标题
-
-**状态**：[发现]
-**优先级**：[P2 一般]
-**类型**：[功能异常]
-**发现日期**：YYYY-MM-DD
-
-**现象**：
-客观描述，附可复现路径。
-
-**后果**：
-不处理会发生什么。
-
-**初步判断**：
-推测 或 已确认，附证据。
-
-**关联**：
--> src/xxx.ts:行号
--> decisions/NNN-xxx.md（如已拍板）
--->
-
 ---
 
 ## [ISS-033] Phase 6 Live 全链路 — 输入框 + 真实 MoM 流 + Baseline 并发 + Judge 打分
@@ -1333,3 +1309,112 @@ Phase 6 交付后 LivePage 已实时跑通 MoM + Baseline + Judge 三路，但�
 -> PLAN.md Phase 7 与 Phase 8 章节（本 issue 完成后 Phase 7 状态改为"已完成"）
 -> 004CHANGELOG.md 2026-07-14-3
 
+---
+
+## [ISS-035] Phase 7 收尾：Live 页异步化 + 请求流程展示真文本 + 模型名副标题 + 预设外置 + baseline 显式化
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-15
+**解决日期**：2026-07-15
+
+**现象**：
+Phase 6/7 交付 Live 页 SSE 实时流 + Pipeline 页真时序回放后，用户实测发现五类问题：
+
+1. **Live 页状态易失**：一次 MoM+Baseline+Judge Run 需要 100s 以上；用户切到其他页面再回来，`useLiveRun` hook 随 LivePage 组件卸载，SSE 流虽然仍在跑但 setState 目标丢失 → 中途 delta 丢失、无法回看当时问答。
+2. **Pipeline 流程图节点没有真实文本**：advisor 节点框只显 `stop_reason=end_turn`；aggregator 同样；Diff 弹窗读的是 `request_summary` 元数据 + advisor previews，看不到真正拼接后的 references 完整文本；User 节点无 last user 文本。根因：`TraceRequest.response_summary` 只存元数据，`AdvisorResult.reference` 与 `AggregatorResult.references_appended`（内存里的完整文本）未落 trace。
+3. **Live 页 Baseline 列副标题缺模型名**：`BaselineColumn` 副标题从 `baseline?.model` 读，未跑起来时（还没到 `baseline_done` 事件）显示 `—`；MoM 列副标题只有静态"3 advisors + aggregator"没有具体 slot 与 aggregator 名。
+4. **Baseline 未触发**：`data/mom.config.json` 里 `comparison.enabled=true / baseline_model="deepseek/deepseek-v4-flash"`，前端 baselineOn 默认 true，代码 gate（`live-runtime.ts:303` `input.baseline_on && baselineModel`）正确 —— 但用户观察到 baseline 未跑。定位结论：**代码路径无问题**，最可能是运行时错误（model id 在 provider 不存在 → baseline_error 事件被前端展示但被忽视）；本次修复通过 Q3 让模型名在"未跑 / error / 已完成"三种状态下都可见解决观感问题。
+5. **预设 prompt 硬编码**：`web/src/mock/live-samples.ts` 里写死 `PRESET_ORDER + getPresetPrompt`，用户想在展会现场根据行业调整预设需要重 build web。
+
+**后果**：
+1. Q1：展会现场无法切页面讲解，回来后需要重新 Run，节奏被打断
+2. Q2：Pipeline 页对观众失去"看内部流程"的说服力，Diff 弹窗形同虚设
+3. Q3+Q4：观众看不出这次实际用了哪些模型；baseline 静默失败无法被 Op 观察
+4. Q5：预设与代码耦合，不便于展会/客户 demo 定制
+
+**方案讨论**：（已收敛，与用户 6 轮对齐 —— 见对话记录）
+
+**Q1（Live 页状态易失）— 方案 A2：Live 全流程异步化，替代 SSE 实时流**
+- 后端 `POST /api/live/run` 改为立即返回 `202 {gateway_request_id}`，任务在后台 async 跑（`runLiveTurn` 保持原实现，只是不再往 output 写 SSE），最终结果写 `comparisons` 表
+- 后端新增 `GET /api/comparisons?limit=20` 返回最近 comparison job 列表（含 `status: running | done | error`）
+- 后端删除 SSE 相关代码：`src/live/live-events.ts` 整个文件；`live-runtime.ts` 里所有 `writeLiveEvent` 调用与 output 参数；`live-api.ts` 移除 SSE header + hijack + text/event-stream；`src/lib/api.ts` postLiveRun/parseSSEFrame 全删
+- 前端 `LivePage.tsx` 改为双栏：左侧 Composer + Job 列表（`GET /api/comparisons`），右侧 Comparison Viewer；`useLiveRun` 拆为 `submitLiveRun`（fire-and-forget POST，返 gwId） + `useComparisonPoll`（3s 轮询 `GET /api/comparison/:gwId` 直到 status=done|error）
+- 打字机动效彻底删除（`useTypewriter` 保留供 Pipeline 用）；MarkdownBody 保留渲染 static text
+
+**Q2（真实文本进流程图）— TraceRequest 加 3 可选字段**
+- `TraceRequest` 新增：`response_text: string | null` / `references_appended: string | null` / `last_user_text: string | null`
+- 单字段硬上限 32KB，超长截断加 `…[truncated]`
+- 落库路径：advisor（`response_text` = extractText 结果，`last_user_text` 只在 aggregator 层记不重复）；aggregator（`response_text` + `references_appended`）；passthrough（`response_text` + `last_user_text`）
+- 老 trace 缺字段前端 fallback 到旧 `previewOf`
+
+**Q3（模型名副标题）— comparison 快照 3 个模型名**
+- 因 Q1 改成异步流，`created` SSE 事件不再存在。改为：`comparisons` 表加 `advisors_snapshot: JSON` + `aggregator_model: string` + `baseline_model: string | null`，`createComparison` 时快照写入
+- `GET /api/comparison/:gwId` 返回这 3 字段
+- 前端 MomColumn subtitle 展示 `Advisors: A · B · C — Aggregator: X`；BaselineColumn subtitle 展示 `Baseline: Y`
+
+**Q5（预设外置）— data/presets.json + GET /api/presets**
+- 新增 `data/presets.json`（gitignore 白名单），结构 `{presets: [{id, zh, en}, ...]}`
+- 新增 `GET /api/presets` 端点（不需要 hot reload，每次请求读文件）
+- 前端 PromptShelf 从 API 拉；文件不存在返回空数组前端隐藏 shelf
+- 删除 `web/src/mock/live-samples.ts` 里 `PRESET_ORDER / getPresetPrompt / PresetKey`
+
+**Q6（Claude Code 请求也 fork baseline+judge）— 挂 future-plans/003**
+- 本次不实现；写入 `docs/future-plans/003-baseline-on-gateway-requests.md`
+- 方案 Y：只在 `trigger_reason === 'user_turn'`（真正触发 MoM fan-out 的轮次）fork baseline+judge，避免 tool 迭代中间轮的无意义对比
+- 新增 config 开关 `comparison.trigger_on_gateway_requests: boolean`（默认 false），防止意外开启导致成本翻倍
+
+**关联**：
+-> src/live/live-runtime.ts（`runLiveTurn` 去 SSE 化，返回 void，全部结果落 comparisons 表）
+-> src/live/live-store.ts（新增 `listRecentComparisons` / `updateComparisonStatus`；`createComparison` 加快照 3 字段）
+-> src/live/baseline.ts（不变）
+-> src/live/live-events.ts（**删除**）
+-> src/gateway/live-api.ts（POST /api/live/run 改 202；新增 GET /api/comparisons）
+-> src/gateway/presets-api.ts（**新增**）
+-> src/gateway/server.ts（注册 presets-api）
+-> src/storage/db.ts（comparisons 表加 3 快照列；traces 表加 3 文本列）
+-> src/storage/traces.ts（saveTraceRequest 落新字段）
+-> src/types/mom.ts（TraceRequest 加 3 字段；AdvisorResult 加 response_text）
+-> src/types/dashboard-api.ts（ComparisonResponse 加快照 3 字段；新增 PresetsResponse / ComparisonsListResponse；删 LiveRunEvent 系列）
+-> src/advisor/advisor-runtime.ts（response_text = extractText(response.content)）
+-> src/aggregator/aggregator-runtime.ts（response_text / references_appended 回传给 orchestrator）
+-> src/orchestrator/orchestrator.ts（三处 persist* 落新字段：advisor / aggregator / passthrough）
+-> web/src/lib/api.ts（删 postLiveRun/parseSSEFrame；加 submitLiveRun / listComparisons / getPresets）
+-> web/src/hooks/useLiveRun.ts（重写为 submitLiveRun + useComparisonPoll）
+-> web/src/hooks/useTypewriter.ts（保留供其他页用，Live 不再引用）
+-> web/src/pages/LivePage.tsx（大改：双栏 Composer+JobList / Viewer；模型名 subtitle；删打字机；MarkdownBody 直接渲染 static text）
+-> web/src/pages/PipelinePage.tsx（`previewOf` 优先读 `response_text`；User 节点显 `last_user_text`；Diff 弹窗读 `references_appended`）
+-> web/src/mock/live-samples.ts（**删除**，或缩减到只保留 zh/en 语言标记）
+-> web/src/i18n/dict.ts（加 jobList / jobStatus / advisors 字段等 keys）
+-> data/presets.json（**新增**，gitignore 白名单）
+-> .gitignore（加 `!data/presets.json`）
+-> docs/future-plans/003-baseline-on-gateway-requests.md（**新增**）
+-> docs/001ARCHITECTURE.md（§2 Live 流程从 SSE 改异步；§5 链路 I 更新）
+-> docs/002STRUCTURE.md（del live-events.ts；新增 presets-api.ts / presets.json）
+-> docs/006API.md（§1.1 增 /api/presets + /api/comparisons；§1.6 详细契约替换 SSE 描述为 202+轮询；§2.10 Live Runtime SDK 更新）
+-> 004CHANGELOG.md [2026-07-15-1]
+
+<!--
+新增条目模板：
+
+## [ISS-NNN] 问题标题
+
+**状态**：[发现]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：YYYY-MM-DD
+
+**现象**：
+客观描述，附可复现路径。
+
+**后果**：
+不处理会发生什么。
+
+**初步判断**：
+推测 或 已确认，附证据。
+
+**关联**：
+-> src/xxx.ts:行号
+-> decisions/NNN-xxx.md（如已拍板）
+-->

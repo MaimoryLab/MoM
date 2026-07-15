@@ -22,6 +22,7 @@ import type {
   TraceUsage,
   TriggerReason,
 } from '../types/mom.js';
+import { TRACE_TEXT_MAX_BYTES } from '../types/mom.js';
 import { passthroughCall, toTraceError } from '../provider/provider-client.js';
 import { passthroughStream } from '../provider/stream-forward.js';
 import { fanoutAdvisorsWithCache } from './fanout.js';
@@ -475,6 +476,9 @@ function persistAdvisorTraces(
       trigger_reason: triggerReason,
       cache_hit: r.cache_hit,
       settings_snapshot: structuredClone(mom),
+      response_text: truncateForTrace(r.reference),
+      references_appended: null,
+      last_user_text: null,
     };
     writeTrace(trace, log);
   }
@@ -528,6 +532,9 @@ function persistAggregatorTrace(
     trigger_reason: triggerReason,
     cache_hit: false,
     settings_snapshot: structuredClone(mom),
+    response_text: truncateForTrace(extractResponseText(result.response)),
+    references_appended: truncateForTrace(result.references_appended),
+    last_user_text: truncateForTrace(extractLastUserText(body)),
   };
   writeTrace(trace, log);
 }
@@ -576,6 +583,9 @@ function persistPassthroughTrace(input: PersistPassthroughInput): void {
     trigger_reason: 'mom_off',
     cache_hit: false,
     settings_snapshot: structuredClone(mom),
+    response_text: truncateForTrace(extractResponseText(response)),
+    references_appended: null,
+    last_user_text: truncateForTrace(extractLastUserText(body)),
   };
   writeTrace(trace, log);
 }
@@ -614,6 +624,60 @@ function countToolUseBlocks(messages: AnthropicMessage[]): number {
     }
   }
   return n;
+}
+
+/**
+ * Byte-safe truncation for TraceRequest text fields — clips at
+ * TRACE_TEXT_MAX_BYTES (UTF-8 byte length) with a `…[truncated]` marker.
+ * Never returns a string over the cap. Returns null for null / empty inputs
+ * so old traces stay null instead of empty-string.
+ */
+function truncateForTrace(text: string | null | undefined): string | null {
+  if (text === null || text === undefined) return null;
+  if (text.length === 0) return null;
+  const enc = new TextEncoder();
+  const bytes = enc.encode(text);
+  if (bytes.byteLength <= TRACE_TEXT_MAX_BYTES) return text;
+  const marker = '\n…[truncated]';
+  const markerLen = enc.encode(marker).byteLength;
+  const cap = TRACE_TEXT_MAX_BYTES - markerLen;
+  const dec = new TextDecoder('utf-8');
+  // `fatal: false, ignoreBOM: true` lets decoder repair a byte-mid-codepoint clip.
+  const clipped = dec.decode(bytes.slice(0, cap), { stream: false });
+  return clipped + marker;
+}
+
+/**
+ * Pull the plain-text content of the LAST `user` message on an incoming
+ * Anthropic request. Ignores tool_use/tool_result blocks; concatenates
+ * text blocks with newlines. Returns null when no user message exists.
+ */
+function extractLastUserText(body: AnthropicMessagesRequest): string | null {
+  for (let i = body.messages.length - 1; i >= 0; i--) {
+    const m = body.messages[i];
+    if (!m || m.role !== 'user') continue;
+    if (typeof m.content === 'string') return m.content;
+    const parts: string[] = [];
+    for (const b of m.content) {
+      if (b.type === 'text') parts.push(b.text);
+    }
+    return parts.join('\n');
+  }
+  return null;
+}
+
+/**
+ * Pull the plain-text content of an Anthropic response's content blocks —
+ * used to populate `TraceRequest.response_text` for aggregator / passthrough.
+ * (Advisor rows read from `AdvisorResult.reference` which is already extracted.)
+ */
+function extractResponseText(response: AnthropicMessagesResponse | null): string | null {
+  if (!response) return null;
+  const parts: string[] = [];
+  for (const b of response.content) {
+    if (b.type === 'text') parts.push(b.text);
+  }
+  return parts.join('');
 }
 
 // ---------------------- stream collector ----------------------

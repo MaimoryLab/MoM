@@ -11,6 +11,10 @@ export interface ComparisonMomRow {
   latency_ms: number;
 }
 
+export interface ComparisonMomErrorRow {
+  message: string;
+}
+
 export interface ComparisonBaselineRow {
   model: string;
   text: string;
@@ -45,7 +49,14 @@ export interface ComparisonRecord {
   started_at: number;
   updated_at: number;
   status: ComparisonStatus;
+  /** Advisor slot ids frozen at submit time. */
+  advisors_snapshot: string[] | null;
+  /** Aggregator model frozen at submit time. */
+  aggregator_model: string | null;
+  /** Baseline model frozen at submit time (may be null if baseline was off). */
+  baseline_model_snapshot: string | null;
   mom: ComparisonMomRow | null;
+  mom_error: ComparisonMomErrorRow | null;
   baseline: ComparisonBaselineRow | null;
   baseline_error: ComparisonBaselineErrorRow | null;
   judge: ComparisonJudgeRow | null;

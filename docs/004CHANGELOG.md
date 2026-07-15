@@ -1,3 +1,62 @@
+## [2026-07-15-1] feat(live): async job model + real texts on traces + prompt presets externalized [ISS-035]
+
+### 改动
+- **Live 页彻底异步化**（Q1）
+  - `POST /api/live/run` 从 SSE 长连接改为立即 202 返回 `{gateway_request_id}`；`runLiveTurn` 移到后台 `queueMicrotask` 执行；MoM 主链路改用 `orchestrator.nonStreaming`（前端不再需要 SSE delta）
+  - 新增 `GET /api/comparisons?limit=20` 列表端点 + `listRecentComparisons` store 方法；新增 `updateComparisonMomError` 用于 MoM 失败落库
+  - 前端删除 SSE 相关代码：`web/src/lib/api.ts` 删 `postLiveRun / parseSSEFrame / LiveRunEvent`，加 `submitLiveRun / listComparisons / getPresets / isTerminalStatus`
+  - `web/src/hooks/useLiveRun.ts` 完整重写为 `LiveJobProvider + useLiveJob`（React Context 提到 App 层）+ 3 秒轮询 `getComparison(gwId)`，切页面回来状态仍在；`web/src/App.tsx` 挂 `LiveJobProvider`
+  - `web/src/pages/LivePage.tsx` 重构双栏：左侧 Composer + Jobs 列表（可点历史 job 回看），右侧 Status/MoM/Baseline/Judge/Cost/Ranking；打字机效果全删（`useTypewriter` 无 caller 后删除）
+  - 后端 `src/live/live-events.ts` 整个文件删除
+- **TraceRequest 加 3 个可选文本字段**（Q2）
+  - `TraceRequest.response_text` / `references_appended` / `last_user_text`（`src/types/mom.ts`），单字段 32 KB 硬上限（`TRACE_TEXT_MAX_BYTES` 常量 + `truncateForTrace` 辅助函数，UTF-8 byte-safe clip + `…[truncated]` 后缀）
+  - orchestrator 三处 persist 落新字段：advisor 落 `response_text=r.reference`（含 cache_hit 因为文本仍在内存）；aggregator 落 `response_text=extractResponseText(response) + references_appended + last_user_text`；passthrough 落 `response_text + last_user_text`；live-runtime 的 baseline/judge writeTrace 也落 `response_text + last_user_text`
+  - PipelinePage `previewOf` 优先读 `response_text`，向下兼容老 trace；User 节点新加 sub 显示 `last_user_text`（前 200 字符 clip）；DiffModal `beforeText = last_user_text`，`afterText = last_user_text + references_appended`；老 trace 落回 `advisorFallbackSummary` 合成视图
+- **Comparison 快照 3 个模型名**（Q3）
+  - `comparisons` 表加 `advisors_snapshot_json` / `aggregator_model` / `baseline_model_snapshot` 三列（`ensureColumns` 迁移，老 DB 也不用删）
+  - `createComparison` 收 3 快照参数；`ComparisonRecord / ComparisonResponse / ComparisonListItem` 传出快照
+  - LivePage MomColumn subtitle 显示 `Advisors: A · B · C — Aggregator: X`；BaselineColumn subtitle 显示 `Baseline: Y`（未跑起来时也从 snapshot 展示）
+- **Baseline 未触发问题定位**（Q4）：代码 gate（`live-runtime.ts:303`）与 `mom.config.json` 均正确；结论为运行时错误（可能 model id 不在 provider 或 rate limit）未被 UI 显式化。Q3 让模型名与 baseline_error 消息在"未跑 / 跑失败 / 跑成功"三态下都可见，问题变得可观察
+- **预设 prompt 外置**（Q5）
+  - 新增 `data/presets.json`（gitignore 白名单 `!data/presets.json`）
+  - 新增 `src/gateway/presets-api.ts` — `GET /api/presets` 每次读文件（文件缺失 / 非法 JSON / shape 失败 → 200 空数组），带 `MAX_PRESETS=32 / MAX_TEXT_LEN=8000` 硬上限
+  - `src/index.ts` 加 `MOM_PRESETS_PATH` env（默认 `data/presets.json`）；`server.ts` 加 `CreateServerOptions.presetsPath` + 注册 `registerPresetsAPI`
+  - `PresetEntry` schema: `{id, title_zh, title_en, zh, en}`
+  - 前端 `getPresets` wrapper；LivePage Composer 从 API 拉预设，文件缺失时不渲染按钮组；删除 `web/src/mock/live-samples.ts`（原 `PRESET_ORDER / getPresetPrompt / PresetKey / JudgeScores` 全部退休；`JudgeRadar` 内联 `JudgeScoresShape` 类型解除对 mock 的依赖）
+- **Q6 挂 future-plans/003（Claude Code 请求也 fork baseline+judge）**
+  - `docs/future-plans/003-baseline-on-gateway-requests.md` 完整方案 Y 写入
+  - 引入 `comparison.trigger_on_gateway_requests: boolean`（默认 false）作为保护开关，避免意外触发 3× 成本翻倍
+- **文档同步**
+  - `docs/003ISSUES.md` 新增 ISS-035 [进行中]
+  - `docs/future-plans/README.md` 加 003 条目
+
+### 涉及文件
+- 后端新增：`src/gateway/presets-api.ts`
+- 后端修改：`src/storage/db.ts`（comparisons 加 4 列 + `ensureColumns` 迁移辅助） / `src/types/mom.ts`（+ 3 trace 字段 + `TRACE_TEXT_MAX_BYTES`） / `src/types/dashboard-api.ts`（+ Comparison 快照字段 + `LiveRunSubmitResponse / ComparisonListItem / ComparisonListResponse / PresetEntry / PresetsResponse`；删 `LiveRunEvent` SSE union） / `src/live/live-types.ts`（+ `ComparisonMomErrorRow` + 3 快照字段） / `src/live/live-store.ts`（重写 `createComparison` 收快照参数 + `updateComparisonMomError` + `listRecentComparisons`） / `src/live/live-runtime.ts`（重写为 `submitLiveTurn` + `runLiveTurn` background，去 SSE，`writeTrace` 落新文本字段） / `src/gateway/live-api.ts`（POST 202 + GET /api/comparisons + snapshot fields） / `src/gateway/server.ts`（挂 presets-api + `presetsPath` option） / `src/index.ts`（+ `MOM_PRESETS_PATH` env） / `src/orchestrator/orchestrator.ts`（+ `truncateForTrace / extractLastUserText / extractResponseText`，3 处 persist 落新字段）
+- 后端删除：`src/live/live-events.ts`
+- 前端修改：`web/src/lib/api.ts`（+ 异步 client + `TraceRequestFull` 3 可选字段） / `web/src/hooks/useLiveRun.ts`（改 `LiveJobProvider + useLiveJob` Context） / `web/src/App.tsx`（挂 Provider） / `web/src/pages/LivePage.tsx`（重写双栏） / `web/src/pages/PipelinePage.tsx`（`previewOf` 优先真文本 + `advisorFallbackSummary` 兜底 + User 节点显 `last_user_text` + DiffModal 用真文本） / `web/src/components/charts/JudgeRadar.tsx`（内联 `JudgeScoresShape`） / `web/src/i18n/dict.ts`（en/zh 各加 15 个新 key：`jobsTitle / jobsHint / jobsEmpty / submit / submitPending / submittedHint / momModels / aggregatorModel / baselineModel / statusPending / statusMomDone / statusBaselineDone / statusJudgeDone / statusError / statusRunning / momErrorLabel / transportErrorLabel / emptyResult / unknownModel`）
+- 前端删除：`web/src/hooks/useTypewriter.ts` / `web/src/mock/live-samples.ts`
+- 数据：`data/presets.json`（新增，5 个预置）；`.gitignore`（+ `!data/presets.json`）
+- 文档：`docs/003ISSUES.md`（+ ISS-035）；`docs/future-plans/003-baseline-on-gateway-requests.md`（新增）；`docs/future-plans/README.md`（+ 003 行）；`docs/001ARCHITECTURE.md`（链路 I：Live 从 SSE 改异步 + `/api/comparisons` 端点）；`docs/002STRUCTURE.md`（+ presets-api / presets.json；− live-events / useTypewriter / live-samples）；`docs/006API.md`（§1.1 加 `/api/presets` + `/api/comparisons` + 更新 `/api/live/run` 契约为 202；§1.7 详细契约替换 SSE 描述；§4 类型清单更新）；`PLAN.md` Phase 6 状态从 🚧 更新为 ✅
+
+### 自检
+- `npm run typecheck`：exit 0
+- `npm run build`：exit 0
+- `npm run build:web`：exit 0（vite 产物 829 KB / gzip 235 KB）
+- `npm test`：193 tests / pass 186 / fail 7 —— 7 项失败在 Phase 7 tip 就已存在（`orchestrator-cost.test.ts` / `orchestrator-cost-edge.test.ts` 里读 `t.cost_usd` 期望 0 但字段已在 ISS-010 删除），本次改动无关，已用 `git stash + npm test` 在 base 上验证同数
+
+### 待人工验证
+- Baseline 未跑的根因：需要 reviewer 在真 provider 上跑一次 Live，若 Baseline 仍 skip，看浏览器 DevTools `GET /api/comparison/:gwId` 响应里 `baseline_error.message`（Q3 让此消息在 UI 上显式化）
+- 后台异步 Live turn 落库：跑一次 → 立即刷新页面，`GET /api/comparisons` 看到 `status=pending` 的一条 → 100 秒后再看，应有 `status=judge_done` 与完整 mom/baseline/judge 快照
+- Comparison 表已有数据的迁移：`ensureColumns` 会给旧 DB 加 4 列，旧 comparison 行的新字段为 null，前端 fallback 显示 `unknown`
+- Pipeline 页新的 Diff 弹窗：新 turn 应显示真实 last_user_text / references_appended；老 turn 走 `advisorFallbackSummary` 显示 `[legacy trace — ...]` 前缀
+
+### 关联
+-> ISS-035
+-> future-plans/003-baseline-on-gateway-requests.md
+
+---
+
 ## [2026-07-14-5] feat(web): Phase 7 Live Markdown + Pipeline 真时序回放 + Live→Pipeline 联动 + Ranking 伪随机占位 [ISS-034]
 
 ### 改动
