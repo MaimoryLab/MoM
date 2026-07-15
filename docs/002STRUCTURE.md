@@ -119,7 +119,7 @@ MoM/
 │       │   ├── primitives/        # Card / KpiCard / Badge / Button / MarkdownBody (Phase 7 起，react-markdown + remark-gfm 封装；ISS-036 加 flush prop 用于嵌入已有容器不双滚动)
 │       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029; Phase 7 起 prop 从 preset 改为 seed；ISS-036 起 YAxis domain 加对称 padding [0.6, 3.4] 避免 rank 3 贴 X 轴)
 │       ├── mock/                  # 新增 — ISS-028；Phase 5.0 伪数据（Phase 5.1 逐步替换为 lib/api.ts）
-│       │   ├── benchmarks.ts      # Pareto 6 点（MoM + 4 flagship + Aggregator-only）+ per-benchmark combo
+│       │   ├── benchmarks.ts      # Pareto 6 点（MoM + 4 flagship + Aggregator-only）+ per-benchmark combo；ISS-038 起 ParetoPoint.cost 换成 costCny (¥/次问答)
 │       │   ├── live-ranking.ts    # ISS-029 起；Phase 7 起改为 getRankingSeries(seed) 纯函数（mulberry32 + hashSeed + weightedPick 生成 10 turn；MoM rank 分布 70%/30% rank 1/2；其余两家均匀）
 │       │   ├── pipeline-trace.ts  # ISS-028 起；Phase 7 起数据源退休（PipelinePage 改走真 trace），保留 PipelineCopy 类型与 Diff modal fallback 字符串（Phase 8 可清）
 │       │   ├── cost.ts            # 32 turns session 成本 + cache 命中

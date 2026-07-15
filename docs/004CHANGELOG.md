@@ -1,3 +1,23 @@
+## [2026-07-15-4] refactor(web): switch Pareto x-axis to total CNY per Q&A [ISS-038]
+
+### 改动
+- `web/src/mock/benchmarks.ts`：`ParetoPoint.cost` (`$/1M output token`) 换成 `costCny` (`¥/次问答`)；paretoData 六个点重算并保 MoM 落在前沿上（mom ¥0.020 < gpt5 ¥0.043 < fable5 ¥0.063；haiku45 ¥0.008 / aggOnly ¥0.011 / sonnet46 ¥0.030）；paretoFrontier 五点同步换字段名 + 排序值
+- `web/src/components/charts/ParetoChart.tsx`：XAxis `dataKey="costCny"`、`domain={[0, 0.08]}`、`ticks=[0, 0.02, 0.04, 0.06, 0.08]`、新增 `tickFormatter=(v) => ¥{v.toFixed(3)}`；ParetoTooltip 类型 payload.cost -> payload.costCny，文案 `cost $x.xx/1M` -> `cost ¥x.xxx/次`
+- `web/src/i18n/dict.ts`：中文 `overview.paretoAxisX` 改为「总成本（¥ / 次问答）」；英文改为 `Total cost (CNY per Q&A)`
+- `docs/002STRUCTURE.md`：`benchmarks.ts` 那一行补注 ISS-038 起字段名换成 costCny
+- **口径说明**：mock 数字按「500 输入 + 500 输出 token · 汇率 1 USD ≈ 7.2 CNY」估算，落一位到¥0.001；等 config 里填真值后可整体替换，图表阈值 domain/ticks 需同步
+
+### 涉及文件
+- web/src/mock/benchmarks.ts：ParetoPoint / paretoData / paretoFrontier 三处 cost -> costCny
+- web/src/components/charts/ParetoChart.tsx：XAxis 配置 + Tooltip 类型 + 文案
+- web/src/i18n/dict.ts：overview.paretoAxisX 中英
+- docs/002STRUCTURE.md：benchmarks.ts 一行补注
+
+### 关联
+-> ISS-038
+
+---
+
 ## [2026-07-15-3] refactor(web): trim chat page to prompt + MoM reply bubbles [ISS-037]
 
 ### 改动

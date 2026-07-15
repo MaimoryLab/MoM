@@ -7,28 +7,34 @@
 export type ParetoPoint = {
   id: string;
   labelKey: 'momComposite' | 'aggregatorOnly' | 'flagship' | 'gpt5' | 'sonnet46' | 'haiku45';
-  score: number;   // avg benchmark score 0..100
-  cost: number;    // $ / 1M output token
+  score: number;    // avg benchmark score 0..100
+  costCny: number;  // 单次典型问答的总成本(¥) — 见文件顶部口径注释
   isMoM?: boolean;
 };
 
+// Pareto data — placeholder, real numbers will be filled in from a config
+// once benchmarks are actually run. Order-of-magnitude picked so:
+//   - MoM sits on the frontier (higher score than Aggregator-only, lower cost
+//     than Fable5 / GPT-5 / Sonnet 4.6).
+//   - Haiku 4.5 and Aggregator-only anchor the low-cost/low-score end.
+// Costs are ¥/次问答 (per one typical Q&A round).
 export const paretoData: ParetoPoint[] = [
-  { id: 'mom',        labelKey: 'momComposite',    score: 82.4, cost: 5.6,  isMoM: true },
-  { id: 'aggOnly',    labelKey: 'aggregatorOnly',  score: 71.1, cost: 3.0  },
-  { id: 'fable5',     labelKey: 'flagship',        score: 85.5, cost: 17.5 },
-  { id: 'gpt5',       labelKey: 'gpt5',            score: 83.9, cost: 12.0 },
-  { id: 'sonnet46',   labelKey: 'sonnet46',        score: 78.2, cost: 8.4  },
-  { id: 'haiku45',    labelKey: 'haiku45',         score: 68.7, cost: 2.2  },
+  { id: 'mom',        labelKey: 'momComposite',    score: 82.4, costCny: 0.020, isMoM: true },
+  { id: 'aggOnly',    labelKey: 'aggregatorOnly',  score: 71.1, costCny: 0.011 },
+  { id: 'fable5',     labelKey: 'flagship',        score: 85.5, costCny: 0.063 },
+  { id: 'gpt5',       labelKey: 'gpt5',            score: 83.9, costCny: 0.043 },
+  { id: 'sonnet46',   labelKey: 'sonnet46',        score: 78.2, costCny: 0.030 },
+  { id: 'haiku45',    labelKey: 'haiku45',         score: 68.7, costCny: 0.008 },
 ];
 
 // Pareto frontier polyline (drawn behind points).
 // Sorted by cost asc, only points that are non-dominated.
-export const paretoFrontier: Array<{ score: number; cost: number }> = [
-  { cost: 2.2,  score: 68.7 },  // haiku45
-  { cost: 3.0,  score: 71.1 },  // aggOnly
-  { cost: 5.6,  score: 82.4 },  // MoM
-  { cost: 12.0, score: 83.9 },  // GPT-5
-  { cost: 17.5, score: 85.5 },  // Fable5
+export const paretoFrontier: Array<{ score: number; costCny: number }> = [
+  { costCny: 0.008, score: 68.7 },  // haiku45
+  { costCny: 0.011, score: 71.1 },  // aggOnly
+  { costCny: 0.020, score: 82.4 },  // MoM
+  { costCny: 0.043, score: 83.9 },  // GPT-5
+  { costCny: 0.063, score: 85.5 },  // Fable5
 ];
 
 export type BenchRow = {

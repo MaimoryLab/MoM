@@ -24,9 +24,10 @@ export function ParetoChart() {
           <CartesianGrid stroke={color.gridLine} strokeDasharray="2 4" />
           <XAxis
             type="number"
-            dataKey="cost"
-            domain={[0, 20]}
-            ticks={[0, 5, 10, 15, 20]}
+            dataKey="costCny"
+            domain={[0, 0.08]}
+            ticks={[0, 0.02, 0.04, 0.06, 0.08]}
+            tickFormatter={(v: number) => `¥${v.toFixed(3)}`}
             stroke={color.axisLabel}
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
             label={{ value: t.overview.paretoAxisX, position: 'insideBottom', fill: color.textSecondary, fontSize: font.size.xs, offset: -8 }}
@@ -66,7 +67,7 @@ export function ParetoChart() {
   );
 }
 
-function ParetoTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { label?: string; cost: number; score: number } }> }) {
+function ParetoTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { label?: string; costCny: number; score: number } }> }) {
   if (!active || !payload || payload.length === 0) return null;
   const d = payload[0].payload;
   if (d.label == null) return null; // frontier polyline
@@ -81,7 +82,7 @@ function ParetoTooltip({ active, payload }: { active?: boolean; payload?: Array<
       color: color.textPrimary,
     }}>
       <div style={{ fontWeight: font.weight.semibold, marginBottom: 3 }}>{d.label}</div>
-      <div style={{ color: color.textSecondary }}>score {d.score.toFixed(1)} · cost ${d.cost.toFixed(2)}/1M</div>
+      <div style={{ color: color.textSecondary }}>score {d.score.toFixed(1)} · cost ¥{d.costCny.toFixed(3)}/次</div>
     </div>
   );
 }

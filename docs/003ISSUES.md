@@ -1482,6 +1482,32 @@ Chat 页与 Live 页信息冗余;展会现场用户在 Chat 页得到"和 Live �
 -> web/src/i18n/dict.ts（chat.subtitle 改述"想看 baseline/judge/cost 请去 Live";新增 chat.userLabel / chat.momLabel / chat.pending / chat.empty 中英）
 -> 004CHANGELOG.md [2026-07-15-3]
 
+---
+
+## [ISS-038] Overview 的 Pareto 图横轴应展示总成本而非 $/1M token
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-15
+**解决日期**：2026-07-15
+**解决方案**：`ParetoPoint.cost` 换成 `costCny`(¥/次问答);ParetoChart 的 XAxis dataKey / domain / ticks 全换,tickFormatter 输出 `¥0.020` 这类三位小数格式;Tooltip 的 "cost $x.xx/1M" 换成 "cost ¥x.xxx/次"。i18n `paretoAxisX` 中英同步。真值稍后从 config 填,当前 mock 保持 MoM 落在前沿上(高分低价)。
+
+**现象**：
+Overview 页 Cost×效果 图横轴是 `Cost ($ / 1M output token)`——单价维度。展会观众对"单价 $/1M"没直觉,不知道 5.6 vs 17.5 是啥概念;而对"一次问答花多少钱"有直觉。
+
+**后果**：
+展会看图的人得脑补"× 一次问答的 token 量"才能理解落差,叙事效率低。
+
+**初步判断**：
+已确认。用户明确要求把横轴改为「总成本(¥)」,mock 数字以"单次问答"为口径,真数值等 config 填。
+
+**关联**：
+-> web/src/mock/benchmarks.ts（ParetoPoint.cost -> costCny;paretoData / paretoFrontier 数值按 ¥/次问答 重排）
+-> web/src/components/charts/ParetoChart.tsx（XAxis dataKey/domain/ticks/tickFormatter;ParetoTooltip 文案）
+-> web/src/i18n/dict.ts（overview.paretoAxisX 中英）
+-> 004CHANGELOG.md [2026-07-15-4]
+
 <!--
 新增条目模板：
 
