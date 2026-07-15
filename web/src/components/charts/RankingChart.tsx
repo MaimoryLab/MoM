@@ -1,19 +1,19 @@
+import { useMemo } from 'react';
 import {
   CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { getRankingSeries, type RankRow } from '../../mock/live-ranking';
-import type { PresetKey } from '../../mock/live-samples';
 import { color, font, shadow } from '../../theme';
 import { useI18n } from '../../i18n/context';
 
 type Props = {
-  preset: PresetKey;
+  seed: string;
 };
 
-export function RankingChart({ preset }: Props) {
+export function RankingChart({ seed }: Props) {
   const { t, lang } = useI18n();
-  const data = getRankingSeries(preset);
+  const data = useMemo(() => getRankingSeries(seed), [seed]);
   return (
     <div style={{ width: '100%', height: 380 }}>
       <ResponsiveContainer>

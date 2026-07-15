@@ -3,6 +3,7 @@ import type { RuntimeConfig } from '../types/mom.js';
 
 export interface OrchestratorHolder {
   get(): Orchestrator;
+  getRuntime(): RuntimeConfig;
   rebuild(): void;
 }
 
@@ -16,6 +17,9 @@ export function createOrchestratorHolder(
   return {
     get() {
       return current;
+    },
+    getRuntime() {
+      return runtime;
     },
     rebuild() {
       current = createOrchestrator(runtime);

@@ -8,7 +8,7 @@ import { registerConfigAPI } from '../dashboard-api/config-api.js';
 import { registerTracesAPI } from '../dashboard-api/traces-api.js';
 import { registerMetricsAPI } from '../dashboard-api/metrics-api.js';
 import { registerBenchmarksAPI } from '../dashboard-api/benchmarks-api.js';
-import { registerComparisonAPI } from '../dashboard-api/comparison-api.js';
+import { registerLiveAPI } from './live-api.js';
 import { createOrchestratorHolder } from '../orchestrator/orchestrator-holder.js';
 import type { RuntimeConfig } from '../types/mom.js';
 
@@ -41,7 +41,7 @@ export function createServer(
   registerTracesAPI(app);
   registerMetricsAPI(app);
   registerBenchmarksAPI(app, { benchmarksPath: options.benchmarksPath });
-  registerComparisonAPI(app);
+  registerLiveAPI(app, { holder });
 
   const webDist = resolve(process.cwd(), 'web/dist');
   if (existsSync(webDist)) {

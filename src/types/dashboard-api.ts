@@ -182,3 +182,84 @@ export interface ApiErrorEnvelope {
     message: string;
   };
 }
+
+// ---------------- POST /api/live/run — Phase 6 ----------------
+
+export interface LiveRunRequest {
+  prompt: string;
+  baseline_on: boolean;
+  lang: 'zh' | 'en';
+}
+
+/** 5-dim rubric shared with `src/types/mom.ts:JudgeScores`. */
+export interface JudgeScoresApi {
+  correctness: number;
+  completeness: number;
+  depth: number;
+  clarity: number;
+  usefulness: number;
+}
+
+export interface ComparisonUsage {
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  output_tokens: number;
+}
+
+export interface ComparisonMomSnapshot {
+  text: string;
+  usage: ComparisonUsage;
+  cost_usd: number | null;
+  latency_ms: number;
+}
+
+export interface ComparisonBaselineSnapshot {
+  model: string;
+  text: string;
+  usage: ComparisonUsage;
+  cost_usd: number | null;
+  latency_ms: number;
+}
+
+export interface ComparisonJudgeSnapshot {
+  model: string;
+  scores: { mom: JudgeScoresApi; baseline: JudgeScoresApi };
+  verdict_summary: string | null;
+  fallback: boolean;
+}
+
+export type ComparisonStatus =
+  | 'pending'
+  | 'mom_done'
+  | 'baseline_done'
+  | 'judge_done'
+  | 'error';
+
+/** GET /api/comparison/:gateway_request_id — one-shot snapshot. */
+export interface ComparisonResponse {
+  gateway_request_id: string;
+  session_id: string | null;
+  lang: 'zh' | 'en';
+  prompt: string;
+  status: ComparisonStatus;
+  started_at: number;
+  updated_at: number;
+  mom: ComparisonMomSnapshot | null;
+  baseline: ComparisonBaselineSnapshot | null;
+  baseline_error: { message: string } | null;
+  judge: ComparisonJudgeSnapshot | null;
+  judge_error: { message: string } | null;
+}
+
+// POST /api/live/run SSE event payload types (event name = `type` here)
+export type LiveRunEvent =
+  | { type: 'created'; gateway_request_id: string; session_id: string }
+  | { type: 'mom_delta'; text: string }
+  | { type: 'mom_done'; text_full: string; usage: ComparisonUsage; cost_usd: number | null; latency_ms: number }
+  | { type: 'mom_error'; message: string }
+  | { type: 'baseline_done'; model: string; text: string; usage: ComparisonUsage; cost_usd: number | null; latency_ms: number }
+  | { type: 'baseline_error'; message: string }
+  | { type: 'judge_done'; model: string; scores: { mom: JudgeScoresApi; baseline: JudgeScoresApi }; verdict_summary: string | null; fallback: boolean }
+  | { type: 'judge_error'; message: string }
+  | { type: 'end'; status: ComparisonStatus };

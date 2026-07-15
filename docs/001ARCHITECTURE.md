@@ -38,17 +38,20 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协�
 ```
 ┌────────────────────────────────────────────────┐
 │  Gateway 层（Fastify 路由 / 请求校验 / SSE header + hijack） │
-│  src/gateway/* + src/dashboard-api/*（Phase 4）                       │
-│    — /v1/messages → messages-handler → OrchestratorHolder             │
-│    — /trace/*     → registerTraceAPI（ISS-011）                        │
-│    — /api/*       → Config/Traces/Metrics/Benchmarks/Comparison-API   │
+│  src/gateway/* + src/dashboard-api/*（Phase 4）+ src/gateway/live-api.ts（Phase 6） │
+│    — /v1/messages          → messages-handler → OrchestratorHolder                 │
+│    — /trace/*              → registerTraceAPI（ISS-011）                            │
+│    — /api/config|traces|metrics|benchmarks → Phase 4 dashboard-api                  │
+│    — /api/live/run         → live-api → live-runtime（Phase 6）                     │
+│    — /api/comparison/:gwId → live-api → live-store（Phase 6）                       │
 └────────────────────────────────────────────────┘
                     ↓
 ┌────────────────────────────────────────────────┐
 │  Orchestrator 层（主调度 / trigger / fanout / cache / references / cost / trace） │
 │  src/orchestrator/*  src/advisor/*  src/aggregator/*  src/cache/*  src/cost/* │
+│  Phase 6 追加：src/live/*（Live 编排 / comparisons 存储）+ src/judge/*（judge compare 引擎）│
 │    — 只依赖 RuntimeConfig + Logger 接口，不直连 Fastify / SQLite 前端 / config.json │
-│    — OrchestratorHolder（Phase 4）持有 runtime 引用，POST /api/config 后 rebuild │
+│    — OrchestratorHolder（Phase 4）持有 runtime 引用，POST /api/config 后 rebuild；Phase 6 起 getRuntime() 暴露给 live-runtime │
 └────────────────────────────────────────────────┘
                     ↓
 ┌────────────────────────────────────────────────┐
@@ -91,6 +94,7 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协�
 | L2 业务配置（MoMConfig 全字段） | `data/mom.config.json` | `loadMoMConfig()` / `saveMoMConfig()` 原子读写；首次启动写入 `DEFAULT_MOM_CONFIG` |
 | L3 请求 trace | SQLite `traces` 表（Phase 3 开始写入） | Phase 1 表已建、未落盘 |
 | L3 Metrics 缓存 | SQLite `metrics_cache` 表 | Phase 4 使用 |
+| L3 Live 对比 | SQLite `comparisons` 表（Phase 6） | 一行一 turn，PK = gateway_request_id；mom_text / baseline_text / judge JSON 存于此，元数据仍走 `traces` 表 |
 | 网关运行时状态 | 无 | Fastify 无状态，重启不丢失业务数据 |
 
 ---
@@ -220,7 +224,30 @@ GET /api/traces/:request_id             → getTraceRequestById → TraceRequest
 GET /api/traces/by-gateway/:gid         → SELECT ... WHERE gateway_request_id = ? ORDER BY started_at ASC
 GET /api/metrics?window&limit            → computeMetrics 纯函数：SELECT * FROM traces （窗口过滤）→ 内存分组 + calculateCostFromSnapshot → 5 段响应
 GET /api/benchmarks                     → readFileSync data/benchmarks.json → normalizeBenchmarks；ENOENT 200 + 全空
-GET /api/comparison/:trace_id           → 501 not_implemented（Phase 6 占位）
+```
+
+**链路 I：Live Compare 一次 Run（Phase 6 起，专用入口 / 单条 SSE）**
+```
+Live 页 POST /api/live/run { prompt, baseline_on, lang }
+  → registerLiveAPI 校验 body → reply.hijack + text/event-stream
+  → runLiveTurn(input, { runtime, log, output })
+       ├─ createComparison(gwId, sid) → INSERT INTO comparisons (status='pending')
+       ├─ writeLiveEvent(output, 'created', { gwId, sid })
+       ├─ 并发:
+       │   ├─ orchestrator.streaming(anthropicReq, sid, sink, log)
+       │   │    ⇢ MoM 主链路（fanout advisor → aggregator SSE），N+1 TraceRequest 落库
+       │   │    ⇢ 观察者收集 momText + 广播 mom_delta / mom_done
+       │   └─ runBaselineCall(anthropicReq, baseline_model, provider)
+       │        ⇢ 单模型 non-streaming，落 role='baseline' TraceRequest
+       │        ⇢ 广播 baseline_done / baseline_error
+       ├─ Promise.all([mom, baseline]) 归拢
+       ├─ runJudgeCompare({ momText, baselineText, lang, judge, provider })
+       │    ⇢ 匿名 A/B + temperature=0 + JSON-only + safeJsonParse
+       │    ⇢ 落 role='judge' TraceRequest
+       │    ⇢ 广播 judge_done / judge_error
+       └─ writeLiveEvent(output, 'end', { status }) → output.end()
+
+GET /api/comparison/:gateway_request_id  → getComparisonById → ComparisonRecord | 404
 ```
 
 ---
@@ -260,6 +287,12 @@ GET /api/comparison/:trace_id           → 501 not_implemented（Phase 6 占位
 - **Dashboard API 命名空间**（Phase 4 起）：`/api/*` = dashboard 消费方（Config / Traces list+detail+by-gateway / Metrics 聚合 / Benchmarks 静态 / Comparison-501 占位）；`/trace/*` = eval / 客户端消费方（按 session_id 批量查）；两个命名空间并行不合并，语义与消费方不同
 - **Metrics 实时聚合**（Phase 4 起）：`GET /api/metrics` 每次请求走 SQL SELECT + 内存分组，不写入 `metrics_cache` 表（schema 存在但暂未启用）
 - **api_key mask 形状**（Phase 4 起）：`GET /api/config` 中 `api_key_masked = 前3 + '****' + 后2`；短 key（<5 字符）退化为 `<首字> + ****`；秘钥长度不泄漏
+- **Live 入口边界**（Phase 6 起）：Live Compare 走**独立入口** `POST /api/live/run`，与 `/v1/messages` 完全解耦。`comparison.enabled` 只影响 `/api/live/run`，Claude Code 主客户端调用 `/v1/messages` 不会被 baseline+judge 拖累
+- **Live turn 组合**（Phase 6 起）：一次 `POST /api/live/run` = MoM 主链路（advisor N + aggregator 1）+ baseline（可选，non-streaming）+ judge_compare（两者均产文时）。四阶段调用节奏：MoM streaming 与 baseline non-streaming **并发**发起，`Promise.all` 归拢后 **串行** judge compare
+- **Live 存储切分**（Phase 6 起）：baseline / judge 的**元数据**（usage / pricing / latency / status / error）落 `traces` 表（`role='baseline'` / `role='judge'`），MoM / baseline **正文** + judge **5 维分与 A/B 映射** 落 `comparisons` 表；两者 join key = `gateway_request_id`
+- **Judge 匿名 A/B**（Phase 6 起）：judge prompt 中 MoM 与 baseline 匿名为 Response A / Response B，服务端在 dispatch 前随机映射，parse 后再回填 mom / baseline 标签；`comparisons.judge_ab_mapping_json` 记录本次分配供 bias 分析
+- **Judge JSON 解析降级**（Phase 6 起）：`parseJudgeCompare` 二阶段——strict `JSON.parse` → 失败退到正则抽首个 `{...}` 块再 parse，两条都失败则 `parse_error=true` + 5 维全 0 + `judge_error` 事件。regex-fallback 走通时 `fallback=true` 标记落库供 Dashboard 展示
+- **Live SSE 8 事件**（Phase 6 起）：`created / mom_delta / mom_done / mom_error / baseline_done / baseline_error / judge_done / judge_error / end`；SSE `event:` 名与 payload `type` 一致；同一连接单流推完关闭
 
 ---
 
@@ -272,8 +305,8 @@ Vite + React + TS 独立子工程（`web/`），构建产物挂在网关 `/dashb
 五页，通过左侧固定 Sidebar 切换：
 
 - **Overview** `pages/OverviewPage.tsx` — Pareto 效果-成本散点（Aggregator-only / MoM / Flagship 三点）+ per-benchmark combo（折线 score + 柱状 tokens）+ 3 KPI（quality vs flagship / cost vs flagship / wins-ties-losses）
-- **Live Compare** `pages/LivePage.tsx` — 顶部 5 个预置 prompt shelf + MoM vs Baseline 左右并排打字机 + Judge 5 维雷达（correctness/depth/clarity/efficiency/safety）+ 成本对比条 + 底部阶段耗时甘特
-- **Pipeline** `pages/PipelinePage.tsx` — user → 3 advisor 并行 → references 装配盒 → aggregator → final 的水平流程图；节点激活动画；Replay 时间轴；节点抽屉展示 request/response 全文与 references 拼接位置；Diff toggle 切"有/无 MoM 的 aggregator messages"红绿高亮
+- **Live Compare** `pages/LivePage.tsx` — 顶部 5 个预置 prompt shelf（click 立即 Run）+ textarea 自定义输入 + Baseline checkbox + Run/Cancel 主 CTA + MoM 真 SSE 增量流出（Phase 7 起 `MarkdownBody` 渲染，支持代码块 / 表格 / 列表） + Baseline 到达后打字机播放（同样走 markdown）+ Judge 5 维雷达（correctness/completeness/depth/clarity/usefulness，Phase 6 起真调用）+ 成本对比条 + "→ 查看请求流程" 按钮（Phase 7 起，`live.gatewayRequestId` 就绪后带 gwId 跳 Pipeline 页）+ 底部相对排名图（Phase 7 起 seed=gwId 伪随机 + MoM 偏置 rank 1/2）
+- **Pipeline** `pages/PipelinePage.tsx` — Phase 7 起接真 trace 数据：页顶 TurnSelect 拉 `/api/traces?limit=20&role=aggregator` 下拉 + URL `?turn=<gwId>` 双入口；选中拉 `/api/traces/by-gateway/:gwId` 得 N+1 上游 trace；节点时序从每条 trace 的 `started_at / finished_at` 反演（`compressTimeline`），总时长 > 5s 自动等比压缩；`FanoutFlow` 视图展示 user → N advisor 并行 → assembly → aggregator → final，Speed toggle 0.5x/1x/2x 与 Replay 按钮工作；`DiffModal` 从 aggregator trace `request_summary` + advisor previews 组装；passthrough turn 走 `PassthroughFlow` 单节点视图
 - **Cost** `pages/CostPage.tsx` — 会话节省 banner + 4 KPI（total / per-turn / cache_hit / advisor:aggregator:judge 占比）+ 每轮堆叠柱（advisor slots + aggregator + judge）+ 组成饼图 + 5 角色 cache_read/write/miss 横向条 + 累计成本时间线（MoM vs Flagship-only）
 - **Settings** `pages/SettingsPage.tsx` — 语言切换（中/EN，`localStorage` 持久化） + Provider 遮罩摘要（只读，秘钥编辑走 `.env`） + Aggregator / Advisor slots / Judge / Comparison / Pricing 表单
 
@@ -283,15 +316,17 @@ Vite + React + TS 独立子工程（`web/`），构建产物挂在网关 `/dashb
 
 ### 数据源
 
-Phase 5.0 完全走 `web/src/mock/*`，无后端调用：
+Phase 5.0 起 mock 逐 Phase 退休：
 
-- `mock/benchmarks.ts` — Pareto 三点 + per-benchmark combo
-- `mock/live-samples.ts` — 5 个预置 prompt × 中英 × MoM/Baseline/Judge 全套脚本
-- `mock/pipeline-trace.ts` — canned trace + 动画时序
-- `mock/cost.ts` — 32 turns session 成本 + cache 命中
-- `mock/config.ts` — Settings 初值 + 模型下拉候选
+- `mock/benchmarks.ts` — Pareto 三点 + per-benchmark combo（当前仍 mock，未挪到 `/api/benchmarks`；后端接口已就位）
+- `mock/live-samples.ts` — Phase 6 起精简为 5 个预置 prompt 的中英文本（`getPresetPrompt(preset, lang)`）；MoM/Baseline/Judge 回复已退休，改由 `/api/live/run` 真调用产生
+- `mock/pipeline-trace.ts` — Phase 7 起退休：pipeline 页数据源改走 `/api/traces?role=aggregator` + `/api/traces/by-gateway/:gwId`；文件保留 `PipelineCopy` 类型定义与 Diff modal fallback 空态字符串（本轮尚未清理，Phase 8+ 可删）
+- `mock/live-ranking.ts` — Phase 7 起改为 `getRankingSeries(seed)` 纯函数：MoM rank 分布 70%/30%（rank 1/2）+ 其余两家均匀分配剩余 rank；seed=gwId 时视觉每次 Run 变
+- `mock/cost.ts` — 32 turns session 成本 + cache 命中（Phase 8 接 `/api/metrics`）
+- `mock/config.ts` — Settings 初值 + 模型下拉候选（Phase 8 接 `/api/config`）
 
-`hooks/useTypewriter.ts` 前端播放假流式；`hooks/useEventSource.ts` 空壳、签名与未来 SSE 一致（Phase 5.1 回填时替换 mock 引用）。
+`hooks/useTypewriter.ts` 前端播放假流式；`hooks/useEventSource.ts` 空壳，签名与未来 SSE 一致。
+Phase 7 起 `App.tsx` 用 hash-based 路由 (`#pipeline?turn=<gwId>`)，`navigateTo(page, turn?)` 由 App 导出供 LivePage 跳转；`lib/timing.ts` 与 `lib/rankSeed.ts` 提供两个纯函数库（时序压缩 + 决定性伪随机）；`components/primitives/MarkdownBody.tsx` 是 react-markdown + remark-gfm 封装，供 LivePage 输出栏与未来其他 markdown 场景共用。
 
 ### 视觉体系
 

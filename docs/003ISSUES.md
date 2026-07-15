@@ -1239,3 +1239,97 @@ Phase 5.0 交付了预览版 Dashboard 五页（Overview / Live / Pipeline / Cos
 -> src/xxx.ts:行号
 -> decisions/NNN-xxx.md（如已拍板）
 -->
+
+---
+
+## [ISS-033] Phase 6 Live 全链路 — 输入框 + 真实 MoM 流 + Baseline 并发 + Judge 打分
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-14
+**解决日期**：2026-07-14
+**解决方案**：新增 `POST /api/live/run` 专用入口，编排 MoM 流式（现有 orchestrator）+ baseline non-streaming 并发调用 + judge_compare 串行调用，单条 SSE 推 8 类事件；新增 `src/judge/*`（prompt / 二阶段 safeJsonParse / runtime，中英各一版 anonymized A/B prompt）+ `src/live/*`（runtime / events / store / baseline，运行时用 `DevNullWritable` + SSE 观察者从 orchestrator streaming 收集 momText）+ `src/gateway/live-api.ts`（挂路由）；`comparisons` 新表（PK=gateway_request_id，元数据仍走 traces 表 `role='baseline' | 'judge'`）；前端 `useLiveRun` hook 驱动整轮 + textarea + 预置按钮直接跑 + Cancel + baseline 打字机 + judge fallback 标注 + Ranking chart 挂 "Phase 7 Preview" 标签；`mock/live-samples.ts` 精简到只留 5 preset 中英 prompt；`GET /api/comparison/:trace_id` 501 占位删除。9 组新 judge-parse 测试通过。10 项设计决策见 decisions/009。剩余项(aggregation_mode=judge 整合、Ranking 真数据、Cost/Settings/Pipeline 真接入)见 PLAN7.md。
+
+**现象**：
+Phase 5.0 交付预览版时，Live Compare 页只能"点预置 → 前端打字机播 mock 脚本"，`web/src/mock/live-samples.ts` 内置所有 MoM/Baseline 长文本与 5 维 judge 分。真实产品语义应当是：用户点预置或在文本框输入 prompt → MoM 走 orchestrator 主链路 → baseline 并发单模型调用 → judge 对两输出打 5 维分 → Live 页三卡实时呈现。当前后端 `src/judge/` 目录不存在，`comparison.enabled` 字段被读但无消费者，`/api/comparison/:trace_id` 显式返 501；前端 LivePage 无 textarea，五个预置按钮点击后走 `useTypewriter` 播 mock。
+
+**后果**：
+1. **展会 Live 页失去"实时对比"叙事**：现场无法用观众提的问题演示 MoM 对 baseline 的效果差
+2. **Phase 6 后端管道全缺**：judge_compare / baseline 异步调用 / comparison 存储 / SSE 推送全未落地
+3. **`comparison.enabled` 是死配置**：Settings 页可以切但没有任何行为变化
+4. **前端 mock/live-samples.ts 承担了它不该承担的职责**：既是 prompt 库又是回复库又是 judge 分库；prompt 库是 demo 骨架，另两项在真调用下应退休
+
+**方案讨论**：（已收敛，用户 5 决策 + 我 5 自主决策）
+- **范围**（本轮）：Live 全链路真接，Cost / Pipeline / Settings / Overview 页保持现状（Overview 已真接）
+- **调用时序**：MoM streaming 与 Baseline non-streaming **并发**发起（`Promise.allSettled`），全部 done 后触发 judge compare
+- **入口边界**：新增专用入口 `POST /api/live/run`；`/v1/messages` 完全不变，Claude Code 主客户端零受影响
+- **推送方式**：`POST /api/live/run` 直接返回 `text/event-stream`，前端 `fetch` + `ReadableStream` 读取；单条 SSE 连接内推 8 种事件（`created / mom_delta / mom_done / baseline_done / baseline_error / judge_done / judge_error / end`）
+- **存储**：新建 `comparisons` 表（PK=gateway_request_id），存 mom_text / baseline_text / judge_scores_json / status；TraceRequest 表新增 `role='baseline' | 'judge'` 落 3 类 trace（含 usage/pricing）保证 `/api/metrics` 未来能算 comparison 成本占比
+- **Judge 5 维**：沿用前端已有 `correctness / completeness / depth / clarity / usefulness`（覆盖 PLAN.md 原写的 `efficiency / safety`——前端 UI + i18n 已按前者做，切换要重画）
+- **匿名 A/B**：Judge prompt 里 MoM/Baseline 匿名为 `Response A` / `Response B`，服务端随机映射后再回填标签；避免 judge 因看到 "MoM aggregator" 产生倾向
+- **每次 Run 生成新 UUID**：`session_id` + `gateway_request_id` 每 Run 都新建（Live 演示语义"这次 Run 与上次无关"）；`gateway_request_id` 通过响应体首个 `event: created` 数据推给前端
+- **本轮 aggregation_mode: judge 不做**：`concat` 保持默认，`aggregation_mode=judge` 的结构化整合分支推 PLAN7；避免同一轮两条 judge prompt 一起调风险叠加
+- **预置提示词定位**：直接跑 + 输入框旁挂——预置按钮 click 立即 Run；下方独立 textarea + Baseline checkbox + Run/Cancel 主 CTA
+- **Ranking chart 推 PLAN7**：依赖 aggregator-only + fable5 两组额外调用 + 相对排名归一算法，超出 judge compare 范围；本轮页面顶部加 "Preview · Phase 7" 标签
+
+**关联**：
+-> src/live/*（待创建：live-runtime / live-events / live-store / live-types）
+-> src/judge/*（待创建：judge-runtime / judge-prompt / judge-parse）
+-> src/gateway/live-api.ts（待创建，注册 /api/live/run + /api/comparison/:gwId）
+-> src/gateway/server.ts / src/dashboard-api/comparison-api.ts（挂载新路由 / 移除 501 占位）
+-> src/storage/db.ts（新增 comparisons 表）
+-> src/types/mom.ts（TraceRequest.role 加 'baseline' | 'judge'；新增 JudgeCompareResult / BaselineResult 类型收敛）
+-> src/types/dashboard-api.ts（新增 LiveRunRequest / ComparisonSnapshot / ComparisonEvent 等镜像类型）
+-> web/src/lib/api.ts（新增 postLiveRun SSE 客户端 + getComparison wrapper）
+-> web/src/hooks/useLiveRun.ts（待创建）
+-> web/src/pages/LivePage.tsx（大改）
+-> web/src/mock/live-samples.ts（精简到只留 prompt）
+-> web/src/i18n/dict.ts（补 pending / cancel / textarea placeholder 三 key）
+-> decisions/009-phase6-live-fullstack.md（本次拍板）
+-> PLAN.md Phase 6（本 issue 完成后 Phase 6 状态从"📝 略写"改为"🚧 部分完成（仅 judge compare）"）
+-> PLAN7.md（未做项汇总）
+
+---
+
+## [ISS-034] Phase 7 Live Markdown + Pipeline 真时序 + Live→Pipeline 联动 + Ranking 伪随机占位
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-14
+**解决日期**：2026-07-14
+**解决方案**：新增 `web/src/components/primitives/MarkdownBody.tsx`（react-markdown + remark-gfm，禁用 raw HTML）替换 LivePage MoM/Baseline `<pre>` 输出，支持流式增量渲染；App.tsx 改 hash-based 路由 + `?turn=<gwId>` 解析，导出 `navigateTo(page, turn)`；LivePage 结果卡下方加"→ 查看请求流程"按钮，Run 完点击带 gwId 跳 `#pipeline?turn=<gwId>`；PipelinePage 完全重写：页顶 TurnSelect 下拉从 `/api/traces?limit=20&role=aggregator` 拉最近 turn + URL `?turn=<gwId>` 双入口，选中拉 `/api/traces/by-gateway/:gwId` 得 N+1 上游 trace，节点时序从每条 trace 的 `started_at / finished_at` 反演，总时长 > 5s 时按比例压缩（`compressTimeline` 纯函数）；`web/src/lib/timing.ts`（`compressTimeline` / `nodeStatusAt` / `TIMELINE_CAP_MS`）与 `web/src/lib/rankSeed.ts`（`hashSeed` / `mulberry32` / `weightedPick`）两个新库；`web/src/mock/live-ranking.ts` 改为 `getRankingSeries(seed)` 纯函数，seed=gwId 时 MoM 落 rank1 概率 70% / rank2 概率 30%，其余两家均匀；RankingChart prop 从 `preset` 改为 `seed`。i18n 加 `t.live.viewPipeline` + 8 个 pipeline keys（selectTurn / selectTurnPlaceholder / noTurns / emptyHint / loading / loadError / compressedNote / passthroughNote）。零后端改动。
+
+**现象**：
+Phase 6 交付后 LivePage 已实时跑通 MoM + Baseline + Judge 三路，但输出栏是 `<pre>` 直吐字符串——markdown 代码块 / 表格 / 列表全部丢格式；PipelinePage 仍读 `mock/pipeline-trace.ts` 的 canned trace 与固定 5s 时序动画，与真实 turn 无联动；Ranking 卡数据是 9 条固定历史 + preset 联动的第 10 条，不随 Run 变化。展会 demo 缺"看输出 → 追流程"的一气呵成叙事。
+
+**后果**：
+1. **观感断层**：Live 页 markdown 不渲染，代码 demo 观感差；Pipeline 页与 Live 页视觉上完全隔离
+2. **叙事链断裂**：展会现场无法演示"这次 Run 的具体流程"，只能演示两段固定动画
+3. **Ranking 静态**：每次 Run 视觉不变，缺"多轮持续对比"的错觉支撑
+
+**方案讨论**：（已收敛，用户 4 决策 + 我 3 自主决策）
+- **范围**：Live Markdown + Live→Pipeline 联动 + Pipeline 真时序 4 项；Cost / Settings 真数据 / Ranking 3 家判分 / aggregation_mode=judge 推 Phase 8（写入 PLAN.md 新 Phase 8 章节）
+- **路由方案**：不引入 React Router，用 hash + URLSearchParams 手工解析（Router 改造 20 行内可控），Sidebar navigate 走 `navigateTo(page)` 更新 hash
+- **时序压缩规则**：`TIMELINE_CAP_MS=5000`；`rawTotal > cap` 时按 `cap / rawTotal` 比例缩放所有 startMs/endMs（保留相对节奏）；否则原样。压缩后在页顶显示"真实耗时 Xs → 5s"标注
+- **Ranking 决定性伪随机**：`mulberry32(hashSeed(gwId))` 输出 [0,1) 序列，`weightedPick` 分配 MoM rank 1/2（70%/30%），其余两家在剩余 rank 上均匀分布；`RankingChart useMemo(() => getRankingSeries(seed), [seed])` 保证同一 Run 内视觉稳定
+- **Markdown 安全**：react-markdown 默认 sanitize HTML；不引 `rehype-raw`；不引 syntax highlighter（包体积；产物 826 KB gzip 235 KB，加高亮会翻倍）
+- **passthrough turn 兼容**：TurnSelect 拉 `role=aggregator`；若拉 `by-gateway` 结果只含 passthrough 单条，Pipeline 页显示 `PassthroughFlow`（单节点 + 说明标注）
+- **Diff Modal 内容来源**：aggregator trace 的 `request_summary`（message_count / max_tokens / tool_use_count）+ advisor trace 的 `preview`（`stop_reason` 或 `{tokens}t · {ms}ms`），非完整消息内容——完整 diff 需要 `settings_snapshot` 里 concat 后的 references 文本，属于展会后深化
+
+**关联**：
+-> web/src/components/primitives/MarkdownBody.tsx（新增）
+-> web/src/lib/timing.ts（新增：compressTimeline / nodeStatusAt / TIMELINE_CAP_MS）
+-> web/src/lib/rankSeed.ts（新增：hashSeed / mulberry32 / weightedPick）
+-> web/package.json（新增 react-markdown ^9.1.0 / remark-gfm ^4.0.1 依赖）
+-> web/src/App.tsx（Router 改 hash-based + 导出 navigateTo）
+-> web/src/pages/LivePage.tsx（MomColumn/BaselineColumn 用 MarkdownBody；加"→ 查看请求流程"按钮；RankingChart prop 改 seed=gwId）
+-> web/src/pages/PipelinePage.tsx（大改：TurnSelect + 拉真 trace + compressTimeline + FanoutFlow/PassthroughFlow/DiffModal 重构）
+-> web/src/mock/live-ranking.ts（改为 getRankingSeries(seed) 纯函数）
+-> web/src/components/charts/RankingChart.tsx（prop preset→seed）
+-> web/src/i18n/dict.ts（加 viewPipeline + 8 pipeline keys 双语）
+-> decisions/010-phase7-live-pipeline.md（本次拍板）
+-> PLAN.md Phase 7 与 Phase 8 章节（本 issue 完成后 Phase 7 状态改为"已完成"）
+-> 004CHANGELOG.md 2026-07-14-3
+

@@ -344,3 +344,155 @@ export function getMetrics(
 export function getBenchmarks(): Promise<BenchmarksResponse> {
   return apiGet('/api/benchmarks');
 }
+
+// ---------------- Phase 6: Live Compare types + SSE client ----------------
+
+export type ComparisonStatus =
+  | 'pending'
+  | 'mom_done'
+  | 'baseline_done'
+  | 'judge_done'
+  | 'error';
+
+export interface JudgeScoresApi {
+  correctness: number;
+  completeness: number;
+  depth: number;
+  clarity: number;
+  usefulness: number;
+}
+
+export interface ComparisonUsage {
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  output_tokens: number;
+}
+
+export interface LiveRunRequest {
+  prompt: string;
+  baseline_on: boolean;
+  lang: 'zh' | 'en';
+}
+
+export type LiveRunEvent =
+  | { type: 'created'; gateway_request_id: string; session_id: string }
+  | { type: 'mom_delta'; text: string }
+  | { type: 'mom_done'; text_full: string; usage: ComparisonUsage; cost_usd: number | null; latency_ms: number }
+  | { type: 'mom_error'; message: string }
+  | { type: 'baseline_done'; model: string; text: string; usage: ComparisonUsage; cost_usd: number | null; latency_ms: number }
+  | { type: 'baseline_error'; message: string }
+  | { type: 'judge_done'; model: string; scores: { mom: JudgeScoresApi; baseline: JudgeScoresApi }; verdict_summary: string | null; fallback: boolean }
+  | { type: 'judge_error'; message: string }
+  | { type: 'end'; status: ComparisonStatus };
+
+export interface ComparisonMomSnapshot {
+  text: string;
+  usage: ComparisonUsage;
+  cost_usd: number | null;
+  latency_ms: number;
+}
+
+export interface ComparisonBaselineSnapshot {
+  model: string;
+  text: string;
+  usage: ComparisonUsage;
+  cost_usd: number | null;
+  latency_ms: number;
+}
+
+export interface ComparisonJudgeSnapshot {
+  model: string;
+  scores: { mom: JudgeScoresApi; baseline: JudgeScoresApi };
+  verdict_summary: string | null;
+  fallback: boolean;
+}
+
+export interface ComparisonResponse {
+  gateway_request_id: string;
+  session_id: string | null;
+  lang: 'zh' | 'en';
+  prompt: string;
+  status: ComparisonStatus;
+  started_at: number;
+  updated_at: number;
+  mom: ComparisonMomSnapshot | null;
+  baseline: ComparisonBaselineSnapshot | null;
+  baseline_error: { message: string } | null;
+  judge: ComparisonJudgeSnapshot | null;
+  judge_error: { message: string } | null;
+}
+
+export function getComparison(gwId: string): Promise<ComparisonResponse> {
+  return apiGet(`/api/comparison/${encodeURIComponent(gwId)}`);
+}
+
+/**
+ * Open a Live Compare SSE stream against `POST /api/live/run`. Yields typed
+ * `LiveRunEvent`s until the server writes `event: end` or the caller aborts.
+ *
+ * Aborting: pass an `AbortSignal`. When aborted, the underlying fetch is
+ * cancelled and the iterator throws a DOMException with name 'AbortError'.
+ * Callers should catch that as a normal end-of-run.
+ */
+export async function* postLiveRun(
+  body: LiveRunRequest,
+  signal?: AbortSignal,
+): AsyncGenerator<LiveRunEvent, void, void> {
+  const res = await fetch('/api/live/run', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    throw await toApiError(res);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Frame boundary = two consecutive newlines (blank line).
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary !== -1) {
+        const rawFrame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const parsed = parseSSEFrame(rawFrame);
+        if (parsed) {
+          yield parsed;
+          if (parsed.type === 'end') return;
+        }
+        boundary = buffer.indexOf('\n\n');
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* noop */
+    }
+  }
+}
+
+function parseSSEFrame(frame: string): LiveRunEvent | null {
+  const dataLines: string[] = [];
+  for (const line of frame.split('\n')) {
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).replace(/^ /, ''));
+    }
+    // `event:` prefix is redundant — LiveRunEvent.type is authoritative.
+  }
+  if (dataLines.length === 0) return null;
+  try {
+    return JSON.parse(dataLines.join('\n')) as LiveRunEvent;
+  } catch {
+    return null;
+  }
+}
