@@ -118,22 +118,71 @@ The script never deletes local `pricing_table` entries the provider no longer li
 
 ## Run
 
+Two ways to run the Dashboard — pick one. For day-to-day frontend work, use vite dev (hot reload + proxy). For deployment or a quick look at the current UI, use the built-artifact mode (static assets served by the gateway).
+
+### Option A: one-shot start of gateway + web (recommended for dev)
+
 ```bash
-# Build the dashboard (optional; /dashboard/ shows a placeholder otherwise)
+# Runs the gateway (3000) and the vite dev server (5173) in parallel;
+# logs are prefixed so you can tell them apart.
+npm run dev:all
+```
+
+After launch:
+
+- The gateway prints both entry points (`http://localhost:3000/dashboard/` for built artifacts, `http://localhost:5173/dashboard/` for vite dev).
+- The vite dev port is authoritative in its own output — vite falls back to 5174 / 5175 / ... if 5173 is already taken.
+- In vite dev mode the proxy is preconfigured: `/api` and `/v1` are forwarded to 3000, no extra setup needed.
+
+To run just one side: `npm run dev` (gateway only) or `npm run dev:web` (vite dev only).
+
+### Option B: build first, then let the gateway serve the artifacts
+
+```bash
+# Build the dashboard (output goes to web/dist; /dashboard/ shows a placeholder otherwise).
 npm run build:web
 
-# Start the gateway (default port 3000)
+# Start the gateway (default port 3000).
 npm run dev
 ```
 
-On the Claude Code side:
+Open `http://localhost:3000/dashboard/`.
+
+### On the Claude Code side
 
 ```bash
 export ANTHROPIC_BASE_URL=http://localhost:3000
 claude
 ```
 
-Open `http://localhost:3000/dashboard/` to see the frontend skeleton.
+`ANTHROPIC_BASE_URL` always points at the gateway port (3000) regardless of the vite dev port — vite dev only exists to hot-reload the Dashboard UI.
+
+### Enabling MoM vs Baseline comparison in the Dashboard
+
+`data/mom.config.json` ships with `comparison` disabled by default:
+
+```json
+"comparison": {
+  "enabled": false,
+  "baseline_model": ""
+}
+```
+
+To turn on the Dashboard's Live Compare panel (`/api/live/run` runs MoM + baseline + judge scoring in a single request), flip it to:
+
+```json
+"comparison": {
+  "enabled": true,
+  "baseline_model": "<a real baseline model id from your provider>"
+}
+```
+
+Notes:
+
+- `baseline_model` must be a model id that actually exists on the provider pointed to by `PROVIDER_BASE_URL` in `.env`.
+- Sync that baseline model into `pricing_table` too (just re-run `npm run sync-pricing`), otherwise baseline-side cost shows up as null.
+- The toggle only affects the Dashboard's Live Compare entry point — the `/v1/messages` path that Claude Code uses is unaffected and will not be slowed down by baseline + judge.
+- Editing via the Dashboard form or the file directly are equivalent; `POST /api/config` hot-rebuilds the orchestrator, no gateway restart needed.
 
 ---
 
