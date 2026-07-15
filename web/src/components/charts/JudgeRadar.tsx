@@ -4,11 +4,18 @@ import {
 } from 'recharts';
 import { color, font } from '../../theme';
 import { useI18n } from '../../i18n/context';
-import type { JudgeScores } from '../../mock/live-samples';
+
+export interface JudgeScoresShape {
+  correctness: number;
+  completeness: number;
+  depth: number;
+  clarity: number;
+  usefulness: number;
+}
 
 type Props = {
-  mom: JudgeScores;
-  baseline: JudgeScores;
+  mom: JudgeScoresShape;
+  baseline: JudgeScoresShape;
 };
 
 export function JudgeRadar({ mom, baseline }: Props) {

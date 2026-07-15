@@ -38,12 +38,14 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，入口协�
 ```
 ┌────────────────────────────────────────────────┐
 │  Gateway 层（Fastify 路由 / 请求校验 / SSE header + hijack） │
-│  src/gateway/* + src/dashboard-api/*（Phase 4）+ src/gateway/live-api.ts（Phase 6） │
+│  src/gateway/* + src/dashboard-api/*（Phase 4）+ src/gateway/live-api.ts（Phase 6）+ src/gateway/presets-api.ts（ISS-035） │
 │    — /v1/messages          → messages-handler → OrchestratorHolder                 │
 │    — /trace/*              → registerTraceAPI（ISS-011）                            │
 │    — /api/config|traces|metrics|benchmarks → Phase 4 dashboard-api                  │
-│    — /api/live/run         → live-api → live-runtime（Phase 6）                     │
+│    — /api/live/run         → live-api.submitLiveTurn → 202 + 后台 runLiveTurn（ISS-035）│
+│    — /api/comparisons      → live-api → listRecentComparisons（ISS-035）            │
 │    — /api/comparison/:gwId → live-api → live-store（Phase 6）                       │
+│    — /api/presets          → presets-api（读 data/presets.json，ISS-035）           │
 └────────────────────────────────────────────────┘
                     ↓
 ┌────────────────────────────────────────────────┐
@@ -226,28 +228,33 @@ GET /api/metrics?window&limit            → computeMetrics 纯函数：SELECT *
 GET /api/benchmarks                     → readFileSync data/benchmarks.json → normalizeBenchmarks；ENOENT 200 + 全空
 ```
 
-**链路 I：Live Compare 一次 Run（Phase 6 起，专用入口 / 单条 SSE）**
+**链路 I：Live Compare 一次 Run（Phase 6 起 / ISS-035 起改为异步 job）**
 ```
 Live 页 POST /api/live/run { prompt, baseline_on, lang }
-  → registerLiveAPI 校验 body → reply.hijack + text/event-stream
-  → runLiveTurn(input, { runtime, log, output })
-       ├─ createComparison(gwId, sid) → INSERT INTO comparisons (status='pending')
-       ├─ writeLiveEvent(output, 'created', { gwId, sid })
-       ├─ 并发:
-       │   ├─ orchestrator.streaming(anthropicReq, sid, sink, log)
-       │   │    ⇢ MoM 主链路（fanout advisor → aggregator SSE），N+1 TraceRequest 落库
-       │   │    ⇢ 观察者收集 momText + 广播 mom_delta / mom_done
-       │   └─ runBaselineCall(anthropicReq, baseline_model, provider)
-       │        ⇢ 单模型 non-streaming，落 role='baseline' TraceRequest
-       │        ⇢ 广播 baseline_done / baseline_error
-       ├─ Promise.all([mom, baseline]) 归拢
-       ├─ runJudgeCompare({ momText, baselineText, lang, judge, provider })
-       │    ⇢ 匿名 A/B + temperature=0 + JSON-only + safeJsonParse
-       │    ⇢ 落 role='judge' TraceRequest
-       │    ⇢ 广播 judge_done / judge_error
-       └─ writeLiveEvent(output, 'end', { status }) → output.end()
+  → registerLiveAPI 校验 body
+  → submitLiveTurn(input, { runtime, log })
+       ├─ createComparison(gwId, sid, {advisors_snapshot, aggregator_model, baseline_model_snapshot})
+       │    → INSERT INTO comparisons (status='pending', 快照 3 个模型 id)
+       └─ queueMicrotask(() => runLiveTurn(input, deps, gwId, sid))
+  → reply 202 { gateway_request_id }（客户端立即拿到 gwId 并开始 3s 轮询）
 
-GET /api/comparison/:gateway_request_id  → getComparisonById → ComparisonRecord | 404
+（后台执行）
+runLiveTurn(...)
+  ├─ orchestrator.nonStreaming(anthropicReq, sid, log)      // MoM 主链路
+  │    ⇢ fanout advisor → aggregator，N+1 TraceRequest 落库（advisor.response_text 落 reference 全文；aggregator 落 response_text + references_appended + last_user_text）
+  ├─ (并发) runBaselineCall(anthropicReq, baseline_model, provider)
+  │    ⇢ 单模型 non-streaming，落 role='baseline' TraceRequest（含 response_text）
+  ├─ Promise.all([mom, baseline]) 归拢
+  ├─ runJudgeCompare({ momText, baselineText, lang, judge, provider })
+  │    ⇢ 匿名 A/B + temperature=0 + JSON-only + safeJsonParse
+  │    ⇢ 落 role='judge' TraceRequest
+  ├─ MoM 失败 → updateComparisonMomError（status='error'）
+  ├─ Baseline 失败 → updateComparisonBaselineError
+  └─ Judge 失败 → updateComparisonJudgeError
+
+GET /api/comparisons?limit=20                   → listRecentComparisons → ComparisonListItem[]（Live 页 Jobs 列表）
+GET /api/comparison/:gateway_request_id         → getComparisonById → ComparisonRecord | 404（Live 页 3s 轮询）
+GET /api/presets                                → 读 data/presets.json → PresetsResponse（Live 页预置按钮）
 ```
 
 ---

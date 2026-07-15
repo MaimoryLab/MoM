@@ -128,6 +128,12 @@ export interface TraceRequestFull extends TraceSummary {
     stop_sequence: string | null;
   } | null;
   settings_snapshot: unknown;
+  /** Full text of the provider response (ISS-035). null on old rows / errors / cache_hit. */
+  response_text?: string | null;
+  /** For aggregator rows: byte-exact references text appended to the last user message. */
+  references_appended?: string | null;
+  /** Last user-message text on the incoming request. */
+  last_user_text?: string | null;
 }
 
 export interface TracesListQuery {
@@ -345,7 +351,7 @@ export function getBenchmarks(): Promise<BenchmarksResponse> {
   return apiGet('/api/benchmarks');
 }
 
-// ---------------- Phase 6: Live Compare types + SSE client ----------------
+// ---------------- Phase 6 / ISS-035: Live Compare types + async job client ----------------
 
 export type ComparisonStatus =
   | 'pending'
@@ -375,16 +381,10 @@ export interface LiveRunRequest {
   lang: 'zh' | 'en';
 }
 
-export type LiveRunEvent =
-  | { type: 'created'; gateway_request_id: string; session_id: string }
-  | { type: 'mom_delta'; text: string }
-  | { type: 'mom_done'; text_full: string; usage: ComparisonUsage; cost_usd: number | null; latency_ms: number }
-  | { type: 'mom_error'; message: string }
-  | { type: 'baseline_done'; model: string; text: string; usage: ComparisonUsage; cost_usd: number | null; latency_ms: number }
-  | { type: 'baseline_error'; message: string }
-  | { type: 'judge_done'; model: string; scores: { mom: JudgeScoresApi; baseline: JudgeScoresApi }; verdict_summary: string | null; fallback: boolean }
-  | { type: 'judge_error'; message: string }
-  | { type: 'end'; status: ComparisonStatus };
+/** POST /api/live/run returns 202 with the freshly-minted gateway id. */
+export interface LiveRunSubmitResponse {
+  gateway_request_id: string;
+}
 
 export interface ComparisonMomSnapshot {
   text: string;
@@ -416,83 +416,73 @@ export interface ComparisonResponse {
   status: ComparisonStatus;
   started_at: number;
   updated_at: number;
+  advisors_snapshot: string[] | null;
+  aggregator_model: string | null;
+  baseline_model_snapshot: string | null;
   mom: ComparisonMomSnapshot | null;
+  mom_error: { message: string } | null;
   baseline: ComparisonBaselineSnapshot | null;
   baseline_error: { message: string } | null;
   judge: ComparisonJudgeSnapshot | null;
   judge_error: { message: string } | null;
 }
 
+/** GET /api/comparisons list item. */
+export interface ComparisonListItem {
+  gateway_request_id: string;
+  lang: 'zh' | 'en';
+  prompt: string;
+  status: ComparisonStatus;
+  started_at: number;
+  updated_at: number;
+  aggregator_model: string | null;
+  baseline_model_snapshot: string | null;
+}
+
+export interface ComparisonListResponse {
+  items: ComparisonListItem[];
+  total: number;
+  limit: number;
+}
+
+export interface PresetEntry {
+  id: string;
+  title_zh: string;
+  title_en: string;
+  zh: string;
+  en: string;
+}
+
+export interface PresetsResponse {
+  presets: PresetEntry[];
+}
+
+/**
+ * Terminal statuses the frontend should stop polling on.
+ * `judge_done` = full success. `baseline_done` = mom+baseline done but judge skipped/failed.
+ * `error` = mom pipeline itself failed.
+ */
+export function isTerminalStatus(s: ComparisonStatus): boolean {
+  return s === 'judge_done' || s === 'error';
+}
+
 export function getComparison(gwId: string): Promise<ComparisonResponse> {
   return apiGet(`/api/comparison/${encodeURIComponent(gwId)}`);
 }
 
+export function listComparisons(limit = 20): Promise<ComparisonListResponse> {
+  return apiGet(`/api/comparisons?limit=${limit}`);
+}
+
+export function getPresets(): Promise<PresetsResponse> {
+  return apiGet('/api/presets');
+}
+
 /**
- * Open a Live Compare SSE stream against `POST /api/live/run`. Yields typed
- * `LiveRunEvent`s until the server writes `event: end` or the caller aborts.
- *
- * Aborting: pass an `AbortSignal`. When aborted, the underlying fetch is
- * cancelled and the iterator throws a DOMException with name 'AbortError'.
- * Callers should catch that as a normal end-of-run.
+ * POST /api/live/run — fire-and-return-id. Actual work runs on the server in
+ * the background; callers poll `getComparison(gwId)` for status.
  */
-export async function* postLiveRun(
-  body: LiveRunRequest,
-  signal?: AbortSignal,
-): AsyncGenerator<LiveRunEvent, void, void> {
-  const res = await fetch('/api/live/run', {
-    method: 'POST',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!res.ok || !res.body) {
-    throw await toApiError(res);
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder('utf-8');
-  let buffer = '';
-
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      // Frame boundary = two consecutive newlines (blank line).
-      let boundary = buffer.indexOf('\n\n');
-      while (boundary !== -1) {
-        const rawFrame = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        const parsed = parseSSEFrame(rawFrame);
-        if (parsed) {
-          yield parsed;
-          if (parsed.type === 'end') return;
-        }
-        boundary = buffer.indexOf('\n\n');
-      }
-    }
-  } finally {
-    try {
-      reader.releaseLock();
-    } catch {
-      /* noop */
-    }
-  }
+export function submitLiveRun(body: LiveRunRequest): Promise<LiveRunSubmitResponse> {
+  return apiPost('/api/live/run', body);
 }
 
-function parseSSEFrame(frame: string): LiveRunEvent | null {
-  const dataLines: string[] = [];
-  for (const line of frame.split('\n')) {
-    if (line.startsWith('data:')) {
-      dataLines.push(line.slice(5).replace(/^ /, ''));
-    }
-    // `event:` prefix is redundant — LiveRunEvent.type is authoritative.
-  }
-  if (dataLines.length === 0) return null;
-  try {
-    return JSON.parse(dataLines.join('\n')) as LiveRunEvent;
-  } catch {
-    return null;
-  }
-}

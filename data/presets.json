@@ -1,0 +1,39 @@
+{
+  "presets": [
+    {
+      "id": "binarySearch",
+      "title_zh": "Rust 二分查找",
+      "title_en": "Rust binary search",
+      "zh": "用 Rust 写一个泛型 binary_search<T: Ord>(slice: &[T], target: &T) -> Option<usize>，加一段文档注释，并指出一个边界情况。",
+      "en": "Write a generic Rust `binary_search<T: Ord>(slice: &[T], target: &T) -> Option<usize>`. Include a doc comment and call out one edge case."
+    },
+    {
+      "id": "cap",
+      "title_zh": "CAP 定理",
+      "title_en": "CAP theorem",
+      "zh": "用 200 字以内向一位中级后端工程师解释 CAP 定理，每个 trade-off 举一个具体例子。",
+      "en": "In under 200 words, explain the CAP theorem to a mid-level backend engineer. Give one concrete example per trade-off."
+    },
+    {
+      "id": "refactor",
+      "title_zh": "重构代码片段",
+      "title_en": "Refactor snippet",
+      "zh": "重构这段 Python 代码提高可读性并补上类型标注。def f(x,y,z):\n  r=[]\n  for i in range(len(x)):\n    if x[i]>y: r.append(x[i]*z)\n  return r",
+      "en": "Refactor this Python for readability and add type hints:\ndef f(x,y,z):\n  r=[]\n  for i in range(len(x)):\n    if x[i]>y: r.append(x[i]*z)\n  return r"
+    },
+    {
+      "id": "race",
+      "title_zh": "排查竞态问题",
+      "title_en": "Debug race condition",
+      "zh": "一个 Node.js worker 偶尔把同一条消息写两遍到 Redis。fan-out 队列有 N 个消费者，列出 3 个最可能的根因，以及各自的验证方式。",
+      "en": "A Node.js worker occasionally writes the same message to Redis twice. The fan-out queue has N consumers. List the 3 most likely root causes and how to verify each."
+    },
+    {
+      "id": "urlShort",
+      "title_zh": "设计短链服务",
+      "title_en": "Design a URL shortener",
+      "zh": "设计一个每秒处理 5k 写请求的短链服务，覆盖 ID 方案、存储、缓存，以及一个可能的故障模式。",
+      "en": "Design a URL shortener that handles 5k writes per second. Cover ID scheme, storage, caching, and one likely failure mode."
+    }
+  ]
+}

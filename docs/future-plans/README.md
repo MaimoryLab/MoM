@@ -34,3 +34,4 @@
 
 - [001 — Dashboard API 字段形状与 mock 类型对齐](001-dashboard-api-shape-reconciliation.md)
 - [002 — Dashboard 4K 适配 + 展会自动循环 demo 模式](002-dashboard-4k-and-demo-loop.md)
+- [003 — Claude Code 走网关时也 fork baseline + judge（方案 Y，含 config 开关）](003-baseline-on-gateway-requests.md)

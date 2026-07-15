@@ -84,6 +84,8 @@ export interface ResponseSummary {
 export interface AdvisorResult {
   slot: string;
   success: boolean;
+  /** Advisor's full text response — used both to build aggregator references AND
+   * as `response_text` on the trace row. Same content, different consumers. */
   reference: string;
   usage: Usage;
   latency_ms: number;
@@ -207,7 +209,28 @@ export interface TraceRequest {
   cache_hit: boolean;
   /** Business-config snapshot at dispatch time (MoMConfig only — never provider secrets). */
   settings_snapshot: MoMConfig;
+  /**
+   * Full text of the provider's response (extracted from `text` content blocks).
+   * Truncated at TRACE_TEXT_MAX_BYTES with a `…[truncated]` suffix.
+   * Populated for advisor / aggregator / passthrough success rows;
+   * null for error, cache_hit, and old rows written before ISS-035.
+   */
+  response_text: string | null;
+  /**
+   * Byte-exact text appended to the final `user` message before the aggregator
+   * call. Only meaningful for `role === 'aggregator'`; null otherwise.
+   * Same 32 KB cap as `response_text`.
+   */
+  references_appended: string | null;
+  /**
+   * Text of the last `user` message on the incoming request (concatenated
+   * content-blocks). Used by Pipeline page's "User" node. Same 32 KB cap.
+   */
+  last_user_text: string | null;
 }
+
+/** Byte cap for text fields on TraceRequest — larger values truncated with a marker. */
+export const TRACE_TEXT_MAX_BYTES = 32_768;
 
 export interface TraceUsage {
   input_tokens: number;

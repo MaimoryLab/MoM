@@ -9,6 +9,7 @@ import { registerTracesAPI } from '../dashboard-api/traces-api.js';
 import { registerMetricsAPI } from '../dashboard-api/metrics-api.js';
 import { registerBenchmarksAPI } from '../dashboard-api/benchmarks-api.js';
 import { registerLiveAPI } from './live-api.js';
+import { registerPresetsAPI } from './presets-api.js';
 import { createOrchestratorHolder } from '../orchestrator/orchestrator-holder.js';
 import type { RuntimeConfig } from '../types/mom.js';
 
@@ -17,6 +18,7 @@ const BODY_LIMIT_BYTES = 10 * 1024 * 1024;
 export interface CreateServerOptions {
   momConfigPath: string;
   benchmarksPath: string;
+  presetsPath: string;
 }
 
 export function createServer(
@@ -42,6 +44,7 @@ export function createServer(
   registerMetricsAPI(app);
   registerBenchmarksAPI(app, { benchmarksPath: options.benchmarksPath });
   registerLiveAPI(app, { holder });
+  registerPresetsAPI(app, { presetsPath: options.presetsPath });
 
   const webDist = resolve(process.cwd(), 'web/dist');
   if (existsSync(webDist)) {

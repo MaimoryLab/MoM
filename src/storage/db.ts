@@ -35,10 +35,14 @@ CREATE TABLE IF NOT EXISTS comparisons (
   started_at             INTEGER NOT NULL,
   updated_at             INTEGER NOT NULL,
   status                 TEXT NOT NULL,
+  advisors_snapshot_json TEXT,
+  aggregator_model       TEXT,
+  baseline_model_snapshot TEXT,
   mom_text               TEXT,
   mom_finished_at        INTEGER,
   mom_usage_json         TEXT,
   mom_cost_usd           REAL,
+  mom_error_json         TEXT,
   baseline_model         TEXT,
   baseline_text          TEXT,
   baseline_finished_at   INTEGER,
@@ -59,12 +63,39 @@ CREATE INDEX IF NOT EXISTS idx_comparisons_session_id ON comparisons(session_id,
 CREATE INDEX IF NOT EXISTS idx_comparisons_started_at ON comparisons(started_at DESC);
 `;
 
+// Idempotent column-adder — SQLite does not support "ADD COLUMN IF NOT EXISTS",
+// so we introspect via PRAGMA table_info before ALTER TABLE.
+function ensureColumns(
+  instance: DatabaseSync,
+  table: string,
+  columns: Array<{ name: string; ddl: string }>,
+): void {
+  const existing = new Set(
+    (instance.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+      (r) => r.name,
+    ),
+  );
+  for (const c of columns) {
+    if (!existing.has(c.name)) {
+      instance.exec(`ALTER TABLE ${table} ADD COLUMN ${c.name} ${c.ddl}`);
+    }
+  }
+}
+
 let db: DatabaseSync | null = null;
 
 export function initDB(path: string): DatabaseSync {
   const instance = new DatabaseSync(path, { enableForeignKeyConstraints: true });
   instance.exec('PRAGMA journal_mode = WAL');
   instance.exec(SCHEMA);
+  // Backfill-safe migrations: existing DBs (created before ISS-035) get the
+  // new columns added; fresh DBs get them from SCHEMA above and this is a no-op.
+  ensureColumns(instance, 'comparisons', [
+    { name: 'advisors_snapshot_json', ddl: 'TEXT' },
+    { name: 'aggregator_model', ddl: 'TEXT' },
+    { name: 'baseline_model_snapshot', ddl: 'TEXT' },
+    { name: 'mom_error_json', ddl: 'TEXT' },
+  ]);
   db = instance;
   return instance;
 }
