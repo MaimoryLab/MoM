@@ -304,19 +304,19 @@ function CostRow({ label, value, bar }: { label: string; value: string; bar: Rea
 }
 
 // ---------------------------------------------------------------------------
-// Composer used by ChatPage — presets shelf + textarea + baseline toggle +
-// submit button. Live page has no composer (viewer-only).
+// Composer — presets shelf + textarea + optional baseline toggle + submit.
+// The baseline toggle only renders when `baseline` is provided; ChatPage
+// omits it (baseline+judge still run on the backend regardless).
 // ---------------------------------------------------------------------------
 
 export function Composer({
-  prompt, onPromptChange, onSubmit, baselineOn, onBaselineToggle,
+  prompt, onPromptChange, onSubmit, baseline,
   presets, presetsError, onPreset, busy,
 }: {
   prompt: string;
   onPromptChange: (v: string) => void;
   onSubmit: () => void;
-  baselineOn: boolean;
-  onBaselineToggle: (v: boolean) => void;
+  baseline?: { on: boolean; onToggle: (v: boolean) => void };
   presets: PresetEntry[];
   presetsError: string | null;
   onPreset: (p: PresetEntry) => void;
@@ -363,11 +363,13 @@ export function Composer({
           resize: 'vertical', outline: 'none',
         }}
       />
-      <label style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, fontSize: font.size.sm, color: color.textSecondary, cursor: 'pointer' }}>
-        <input type="checkbox" checked={baselineOn} onChange={(e) => onBaselineToggle(e.target.checked)} disabled={disabled} />
-        {t.live.baselineToggle}
-        <span style={{ color: color.textMuted, fontSize: font.size.xs }}>· {t.live.baselineHint}</span>
-      </label>
+      {baseline && (
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, fontSize: font.size.sm, color: color.textSecondary, cursor: 'pointer' }}>
+          <input type="checkbox" checked={baseline.on} onChange={(e) => baseline.onToggle(e.target.checked)} disabled={disabled} />
+          {t.live.baselineToggle}
+          <span style={{ color: color.textMuted, fontSize: font.size.xs }}>· {t.live.baselineHint}</span>
+        </label>
+      )}
       <Button
         variant="primary"
         onClick={onSubmit}

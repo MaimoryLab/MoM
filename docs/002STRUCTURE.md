@@ -109,7 +109,7 @@ MoM/
 │       ├── pages/                 # 新增 — ISS-028；六页
 │       │   ├── OverviewPage.tsx   # Pareto 主图 + benchmark combo 副图 + 3 KPI（效果层）
 │       │   ├── LivePage.tsx       # 更新 — ISS-036；viewer-only 展示模式：上方 RunSelect 选历史 comparison，下方 Status/MoM/Baseline/Judge/Cost/Ranking + 跳 Pipeline；提问入口移到 ChatPage
-│       │   ├── ChatPage.tsx       # 新增 — ISS-036；提问模式：预设 shelf + textarea + baseline 开关 + 提交，下方展示 MoM/Baseline/Judge/Cost；跟 LivePage 共享 LiveJobProvider Context
+│       │   ├── ChatPage.tsx       # 更新 — ISS-037；对话式提问：预设 shelf + textarea + Submit，下方 iMessage 气泡（用户右侧 momSoft、MoM 左侧白底 markdown，气泡下方保留 latency/tokens/cost 小字）；后端仍并发跑 baseline+judge（数据到 Live 页），此页只渲染 MoM；跟 LivePage 共享 LiveJobProvider Context
 │       │   ├── live-shared.tsx    # 新增 — ISS-036；LivePage + ChatPage 共享组件（StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard / Composer / RunSelect）；StatusStrip 有 comparison 时替换系统状态标签为用户 prompt
 │       │   ├── PipelinePage.tsx   # 更新 — ISS-036；Advisor answer 走 MarkdownBody（渲染 LLM 输出的列表 / 代码块 / 加粗）；DiffModal 两栏走 MarkdownBody（flush 模式，外壳滚动）；DiffModal 点空白关闭
 │       │   ├── CostPage.tsx       # 节省 banner + 4 KPI + 每轮堆叠柱 + 饼图 + cache 命中矩阵 + 累计时间线

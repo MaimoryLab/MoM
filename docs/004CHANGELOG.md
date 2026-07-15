@@ -1,3 +1,23 @@
+## [2026-07-15-3] refactor(web): trim chat page to prompt + MoM reply bubbles [ISS-037]
+
+### 改动
+- `web/src/pages/ChatPage.tsx` 大改：撤 `<BaselineColumn>` / `<JudgeCard>` / `<CostCard>` / 「查看请求流程」按钮；新增 `ConversationView` + `UserBubble` + `MomBubble` + `ErrorBubble` + `PendingBubble` + `BubbleRow` 构造 iMessage 样式对话卡（用户在右灰蓝底 momSoft，MoM 在左白底带 border，两者气泡下角对称收窄）；MoM 回复气泡内继续用 `<MarkdownBody>` 渲染，气泡下方保留 `⏱ latency · tokens · cost` 元数据小字
+- `live.submit` 硬编码 `baseline_on: true`，backend 依然并发跑 baseline + judge，comparisons 表数据完整；切到 Live 页仍能看到完整对比
+- `web/src/pages/live-shared.tsx` 里 `Composer` 参数 `baselineOn` / `onBaselineToggle` 合并为可选 `baseline?: {on, onToggle}`；不传即隐藏 checkbox；ChatPage 不传即隐藏，若未来再有页复用可再传入
+- `web/src/i18n/dict.ts`：`chat.subtitle` 改述「想看 baseline/judge/cost 请去 Live Compare」（中英两处）；新增 `chat.userLabel` / `chat.momLabel` / `chat.pending` / `chat.empty` 中英
+- `docs/002STRUCTURE.md`：`ChatPage.tsx` 那一行的一句话职责改述
+
+### 涉及文件
+- web/src/pages/ChatPage.tsx：大改成对话式布局
+- web/src/pages/live-shared.tsx：Composer 参数结构调整
+- web/src/i18n/dict.ts：chat.* 段增补 + subtitle 改述
+- docs/002STRUCTURE.md：ChatPage 一句话职责改述
+
+### 关联
+-> ISS-037
+
+---
+
 ## [2026-07-15-2] feat(web): pipeline markdown, chat page split, ranking axis padding [ISS-036]
 
 ### 改动

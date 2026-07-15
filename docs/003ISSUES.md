@@ -1456,6 +1456,32 @@ Phase 6/7 交付 Live 页 SSE 实时流 + Pipeline 页真时序回放后，用�
 -> web/src/i18n/dict.ts（新增 chat.* 键；删 live.rankingPreviewBadge；新增 live.userPromptLabel）
 -> 004CHANGELOG.md [2026-07-15-2]
 
+---
+
+## [ISS-037] Chat 页需要瘦身成"只有提问 + MoM 回答"的对话式界面
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-15
+**解决日期**：2026-07-15
+**解决方案**：ChatPage 只保留 RunSelect + Composer(无 baseline 开关) + StatusStrip + iMessage 气泡对话卡。用户提问在右(灰蓝底 momSoft),MoM 回复在左(白底+边框,MarkdownBody 渲染),回复气泡下方保留 `⏱ latency · tokens · cost` 元数据小字。撤除 Baseline / Judge / Cost 三张卡与"查看请求流程"按钮。后端保持不变——ChatPage 发起 Run 时硬编码 `baseline_on: true`,让切到 Live 页仍能看到完整对比。
+
+**现象**：
+ISS-036 交付的 ChatPage 布局是 RunSelect + Composer(带 baseline 开关) + StatusStrip + `<MomColumn>` / `<BaselineColumn>` 并排 + `<JudgeCard>` / `<CostCard>` 并排 + 「查看请求流程」按钮。等价于把 LivePage 的对比看板压到 Chat 页下面,和"提问"的心智模型不吻合——用户在这里主要是想跟 MoM 对话,不是看对比。
+
+**后果**：
+Chat 页与 Live 页信息冗余;展会现场用户在 Chat 页得到"和 Live 一样的六个卡"体验,弱化"这是 chat"的直觉。
+
+**初步判断**：
+已确认。用户明确要求 Chat 只留一个 chat 的入口,对比留给 Live 页。
+
+**关联**：
+-> web/src/pages/ChatPage.tsx（大改：撤 BaselineColumn/JudgeCard/CostCard/查看流程按钮,加 ConversationView + UserBubble + MomBubble + ErrorBubble + PendingBubble + BubbleRow）
+-> web/src/pages/live-shared.tsx（Composer 的 baselineOn/onBaselineToggle 两个 prop 合并为可选 `baseline?: {on, onToggle}`,不传即隐藏 checkbox）
+-> web/src/i18n/dict.ts（chat.subtitle 改述"想看 baseline/judge/cost 请去 Live";新增 chat.userLabel / chat.momLabel / chat.pending / chat.empty 中英）
+-> 004CHANGELOG.md [2026-07-15-3]
+
 <!--
 新增条目模板：
 

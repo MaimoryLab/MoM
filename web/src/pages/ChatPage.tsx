@@ -1,28 +1,37 @@
-// Chat — the compose surface for MoM.
+// Chat — iMessage-style ask/answer surface.
 //
-// Same LiveJobProvider Context as LivePage, but the layout puts Composer on
-// top with recent-runs dropdown next to it, then the comparison view below
-// (MoM vs Baseline + Judge/Cost). No ranking chart — that lives on Live Compare.
+// Layout:
+//   ┌ RunSelect (top-right) ────────────────────────────────┐
+//   │ Composer (presets + textarea + submit, no baseline UI)│
+//   │ StatusStrip                                           │
+//   │ ┌──────────────── message list ─────────────────────┐ │
+//   │ │                                    [ user right ] │ │
+//   │ │ [ MoM left ]                                      │ │
+//   │ └───────────────────────────────────────────────────┘ │
+//   └───────────────────────────────────────────────────────┘
+//
+// Baseline / Judge / Cost cards live on the Live page; this page keeps only
+// the MoM reply plus latency/tokens/cost metadata under the bubble.
+// Baseline+judge still run on the backend (baseline_on hard-coded true) so
+// switching to the Live page shows the full comparison.
 
 import { useEffect, useState } from 'react';
 import { PageShell } from '../components/layout/PageShell';
-import { Button } from '../components/primitives/Button';
+import { Card } from '../components/primitives/Card';
+import { MarkdownBody } from '../components/primitives/MarkdownBody';
 import { useI18n } from '../i18n/context';
-import { space } from '../theme';
+import { formatCost, formatLatency, formatTokens } from '../i18n/format';
+import { color, font, radius, space } from '../theme';
 import { useLiveJob } from '../hooks/useLiveRun';
-import { navigateTo } from '../App';
 import {
   getPresets, listComparisons,
-  type ComparisonListItem, type PresetEntry,
+  type ComparisonListItem, type ComparisonResponse, type PresetEntry,
 } from '../lib/api';
-import {
-  BaselineColumn, Composer, CostCard, JudgeCard, MomColumn, RunSelect, StatusStrip,
-} from './live-shared';
+import { Composer, RunSelect, StatusStrip } from './live-shared';
 
 export function ChatPage() {
   const { t, lang } = useI18n();
   const [prompt, setPrompt] = useState('');
-  const [baselineOn, setBaselineOn] = useState(true);
   const [presets, setPresets] = useState<PresetEntry[]>([]);
   const [presetsError, setPresetsError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ComparisonListItem[]>([]);
@@ -50,7 +59,7 @@ export function ChatPage() {
   const submit = (text: string) => {
     const p = text.trim();
     if (!p || busy) return;
-    live.submit({ prompt: p, baseline_on: baselineOn, lang });
+    live.submit({ prompt: p, baseline_on: true, lang });
   };
   const onSubmit = () => submit(prompt);
   const onPreset = (preset: PresetEntry) => {
@@ -83,30 +92,186 @@ export function ChatPage() {
           prompt={prompt}
           onPromptChange={setPrompt}
           onSubmit={onSubmit}
-          baselineOn={baselineOn}
-          onBaselineToggle={setBaselineOn}
           presets={presets}
           presetsError={presetsError}
           onPreset={onPreset}
           busy={busy}
         />
         <StatusStrip live={current} polling={live.polling} transportError={live.transportError} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: space.md }}>
-          <MomColumn snap={current} />
-          <BaselineColumn snap={current} />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: space.md }}>
-          <JudgeCard snap={current} />
-          <CostCard snap={current} />
-        </div>
-        {current && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button variant="secondary" onClick={() => navigateTo('pipeline', current.gateway_request_id)}>
-              {t.live.viewPipeline} →
-            </Button>
-          </div>
-        )}
+        <ConversationView snap={current} />
       </div>
     </PageShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Conversation view — one card containing the user bubble + the MoM bubble
+// stacked vertically. iMessage convention: outgoing on the right, incoming
+// on the left. Empty state prompts the user to submit.
+// ---------------------------------------------------------------------------
+
+function ConversationView({ snap }: { snap: ComparisonResponse | null }) {
+  const { t, lang } = useI18n();
+  if (!snap) {
+    return (
+      <Card>
+        <div style={{ padding: `${space.lg} 0`, textAlign: 'center', color: color.textMuted, fontSize: font.size.sm }}>
+          {t.chat.empty}
+        </div>
+      </Card>
+    );
+  }
+  const mom = snap.mom;
+  const err = snap.mom_error?.message ?? null;
+  const pending = !mom && !err;
+  return (
+    <Card>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: space.md }}>
+        <UserBubble text={snap.prompt} />
+        {mom && (
+          <MomBubble
+            text={mom.text}
+            latencyMs={mom.latency_ms}
+            tokens={mom.usage.output_tokens}
+            costUsd={mom.cost_usd ?? 0}
+            lang={lang}
+          />
+        )}
+        {err && <ErrorBubble text={err} />}
+        {pending && <PendingBubble />}
+      </div>
+    </Card>
+  );
+}
+
+function UserBubble({ text }: { text: string }) {
+  const { t } = useI18n();
+  return (
+    <BubbleRow align="right" label={t.chat.userLabel}>
+      <div
+        style={{
+          background: color.momSoft,
+          color: color.textPrimary,
+          borderRadius: `${radius.lg} ${radius.sm} ${radius.lg} ${radius.lg}`,
+          padding: `${space.md} ${space.lg}`,
+          fontSize: font.size.base,
+          lineHeight: 1.55,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+        }}
+      >
+        {text}
+      </div>
+    </BubbleRow>
+  );
+}
+
+function MomBubble({
+  text, latencyMs, tokens, costUsd, lang,
+}: {
+  text: string;
+  latencyMs: number;
+  tokens: number;
+  costUsd: number;
+  lang: 'zh' | 'en';
+}) {
+  const { t } = useI18n();
+  return (
+    <BubbleRow align="left" label={t.chat.momLabel}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: space.sm, alignItems: 'flex-start' }}>
+        <div
+          style={{
+            background: color.surface,
+            border: `1px solid ${color.border}`,
+            color: color.textPrimary,
+            borderRadius: `${radius.sm} ${radius.lg} ${radius.lg} ${radius.lg}`,
+            padding: `${space.md} ${space.lg}`,
+            fontSize: font.size.base,
+            lineHeight: 1.6,
+            width: '100%',
+          }}
+        >
+          <MarkdownBody text={text} cursor={null} />
+        </div>
+        <div style={{ display: 'flex', gap: space.md, fontSize: font.size.xs, color: color.textMuted, paddingLeft: space.sm }}>
+          <span>⏱ {formatLatency(latencyMs, lang)}</span>
+          <span>· {formatTokens(tokens)} {t.live.stats.tokens}</span>
+          <span>· {formatCost(costUsd, lang)}</span>
+        </div>
+      </div>
+    </BubbleRow>
+  );
+}
+
+function ErrorBubble({ text }: { text: string }) {
+  const { t } = useI18n();
+  return (
+    <BubbleRow align="left" label={t.chat.momLabel}>
+      <div
+        style={{
+          background: color.surface,
+          border: `1px solid ${color.negative}`,
+          color: color.negative,
+          borderRadius: `${radius.sm} ${radius.lg} ${radius.lg} ${radius.lg}`,
+          padding: `${space.md} ${space.lg}`,
+          fontSize: font.size.sm,
+        }}
+      >
+        {t.live.momErrorLabel}: {text}
+      </div>
+    </BubbleRow>
+  );
+}
+
+function PendingBubble() {
+  const { t } = useI18n();
+  return (
+    <BubbleRow align="left" label={t.chat.momLabel}>
+      <div
+        style={{
+          background: color.surface,
+          border: `1px dashed ${color.border}`,
+          color: color.textMuted,
+          borderRadius: `${radius.sm} ${radius.lg} ${radius.lg} ${radius.lg}`,
+          padding: `${space.md} ${space.lg}`,
+          fontSize: font.size.sm,
+        }}
+      >
+        {t.chat.pending}
+      </div>
+    </BubbleRow>
+  );
+}
+
+function BubbleRow({
+  align, label, children,
+}: {
+  align: 'left' | 'right';
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+        width: '100%',
+      }}
+    >
+      <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 4, alignItems: align === 'right' ? 'flex-end' : 'flex-start' }}>
+        <span
+          style={{
+            fontSize: font.size.xxs,
+            color: color.textMuted,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            paddingInline: space.sm,
+          }}
+        >
+          {label}
+        </span>
+        {children}
+      </div>
+    </div>
   );
 }

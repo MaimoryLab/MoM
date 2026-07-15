@@ -122,11 +122,15 @@ export const en = {
 
   chat: {
     title: 'Chat',
-    subtitle: 'Ask a question — MoM answers in the box below, with baseline for reference.',
+    subtitle: 'Ask MoM anything — head to Live Compare to see baseline / judge / cost.',
     historyLabel: 'Recent runs',
     historyPlaceholder: '— pick a past run —',
     historyEmpty: 'No runs yet — submit your first one below.',
     newRun: 'New chat',
+    userLabel: 'You',
+    momLabel: 'MoM',
+    pending: 'MoM is thinking…',
+    empty: 'Send a message to start — MoM replies below, iMessage-style.',
   },
 
   pipeline: {
@@ -401,11 +405,15 @@ export const zh: Dict = {
 
   chat: {
     title: '提问',
-    subtitle: '发一个问题，MoM 在下方作答，Baseline 作对照。',
+    subtitle: '直接问 MoM — 想看 Baseline / Judge / 成本对比请去「Live Compare」。',
     historyLabel: '历史记录',
     historyPlaceholder: '— 选一次历史 —',
     historyEmpty: '还没有记录，在下方发送第一条。',
     newRun: '新对话',
+    userLabel: '你',
+    momLabel: 'MoM',
+    pending: 'MoM 正在思考…',
+    empty: '在上方输入并发送，MoM 会像 iMessage 一样在下方回复。',
   },
 
   pipeline: {
