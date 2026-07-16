@@ -1546,6 +1546,36 @@ Overview 页 Cost×效果 图横轴是 `Cost ($ / 1M output token)`——单价�
 -> web/src/components/charts/CostPie.tsx / CostStackedBar.tsx（由 theme 常量间接换色）
 -> web/src/theme.ts（advisorA/B/C 换值 + 新增 rankFlagship）
 
+---
+
+## [ISS-040] Chat / Live 页每 3 秒"自动刷新"一次内容——`useLiveRun` 未按快照内容去重，且 select 已终态历史时仍启动轮询
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：见 CHANGELOG [2026-07-16-2]。`useLiveRun.tick` 在 `setState` 里按 `gateway_request_id + updated_at + status` 三元组做 snap 去重，identical 情况下 `nextCurrent = s.current` 引用不变、`polling` 也按终态推导，触发 React `Object.is` 短路直接跳过重渲染；`select(gwId)` 不再在拉数据前抢先翻 `polling: true / current: null`，而是保留旧 snap，让 `tick` 拿到新 snap 后按其状态自动翻 `polling` 标志；ChatPage / LivePage 的 `listComparisons` 依赖数组由 `[gw, status]` 收窄为 `${gw}:${terminal? status : 'active'}`，中间态 `pending → mom_done → baseline_done` 不再各触发一次列表 refetch。
+
+**现象**：
+在 `#chat` 提交一次 prompt、或在 `#chat` / `#live` 从"最近调用"下拉里点开某条历史记录后，页面每隔约 3 秒会整体"刷新"一次——Recharts 判官雷达图、MoM/Baseline Markdown、成本卡片、历史下拉全部重绘一遍。即便被选中的历史条目状态已经是终态（`judge_done` / `error`），首次点开也会看到"整块 UI 短暂空一次再填回"的抖动。
+
+**后果**：
+展会现场观众会误以为系统"在悄悄重新调用一次"，实际上后端并没有变化。抖动破坏 Live 演示的静态观感；对录制视频 / 截屏也不友好。
+
+**初步判断**：
+已确认。三处联动导致：
+1. `web/src/hooks/useLiveRun.ts:tick()` 每次拉到 `getComparison(gwId)` 都无条件 `setState({ ...s, current: snap })`，即便 `snap.updated_at` 与已有 `state.current.updated_at` 完全相同，React 也会因为 `current` 引用变化而向下重渲染整棵 `useLiveJob()` 订阅子树。
+2. `web/src/hooks/useLiveRun.ts:select(gwId)` 无论目标运行是不是终态，都先把 `polling: true / current: null` 写进 state，再打 `tick(gwId)`；网络往返 ~150 ms 内 UI 空一次；点开一个 `judge_done` 的老会话本不需要进入"轮询态"。
+3. `web/src/pages/ChatPage.tsx:44-50` 与 `web/src/pages/LivePage.tsx:29-35` 的 `useEffect` 依赖数组是 `[live.current?.gateway_request_id, live.current?.status]`；在轮询过程中 `status` 每跨过一档（`pending → mom_done → baseline_done → judge_done`）都会重新 `listComparisons(20)`，历史下拉跟着重画。
+
+**关联**：
+-> web/src/hooks/useLiveRun.ts:65-95（`tick` 加 snap 去重 + `polling` 由终态推导）
+-> web/src/hooks/useLiveRun.ts:114-123（`select` 不再抢先翻 `polling: true / current: null`）
+-> web/src/pages/ChatPage.tsx:44-55（`historyKey` 收窄依赖）
+-> web/src/pages/LivePage.tsx:29-40（同上）
+-> 004CHANGELOG.md [2026-07-16-2]
+
 <!--
 新增条目模板：
 

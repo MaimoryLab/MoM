@@ -1,3 +1,26 @@
+## [2026-07-16-2] fix(web): stop 3-second auto-refresh flicker on chat / live [ISS-040]
+
+### 改动
+- `web/src/hooks/useLiveRun.ts:tick`：把 `setState({ ...s, current: snap })` 改成 updater 版本，先按 `gateway_request_id + updated_at + status` 三元组做 snap 去重——identical 情况下返回 `s.current` 引用不变、`polling` 也按 `isTerminalStatus(snap.status)` 直接推导；当 `current / polling / transportError` 都无变化时直接 `return s`，React 走 `Object.is` 短路跳过整棵 `useLiveJob()` 订阅子树的重渲染
+- `web/src/hooks/useLiveRun.ts:select`：不再在拉数据前抢先 `setState({ current: null, polling: true })`——原写法在点开一条已 `judge_done` 的历史时会让整块 UI 空一次再填回；现在保留旧 snap，`polling` 起始为 `false`，`tick` 拿到新 snap 后按其状态自动翻 `polling` 标志（终态则维持 `false`，非终态才拉起下一轮定时器）
+- `web/src/pages/ChatPage.tsx` / `web/src/pages/LivePage.tsx`：`listComparisons(20)` 的 `useEffect` 依赖数组从 `[live.current?.gateway_request_id, live.current?.status]` 收窄为 `${gw}:${terminal? status : 'active'}` 拼串——中间态 `pending → mom_done → baseline_done` 全部归到 `'active'`，只有"接到首个 snap"和"跨到终态"这两个真正会影响历史列表的时刻才触发 refetch
+
+### 涉及文件
+- web/src/hooks/useLiveRun.ts：`tick` snap 去重 + `select` 保留旧 snap 不抢先翻 `polling`
+- web/src/pages/ChatPage.tsx：`historyKey` 收窄 `listComparisons` 依赖
+- web/src/pages/LivePage.tsx：同上
+- docs/003ISSUES.md：新增 ISS-040，状态 [已解决]
+
+### 自检
+- `npm run typecheck`：退出码 0，无输出
+- `npm run build`：退出码 0，`tsc -p tsconfig.json` 通过
+- `npm run build:web`：退出码 0，vite build 输出 `dist/assets/index-BzQKoHr8.js 839.06 kB │ gzip: 237.10 kB`（与 ISS-039 交付时相当，仅 hook / effect 依赖调整，无组件新增/删除）
+- 增量项：`node -e '(await fetch("/api/comparison/:gw")).updated_at === (await fetch(...)).updated_at' → true`——确认后端在 snap 不变时 `updated_at` 稳定，是 tick 去重的合法 dedup key（curl 见 PR body）
+- 待人工验证：在 chrome 打开 `http://localhost:5173/dashboard/#chat`，发一次 prompt，观察 MoM 主答案/Baseline 主答案/Judge 雷达图/Cost 卡从进入到状态终态之间只在"每次 status 前进一档"时才刷一次，闲置的 3 秒 tick 应看不到任何视觉抖动；然后从"最近调用"下拉里点一条已完成的历史，确认不再看到"整块空一下再回填"
+
+### 关联
+-> ISS-040
+
 ## [2026-07-16-1] polish(web): dashboard four-page UI polish — button center / ranking hoist + amber / pipeline advisor float + aggregator card / cost tri-color [ISS-039]
 
 ### 改动

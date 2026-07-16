@@ -26,13 +26,19 @@ export function LivePage() {
   const [jobsError, setJobsError] = useState<string | null>(null);
   const live = useLiveJob();
 
+  // Only refetch history when a run *finishes* or the user selects a different
+  // gateway_request_id — intermediate polling ticks don't change list contents
+  // and would just cause the dropdown to redraw every 3 s.
+  const historyKey = live.current
+    ? `${live.current.gateway_request_id}:${live.current.status === 'judge_done' || live.current.status === 'error' ? live.current.status : 'active'}`
+    : null;
   useEffect(() => {
     let cancelled = false;
     listComparisons(20)
       .then((res) => { if (!cancelled) setJobs(res.items); })
       .catch((err) => { if (!cancelled) setJobsError(err instanceof Error ? err.message : String(err)); });
     return () => { cancelled = true; };
-  }, [live.current?.gateway_request_id, live.current?.status]);
+  }, [historyKey]);
 
   const current = live.current;
   const currentGw = current?.gateway_request_id ?? null;
