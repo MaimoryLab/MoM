@@ -8,10 +8,19 @@ import { color, font, shadow } from '../../theme';
 import { useI18n } from '../../i18n/context';
 import { normalizeBenchmarkRows } from '../../lib/benchmark-data';
 
+// Round up to the next "nice" step so the axis hugs the real max without
+// wasting the top of the chart. Step scales with magnitude: 0.01 / 0.1 / 1 /
+// 5 / 10 / 50 depending on how large the values are.
 function axisMax(value: number): number {
   if (value <= 0) return 1;
-  const magnitude = 10 ** Math.floor(Math.log10(value));
-  return Math.ceil(value / magnitude) * magnitude;
+  const step =
+    value < 0.1 ? 0.01 :
+    value < 1   ? 0.1  :
+    value < 10  ? 1    :
+    value < 50  ? 5    :
+    value < 100 ? 10   :
+    50;
+  return Math.ceil(value / step) * step;
 }
 
 const STATIC_PER_BENCHMARK = normalizeBenchmarkRows(benchmarks.per_benchmark);
@@ -19,9 +28,12 @@ const STATIC_PER_BENCHMARK = normalizeBenchmarkRows(benchmarks.per_benchmark);
 export function CostBarChart() {
   const { t } = useI18n();
   const { costDomain, costDecimals } = useMemo(() => {
-    const costs = STATIC_PER_BENCHMARK.flatMap((row) => [
-      row.momCost, row.aggCost, row.flagshipCost, row.gptCost,
-    ]);
+    // Filter out placeholder zeros in a not-yet-filled series so a single
+    // 0-cost bar doesn't drag the max down or force the ceiling logic to
+    // pick an inappropriate magnitude.
+    const costs = STATIC_PER_BENCHMARK
+      .flatMap((row) => [row.momCost, row.aggCost, row.flagshipCost, row.gptCost])
+      .filter((v) => v > 0);
     const maxCost = costs.length > 0 ? Math.max(...costs) : 1;
     return {
       costDomain: [0, axisMax(maxCost)] as [number, number],
@@ -38,6 +50,7 @@ export function CostBarChart() {
             dataKey="bench"
             stroke={color.axisLabel}
             interval={0}
+            tickFormatter={(v: string) => t.overview.benchLabels[v] ?? v}
             tick={{ fontSize: 11, fill: color.axisLabel }}
             tickLine={false}
           />
@@ -45,10 +58,10 @@ export function CostBarChart() {
             domain={costDomain}
             stroke={color.axisLabel}
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
-            tickFormatter={(v: number) => `$${v.toFixed(costDecimals)}`}
+            tickFormatter={(v: number) => `¥${v.toFixed(costDecimals)}`}
             label={{ value: t.overview.comboAxisCost, angle: -90, position: 'left', fill: color.textSecondary, fontSize: font.size.xs, offset: 8 }}
           />
-          <Tooltip content={<CostTooltip />} cursor={{ fill: color.gridLine, fillOpacity: 0.4 }} isAnimationActive={false} />
+          <Tooltip content={<CostTooltip benchLabels={t.overview.benchLabels} />} cursor={{ fill: color.gridLine, fillOpacity: 0.4 }} isAnimationActive={false} />
           <Legend content={<SingleRowLegend />} wrapperStyle={{ fontSize: font.size.md, paddingTop: 10 }} />
           <Bar dataKey="flagshipCost" name={t.overview.legend.flagship}        fill={color.rankFlagship}   radius={[3,3,0,0]} barSize={10} isAnimationActive={false} />
           <Bar dataKey="gptCost"      name={t.overview.legend.gpt56Sol}        fill={color.coralRed}       radius={[3,3,0,0]} barSize={10} isAnimationActive={false} />
@@ -79,12 +92,15 @@ function CostTooltip({
   active,
   payload,
   label,
+  benchLabels,
 }: {
   active?: boolean;
   payload?: Array<{ dataKey: string; value: number; color: string; name: string }>;
   label?: string;
+  benchLabels?: Record<string, string>;
 }) {
   if (!active || !payload || payload.length === 0) return null;
+  const displayLabel = (label && benchLabels?.[label]) || label;
   return (
     <div style={{
       background: color.surface,
@@ -96,14 +112,14 @@ function CostTooltip({
       color: color.textPrimary,
       minWidth: 200,
     }}>
-      <div style={{ fontWeight: font.weight.semibold, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontWeight: font.weight.semibold, marginBottom: 6 }}>{displayLabel}</div>
       {payload.map((p) => (
         <div key={p.dataKey} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, color: color.textSecondary, fontSize: font.size.xxs }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 10, height: 10, background: p.color, borderRadius: 2 }} />
             {p.name}
           </span>
-          <span style={{ fontFamily: 'ui-monospace, monospace', color: color.textPrimary }}>${p.value.toFixed(4)}</span>
+          <span style={{ fontFamily: 'ui-monospace, monospace', color: color.textPrimary }}>¥{p.value.toFixed(4)}</span>
         </div>
       ))}
     </div>

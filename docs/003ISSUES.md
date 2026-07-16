@@ -1704,6 +1704,71 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> web/src/components/charts/ParetoChart.tsx（只保留 fable5 / gpt56Sol / mom / aggOnly；颜色映射与柱图对齐；legend 与散点尺寸放大）
 -> 004CHANGELOG.md [2026-07-16-6]
 
+## [ISS-045] Overview 得分/成本柱图纵轴不贴合真实数据 + 成本单位错标
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：两张柱图的 domain 计算都过滤掉占位 `0`（`gpt_score`/`gpt_cost` 未填时），只用非零值取 min/max，`ScoreBarChart` 得分域从而由 `[0, 90]` 收敛到 `[30, 80]`，柱体填满绘图区；YAxis 加 `allowDecimals={false}` 强制整数 tick。`CostBarChart` 除同样过滤占位 0 外，`axisMax` 改成分段 step（`<0.1/1/10/50/100` 分别用 `0.01/0.1/1/5/10/50`），当前数据 max 140.9 收敛到 150 而不是 200，顶部空白由 29.5% 降到 6.5%；Y 轴与 tooltip 货币符号从 `$` 改为 `¥`（数据一直是 CNY per Q&A，跟 Pareto x 轴同口径），`overview.comboAxisCost` i18n 由 `Cost ($ / 1k token)` 改为 `Cost (CNY per Q&A)`。
+
+**现象**：
+- ScoreBarChart 里 `gpt_score` 全部占位 0，Recharts 把 auto-domain 拉到 `[0, 90]`，真数据 40-60 被压到图表上半段，视觉信息量塌陷；
+- CostBarChart Y 轴 tick 和 tooltip 都写死 `$`，但 `per_benchmark[i].*_cost` 一直是 CNY per Q&A（Pareto 图 x 轴标注一致），单位错。
+
+**后果**：展厅观众读得分图看不出模型之间的实际差距（都挤在中间那一段）；读成本图会以为是美元，跟 Pareto x 轴口径打架。
+
+**初步判断**：已确认，两处都是配置层可修复的 UI 数据。
+
+**关联**：
+-> web/src/components/charts/ScoreBarChart.tsx（`scoreDomain` 过滤占位 0；YAxis `allowDecimals={false}`）
+-> web/src/components/charts/CostBarChart.tsx（`costDomain` 过滤占位 0；`$` → `¥`）
+-> web/src/i18n/dict.ts（`overview.comboAxisCost` 英文改为 CNY per Q&A；中文原本已是 `¥`）
+-> 004CHANGELOG.md [2026-07-16-7]
+
+## [ISS-046] Overview 柱图 X 轴 benchmark 名走 i18n dict，不再直接读 JSON 原字符串
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`data/benchmarks.json` 里 `per_benchmark[i].bench` 保持 en 原字符串（数据源单一），`web/src/i18n/dict.ts` 里 `overview.benchLabels` 新增中英两份映射；两张柱图 `XAxis` 用 `tickFormatter` 在渲染时把原字符串替换成本地化标签，`Tooltip` header 也走同一份 dict。dict 里未登记的新 bench → fallback 显示 en 原字符串（不会空）。
+
+**现象**：
+- 两张柱图 X 轴直接把 `benchmarks.json` 里的 `bench` 字符串（en）画到轴上，中文语言态下英文标签夹在其它翻译好的 UI 之间不协调；
+- 长标签 `Shopping/Product Comparison` 挤在 X 轴上视觉溢出。
+
+**后果**：展厅 zh 语言下 X 轴单独说英语，落地体验割裂。
+
+**初步判断**：已确认，i18n 层缺 benchmark label 词条，UI 层直读 JSON。
+
+**关联**：
+-> web/src/i18n/dict.ts（`overview.benchLabels` 中英两份）
+-> web/src/components/charts/ScoreBarChart.tsx（XAxis `tickFormatter` + Tooltip 注入 benchLabels）
+-> web/src/components/charts/CostBarChart.tsx（同上）
+-> 004CHANGELOG.md [2026-07-16-8]
+
+## [ISS-047] Pareto 图 legend 文本彩色，与两张柱图 legend 样式不一致
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`ParetoChart.tsx` 里的 `<Legend />` 换成 `content={<ParetoLegend />}`，字面 clone `SingleRowLegend`——`color.textSecondary` 文字 + 16×16 彩色 swatch + `font.size.md` + gap 24，颜色只出现在方块上，文字统一灰。
+
+**现象**：Pareto 图 legend 沿用 Recharts 默认渲染，text 被染成 series 颜色；ScoreBarChart / CostBarChart 上面已经是「灰字 + 彩色方块」——三张图对比明显割裂。
+
+**后果**：展厅纵览三张图时视觉不一致，观众第一眼容易误以为 Pareto 图和柱图讲的不是同一批模型。
+
+**初步判断**：已确认，Recharts `<Legend />` 默认 `payload.color` 直接进文本 color。
+
+**关联**：
+-> web/src/components/charts/ParetoChart.tsx（新增 `ParetoLegend` 组件；`<Legend content={<ParetoLegend />} />`）
+-> 004CHANGELOG.md [2026-07-16-9]
+
 <!--
 新增条目模板：
 

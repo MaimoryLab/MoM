@@ -1,3 +1,64 @@
+## [2026-07-16-9] fix(web): pareto legend uses neutral text + colored swatch [ISS-047]
+
+### 改动
+- `web/src/components/charts/ParetoChart.tsx`：`<Legend />` 默认渲染把 legend 文本染成 series 颜色，视觉上和 ScoreBarChart / CostBarChart 的「灰字 + 彩色小方块」样式割裂；替换成 `content={<ParetoLegend />}` 自定义组件，样式与两张柱图的 `SingleRowLegend` 完全一致（`color.textSecondary` 文字 + 16×16 彩色 swatch + `font.size.md` + gap 24）
+
+### 涉及文件
+- web/src/components/charts/ParetoChart.tsx：Legend 换成自定义 `ParetoLegend`，与柱图 legend 统一
+
+### 自检
+- `npm run typecheck`：退出码 0
+- `npm run build:web`：退出码 0，vite 产物体积无显著变化
+- 增量项：本地打开 http://localhost:5173/dashboard/#overview，三张图的 legend 现在文本都是灰字、颜色只出现在方块上；rankFlagship / coralRed / mom / aggregatorOnly 四家 swatch 颜色与两张柱图一致
+- 待人工验证：无
+
+### 关联
+-> ISS-047
+
+## [2026-07-16-8] feat(web): overview bar x-axis labels through i18n dict [ISS-046]
+
+### 改动
+- `web/src/i18n/dict.ts`：`overview.benchLabels` 新增，键沿用 `data/benchmarks.json` 里的 10 个 `bench` 原字符串（`Academic / Finance / General Knowledge / Law / Medicine / Needle in a Haystack / Personalized Assistant / Shopping/Product Comparison / Technology / UX Design`），英文原样，中文改译成 `学术 / 金融 / 通识 / 法律 / 医学 / 长上下文检索 / 个人助手 / 购物 / 商品对比 / 科技 / 交互设计`
+- `web/src/components/charts/ScoreBarChart.tsx` & `CostBarChart.tsx`：`XAxis` 加 `tickFormatter={(v) => t.overview.benchLabels[v] ?? v}`——JSON 里 `bench` 仍是 en 原字符串（保持数据层不变），只在渲染时替换成本地化标签；`Tooltip content={<Xxx benchLabels={t.overview.benchLabels} />}`，让 tooltip 顶栏的 category header 也走翻译，同时保留「dict 里未登记的新 bench → 直接展示原字符串」的兜底
+
+### 涉及文件
+- web/src/i18n/dict.ts：新增 `overview.benchLabels`（中英两份）
+- web/src/components/charts/ScoreBarChart.tsx：XAxis tickFormatter + Tooltip 注入 benchLabels
+- web/src/components/charts/CostBarChart.tsx：同上
+
+### 自检
+- `npm run typecheck`：退出码 0
+- `npm run build:web`：退出码 0，vite 产物 843.05 kB（gzip 237.87 kB），dict 新增字段带来的体积变化 ~1 kB
+- 增量项：本地切换 EN / ZH，两张柱图 x 轴都跟着切换标签，长标签「Shopping / Product Comparison」在 zh 下变成「购物 / 商品对比」不再溢出
+- 待人工验证：新增 benchmark 时记得在 dict.ts 补 key，缺失时前端会 fallback 到 en 原字符串（不会显示成空）
+
+### 关联
+-> ISS-046
+
+## [2026-07-16-7] fix(web): score/cost axes hug real data, cost unit to CNY [ISS-045]
+
+### 改动
+- `web/src/components/charts/ScoreBarChart.tsx`：`scoreDomain` 计算过滤掉占位 `0`（`gpt_score` 尚未填数时），只对非零分数取 min/max × 10 向下/向上取整——此前 `gpt_score: 0` 把 auto-domain 拉到 `[0, 90]`，真数据 40-60 被压到图表上半段；过滤后域收敛到 `[floor(min/10)*10, ceil(max/10)*10]`（当前数据 [30, 80]），柱体填满绘图区
+- `web/src/components/charts/ScoreBarChart.tsx`：YAxis 加 `allowDecimals={false}`，Recharts 只在整数位置画 tick，摆脱 22.5 / 67.5 这类非整数网格
+- `web/src/components/charts/CostBarChart.tsx`：`costDomain` 计算同样过滤占位 `0`，避免未填数据的 series 拖低 max
+- `web/src/components/charts/CostBarChart.tsx`：`axisMax` 由「取到当前量级 10^n 的整倍」改为分段 step（`< 0.1 / 1 / 10 / 50 / 100` 分别用 `0.01 / 0.1 / 1 / 5 / 10 / 50`），当前 max 140.9 收敛到 150 而不是 200，顶部空白由 29.5% 降到 6.5%
+- `web/src/components/charts/CostBarChart.tsx`：Y 轴 `tickFormatter` 由 `$` 改为 `¥`；tooltip 里 `${p.value.toFixed(4)}` 同步改为 `¥`——数据本身是 CNY per Q&A（与 Pareto 图 x 轴口径一致），只是符号之前误写成 `$`
+- `web/src/i18n/dict.ts`：`overview.comboAxisCost` 英文由 `'Cost ($ / 1k token)'` 改为 `'Cost (CNY per Q&A)'`；中文 `'成本（¥）'` 保持
+
+### 涉及文件
+- web/src/components/charts/ScoreBarChart.tsx：得分 Y 轴按真数据收敛 + 强制整数 tick
+- web/src/components/charts/CostBarChart.tsx：成本 Y 轴按真数据收敛 + 货币符号 $ → ¥
+- web/src/i18n/dict.ts：cost 轴 label 由 token 口径改为「CNY per Q&A」
+
+### 自检
+- `npm run typecheck`：退出码 0，无输出
+- `npm run build:web`：退出码 0，vite 产物无体积变化
+- 增量项：本地打开 http://localhost:5173/dashboard/#overview，得分图 Y 轴 30-80 之间（跟真实 40-60 数据紧贴），成本图 Y 轴 0-150（当前 max 140.9，顶部空白 ~6.5%），tick 与 tooltip 都是 `¥` 前缀；本地 `node -e` 校验 `axisMax` 在多个量级都收敛到期望值（140.9→150 / 95→100 / 45→45 / 8.3→9 / 0.42→0.5）
+- 待人工验证：GPT 5.6 sol 的真实 per-benchmark 分数/成本仍待评测组填入 `data/benchmarks.json`——填入后域会自动扩展（含新值）而不再被占位 0 干扰
+
+### 关联
+-> ISS-045
+
 ## [2026-07-16-6] feat(web): overview add GPT 5.6 sol + split combo bars [ISS-044]
 
 ### 改动
