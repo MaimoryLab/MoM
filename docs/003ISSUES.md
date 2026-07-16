@@ -1668,6 +1668,42 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> ISS-038 (`644cae4` 提交时 dangling reference)
 -> 004CHANGELOG.md [2026-07-16-5]
 
+## [ISS-044] Overview 页扩展第四家 flagship（GPT 5.6 sol）并把 per-benchmark 图拆成得分/成本两张柱图
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：Overview 顶部 KPI 由 3 张扩到 4 张，新增「GPT 5.6 sol avg score」，读 `data/benchmarks.json` `pareto_data.gpt56Sol.score`；`ComboChart`（折线 + 柱状 combo）删除，改为并列的 `ScoreBarChart` + `CostBarChart` 两张纯柱状图，四条 series 顺序统一为 Fable 5 / GPT 5.6 sol / MoM / Aggregator-only，色系一一对应 `rankFlagship / coralRed / mom / aggregatorOnly`；X 轴 `interval={0} + fontSize:11` 让 `Shopping/Product Comparison` 长标签不再被 Recharts 抽稀；Pareto 图同步只保留同四家、颜色与柱图一比一；三张图的 legend 字号从 `xs`(15) 提到 `md`(20)，Pareto 散点体积从 130/260 → 260/520（ZAxis range 300 → 700）。`per_benchmark` 每行新增 `gpt_score / gpt_cost` 双字段（先占位 0，评测组后续填数）。
+
+**现象**：
+- Overview KPI 只列 Fable 5 / MoM / Aggregator-only 三家，缺 GPT 5.6 sol；
+- `ComboChart` 折线 + 柱状同时映射两个 Y 轴，只跑 3 家、GPT 5.6 sol 无位置；
+- X 轴长标签（如 `Shopping/Product Comparison`）在默认 `interval="preserveStartEnd"` 下被抽稀，用户看不到；
+- Pareto 图跑 7 个模型点，颜色和柱图不一致，四家展厅叙事被稀释；
+- 三张图 legend 字号偏小，展厅投屏可读性差。
+
+**后果**：
+- 展厅叙事缺一个直接对比对象（GPT 5.6 sol），说服链条不完整；
+- combo 图混合坐标轴对非技术观众不友好；
+- 长 X 轴标签抽稀导致「10 项 benchmark 只看到 5 项」的信息丢失。
+
+**初步判断**：
+已确认。`per_benchmark[i]` 只有 `mom/agg/flagship` 三家字段；`pareto_data` 已有 `gpt56Sol` 但未在 KPI/combo 里用；`ComboChart.tsx` XAxis 未设 `interval`。
+
+**关联**：
+-> data/benchmarks.json（`per_benchmark` 每行加 `gpt_score / gpt_cost`）
+-> web/src/lib/api.ts（`BenchmarkRow` 加两字段）
+-> web/src/lib/benchmark-data.ts（`ChartBenchmarkRow` + normalizer 加 `gptScore / gptCost`）
+-> web/src/i18n/dict.ts（`kpi.scoreGpt56 / scoreGpt56Hint`；`scoreBarTitle / scoreBarSubtitle / costBarTitle / costBarSubtitle`；`legend.gpt56Sol`）
+-> web/src/pages/OverviewPage.tsx（4 KPI + 2 张柱图 + Pareto；KPI 数字着色为对应柱色）
+-> web/src/components/charts/ScoreBarChart.tsx（新）
+-> web/src/components/charts/CostBarChart.tsx（新）
+-> web/src/components/charts/ComboChart.tsx（删）
+-> web/src/components/charts/ParetoChart.tsx（只保留 fable5 / gpt56Sol / mom / aggOnly；颜色映射与柱图对齐；legend 与散点尺寸放大）
+-> 004CHANGELOG.md [2026-07-16-6]
+
 <!--
 新增条目模板：
 

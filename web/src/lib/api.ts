@@ -244,9 +244,11 @@ export interface BenchmarkRow {
   mom_score: number;
   agg_score: number;
   flagship_score: number;
+  gpt_score: number;
   mom_cost: number;
   agg_cost: number;
   flagship_cost: number;
+  gpt_cost: number;
 }
 
 export interface BenchmarksResponse {

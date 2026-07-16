@@ -1,3 +1,39 @@
+## [2026-07-16-6] feat(web): overview add GPT 5.6 sol + split combo bars [ISS-044]
+
+### 改动
+- `data/benchmarks.json`：`per_benchmark` 每行新增 `gpt_score / gpt_cost`（默认占位 0，评测组后续填数）
+- `web/src/lib/api.ts`：`BenchmarkRow` 加 `gpt_score / gpt_cost`
+- `web/src/lib/benchmark-data.ts`：`ChartBenchmarkRow` + `normalizeBenchmarkRows` 加 `gptScore / gptCost`
+- `web/src/i18n/dict.ts`：新增 `overview.kpi.scoreGpt56 / scoreGpt56Hint`；`overview.comboTitle/comboSubtitle` 拆成 `scoreBarTitle / scoreBarSubtitle / costBarTitle / costBarSubtitle`；`overview.legend.gpt56Sol`（中英各一份）
+- `web/src/pages/OverviewPage.tsx`：Overview 顶部 KPI 由 3 张扩到 4 张，`gridTemplateColumns` 从 3 → 4 列；4 张数字分别用 `rankFlagship / coralRed / mom / aggregatorOnly` 着色；`ComboChart` 一张卡片被拆成 `ScoreBarChart`（上）+ `CostBarChart`（下）两张卡
+- `web/src/components/charts/ScoreBarChart.tsx` 新增：4 series 纯柱图（`flagshipScore / gptScore / momScore / aggScore`），色 `rankFlagship / coralRed / mom / aggregatorOnly`；X 轴 `interval={0}` + `fontSize:11` 防长标签被抽稀；Legend 字号 `font.size.md`(20)、色块 16×16
+- `web/src/components/charts/CostBarChart.tsx` 新增：4 series 纯柱图（`flagshipCost / gptCost / momCost / aggCost`），色映射同上；Y 轴 `$` tick formatter；X 轴同 ScoreBarChart 处理
+- `web/src/components/charts/ComboChart.tsx` 删除（Overview 是唯一消费者）
+- `web/src/components/charts/ParetoChart.tsx`：`NON_MOM_PALETTE` 换成 `KEPT_IDS + COLOR_BY_ID` 显式映射；`paretoData` 过滤只保留 `fable5 / gpt56Sol / mom / aggOnly`；散点 size 130/260 → 260/520，`<ZAxis range={[220, 700]}>` 同步放大；Legend 字号 `font.size.md`(20)
+- `docs/002STRUCTURE.md`：`charts/` 行更新为剔除 `ComboChart` + 新增 `ScoreBarChart / CostBarChart`，标注 ISS-044；`data/benchmarks.json` 行标注 ISS-044 新增 `gpt_score/gpt_cost` 字段
+- `docs/001ARCHITECTURE.md:314`：Overview 页描述从「3 KPI + Pareto 三点 + combo（折线+柱）」改为「4 KPI + Pareto 四点 + score bars + cost bars」
+
+### 涉及文件
+- data/benchmarks.json：`per_benchmark` schema 扩两字段
+- web/src/lib/api.ts、web/src/lib/benchmark-data.ts：BenchmarkRow / ChartBenchmarkRow 类型同步扩展
+- web/src/i18n/dict.ts：KPI + 柱图标题 + legend 双语键新增；旧 combo 键退休
+- web/src/pages/OverviewPage.tsx：卡片布局 3 → 4，combo 卡 → score 卡 + cost 卡
+- web/src/components/charts/ScoreBarChart.tsx（新）
+- web/src/components/charts/CostBarChart.tsx（新）
+- web/src/components/charts/ComboChart.tsx（删）
+- web/src/components/charts/ParetoChart.tsx：只保留 4 家；颜色与柱图 1:1；legend + 散点放大
+- docs/001ARCHITECTURE.md、docs/002STRUCTURE.md、docs/003ISSUES.md、docs/004CHANGELOG.md：同步
+
+### 自检
+- `npm run typecheck`：退出码 0，无输出
+- `npm run build`：退出码 0，`tsc -p tsconfig.json` 通过
+- `npm run build:web`：退出码 0，vite 产物 842.06 kB（gzip 237.38 kB），与前一版持平
+- 增量项：以 `Shopping/Product Comparison` 作为最长标签样本，本地 dev 打开 http://localhost:5173/dashboard/#overview 确认 X 轴 10 条 benchmark 全部可见、legend 明显放大、Pareto 只剩四家散点且颜色与上方柱图对齐
+- 待人工验证：GPT 5.6 sol 真实 per-benchmark 分数与成本（评测组把 `gpt_score / gpt_cost` 从占位 0 覆盖为真值）
+
+### 关联
+-> ISS-044
+
 ## [2026-07-16-5] fix(web): pareto tooltip reads d.cost not d.costCny [ISS-043]
 
 ### 改动

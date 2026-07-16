@@ -311,7 +311,7 @@ Vite + React + TS 独立子工程（`web/`），构建产物挂在网关 `/dashb
 
 五页，通过左侧固定 Sidebar 切换：
 
-- **Overview** `pages/OverviewPage.tsx` — Pareto 效果-成本散点（Aggregator-only / MoM / Flagship 三点）+ per-benchmark combo（折线 score + 柱状 tokens）+ 3 KPI（quality vs flagship / cost vs flagship / wins-ties-losses）
+- **Overview** `pages/OverviewPage.tsx` — 4 KPI（Fable 5 / GPT 5.6 sol / MoM / Aggregator-only 平均分，数字与柱图同色）+ per-benchmark 得分柱图（`ScoreBarChart`）+ per-benchmark 成本柱图（`CostBarChart`）+ Pareto 效果-成本散点（同四家；ISS-044 起 combo 图退休、Pareto 剔除 opus47/deepseekV4Pro/kimiK26）
 - **Live Compare** `pages/LivePage.tsx` — 顶部 5 个预置 prompt shelf（click 立即 Run）+ textarea 自定义输入 + Baseline checkbox + Run/Cancel 主 CTA + MoM 真 SSE 增量流出（Phase 7 起 `MarkdownBody` 渲染，支持代码块 / 表格 / 列表） + Baseline 到达后打字机播放（同样走 markdown）+ Judge 5 维雷达（correctness/completeness/depth/clarity/usefulness，Phase 6 起真调用）+ 成本对比条 + "→ 查看请求流程" 按钮（Phase 7 起，`live.gatewayRequestId` 就绪后带 gwId 跳 Pipeline 页）+ 底部相对排名图（Phase 7 起 seed=gwId 伪随机 + MoM 偏置 rank 1/2）
 - **Pipeline** `pages/PipelinePage.tsx` — Phase 7 起接真 trace 数据：页顶 TurnSelect 拉 `/api/traces?limit=20&role=aggregator` 下拉 + URL `?turn=<gwId>` 双入口；选中拉 `/api/traces/by-gateway/:gwId` 得 N+1 上游 trace；节点时序从每条 trace 的 `started_at / finished_at` 反演（`compressTimeline`），总时长 > 5s 自动等比压缩；`FanoutFlow` 视图展示 user → N advisor 并行 → assembly → aggregator → final，Speed toggle 0.5x/1x/2x 与 Replay 按钮工作；`DiffModal` 从 aggregator trace `request_summary` + advisor previews 组装；passthrough turn 走 `PassthroughFlow` 单节点视图
 - **Cost** `pages/CostPage.tsx` — 会话节省 banner + 4 KPI（total / per-turn / cache_hit / advisor:aggregator:judge 占比）+ 每轮堆叠柱（advisor slots + aggregator + judge）+ 组成饼图 + 5 角色 cache_read/write/miss 横向条 + 累计成本时间线（MoM vs Flagship-only）

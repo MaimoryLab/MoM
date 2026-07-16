@@ -12,7 +12,7 @@ MoM/
 ├── .gitignore
 ├── data/                          # gitignore；业务配置与本地状态存放目录（`benchmarks.json` 显式白名单入库）
 │   ├── mom.config.json            # MoMConfig 持久化（首次启动自动写入 DEFAULT_MOM_CONFIG）
-│   └── benchmarks.json            # 新增 — Phase 4；评测组维护，Overview 页 Pareto/combo/heroStats 静态数据
+│   └── benchmarks.json            # 新增 — Phase 4；评测组维护，Overview 页 Pareto/柱图/heroStats 静态数据；ISS-044 起 per_benchmark 每行增 gpt_score/gpt_cost 双字段（当前占位 0）
 ├── scripts/                       # 新增 — ISS-010；一次性运维脚本
 │   └── sync-pricing.mjs           # 拉取 provider `/v1/models`，把 per-token 价格换算成 per-1M-tokens ModelPricing 灌进 mom.config.json.pricing_table；`--currency`（默认 CNY）+ `--overwrite` / `--dry-run`
 ├── src/                           # 网关服务（后端）
@@ -117,7 +117,7 @@ MoM/
 │       ├── components/            # 新增 — ISS-028
 │       │   ├── layout/            # Sidebar / PageShell
 │       │   ├── primitives/        # Card / KpiCard / Badge / Button / MarkdownBody (Phase 7 起，react-markdown + remark-gfm 封装；ISS-036 加 flush prop 用于嵌入已有容器不双滚动)
-│       │   └── charts/            # Pareto / Combo / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029; Phase 7 起 prop 从 preset 改为 seed；ISS-036 起 YAxis domain 加对称 padding [0.6, 3.4] 避免 rank 3 贴 X 轴)
+│       │   └── charts/            # Pareto / ScoreBarChart / CostBarChart / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029; Phase 7 起 prop 从 preset 改为 seed；ISS-036 起 YAxis domain 加对称 padding [0.6, 3.4] 避免 rank 3 贴 X 轴；ISS-044 起 ComboChart 拆成 ScoreBarChart + CostBarChart，Pareto 仅保留 fable5/gpt56Sol/mom/aggOnly 四家)
 │       ├── mock/                  # 新增 — ISS-028；Phase 5.0 伪数据（Phase 5.1 逐步替换为 lib/api.ts）
 │       │   ├── benchmarks.ts      # Pareto 6 点（MoM + 4 flagship + Aggregator-only）+ per-benchmark combo；ISS-038 起 ParetoPoint.cost 换成 costCny (¥/次问答)
 │       │   ├── live-ranking.ts    # ISS-029 起；Phase 7 起改为 getRankingSeries(seed) 纯函数（mulberry32 + hashSeed + weightedPick 生成 10 turn；MoM rank 分布 70%/30% rank 1/2；其余两家均匀）
