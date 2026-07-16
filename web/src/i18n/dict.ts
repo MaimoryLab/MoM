@@ -21,6 +21,15 @@ export const en = {
   },
   lang: { en: 'EN', zh: '中' },
 
+  kiosk: {
+    start: 'Auto play',
+    stop: 'Stop',
+    running: 'Auto-playing',
+    startHint: 'Cycle Overview → Live → Pipeline for each run',
+    empty: 'No runs to auto-play yet',
+    liveStartLabel: 'Auto play',
+  },
+
   overview: {
     heroTitle: 'Approaching flagship, at a fraction of the cost.',
     heroSubtitle:
@@ -307,6 +316,15 @@ export const zh: Dict = {
     settings: '设置',
   },
   lang: { en: 'EN', zh: '中' },
+
+  kiosk: {
+    start: '轮播模式',
+    stop: '停止轮播',
+    running: '轮播中',
+    startHint: '性能报告 → 实时对比 → 请求流程 循环展示',
+    empty: '暂无可用于轮播的会话记录',
+    liveStartLabel: '开启轮播',
+  },
 
   overview: {
     heroTitle: '混合模型性能报告',

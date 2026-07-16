@@ -8,6 +8,8 @@ import { Button } from '../components/primitives/Button';
 import { MarkdownBody } from '../components/primitives/MarkdownBody';
 import { JudgeRadar } from '../components/charts/JudgeRadar';
 import { useI18n } from '../i18n/context';
+import { useTypewriter } from '../hooks/useTypewriter';
+import { useKiosk } from '../hooks/useKioskMode';
 import { formatCost, formatLatency, formatTokens } from '../i18n/format';
 import { humanizeModelName } from '../lib/model-name';
 import { color, font, radius, space } from '../theme';
@@ -104,7 +106,7 @@ export function StatusStrip({
 // Two output columns — MoM + Baseline.
 // ---------------------------------------------------------------------------
 
-export function MomColumn({ snap }: { snap: ComparisonResponse | null }) {
+export function MomColumn({ snap, typewriter, cursorOn }: { snap: ComparisonResponse | null; typewriter?: boolean; cursorOn?: boolean }) {
   const { t, lang } = useI18n();
   const mom = snap?.mom ?? null;
   const advisors = snap?.advisors_snapshot ?? [];
@@ -123,6 +125,8 @@ export function MomColumn({ snap }: { snap: ComparisonResponse | null }) {
         ]} />
       }
       body={mom?.text ?? ''}
+      typewriter={typewriter}
+      cursor={cursorOn ? 'mom' : null}
       footer={
         mom ? (
           <StatsRow latencyMs={mom.latency_ms} tokens={mom.usage.output_tokens} costUsd={mom.cost_usd ?? 0} lang={lang} />
@@ -136,7 +140,7 @@ export function MomColumn({ snap }: { snap: ComparisonResponse | null }) {
   );
 }
 
-export function BaselineColumn({ snap }: { snap: ComparisonResponse | null }) {
+export function BaselineColumn({ snap, typewriter, cursorOn }: { snap: ComparisonResponse | null; typewriter?: boolean; cursorOn?: boolean }) {
   const { t, lang } = useI18n();
   const baseline = snap?.baseline ?? null;
   const rawModel = baseline?.model ?? snap?.baseline_model_snapshot ?? null;
@@ -152,6 +156,8 @@ export function BaselineColumn({ snap }: { snap: ComparisonResponse | null }) {
         ]} />
       }
       body={baseline?.text ?? ''}
+      typewriter={typewriter}
+      cursor={cursorOn ? 'baseline' : null}
       footer={
         baseline ? (
           <StatsRow latencyMs={baseline.latency_ms} tokens={baseline.usage.output_tokens} costUsd={baseline.cost_usd ?? 0} lang={lang} />
@@ -166,16 +172,26 @@ export function BaselineColumn({ snap }: { snap: ComparisonResponse | null }) {
 }
 
 function OutputCard({
-  title, subtitle, body, footer,
+  title, subtitle, body, footer, typewriter, cursor,
 }: {
   title: string;
   subtitle: React.ReactNode;
   body: string;
   footer: React.ReactNode;
+  typewriter?: boolean;
+  cursor?: 'mom' | 'baseline' | null;
 }) {
+  const kiosk = useKiosk();
+  const visible = useTypewriter(body, {
+    active: !!typewriter,
+    msPerChar: 14,
+    onDone: typewriter ? kiosk.notifyLiveAnswerDone : undefined,
+  });
+  const shown = typewriter ? visible : body;
+  const cursorProp: 'mom' | 'baseline' | null | undefined = typewriter && shown !== body ? cursor : cursor;
   return (
     <Card title={title} subtitle={subtitle}>
-      <MarkdownBody text={body} cursor={null} height={OUTPUT_BOX_HEIGHT} />
+      <MarkdownBody text={shown} cursor={cursorProp ?? null} height={OUTPUT_BOX_HEIGHT} autoScroll={!!typewriter} />
       {footer && (
         <div style={{ display: 'flex', gap: space.md, fontSize: font.size.sm, color: color.textSecondary, alignItems: 'center' }}>
           {footer}

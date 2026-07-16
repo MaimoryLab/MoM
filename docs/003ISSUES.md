@@ -1815,6 +1815,55 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> data/mom.config.json（**gitignored 本地文件**）：用户需手动新增 `live.max_tokens: 8192` 才能覆盖默认
 -> 004CHANGELOG.md [2026-07-16-11]
 
+## [ISS-051] Sidebar 占用左侧固定 244px，展会 1080p 屏内容区可用宽度不够
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：Sidebar 由左侧竖排 `<aside width:244>` 改为顶部横排 sticky `<header height:72>`。App 根容器 `flex-direction` 由 `row` 改成 `column`；`theme.ts` 新增 `layout.topBarHeight = 72`（保留 `sidebarWidth` 常量以避免其他文件误引用）。品牌 + tagline 折成两行放左侧，nav pill 居中，语言切换 + 版本号放右侧。
+
+**现象**：Dashboard 面向 1080p 展厅屏（3–4 m 观看距离），左侧 244px 常驻 sidebar 让主内容宽度只剩 ~1676px，Live/Cost 页四列 KPI + 图表被明显压缩。
+
+**后果**：展会现场观众远距看图表数字与轴标签更吃力；Pipeline advisor 卡横排放不下的时候压缩换行。
+
+**初步判断**：已确认，Sidebar 是仅 nav pill + brand + lang toggle 的组件，本来就没有必要占那么宽的竖长条。
+
+**关联**：
+-> web/src/components/layout/Sidebar.tsx（`<aside>` → `<header>`，横向布局；FooterBlock 保留但重排）
+-> web/src/App.tsx（Router 根 `flex-direction: column`）
+-> web/src/theme.ts（`layout.topBarHeight = 72`）
+-> 004CHANGELOG.md [2026-07-16-12]
+
+## [ISS-052] 展厅无人接管时 Dashboard 只能停在一页，观众看不到完整闭环
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：新增 kiosk / 轮播模式（`useKioskMode.ts` context）。开启后按 Overview → Live(gwId) → Pipeline(同一 gwId) → 下一轮 循环展示；Live 页内部分阶段揭示卡片（用户 prompt → MoM/Baseline 卡入场 + 打字机 → judge → cost），Pipeline 页 advisor / aggregator preview 也走打字机。轮播队列 = `listComparisons ∩ listTraces(role=aggregator)` 的 gwId 交集（两侧都有数据的记录），交集空时 fallback 单侧队列，跑到缺一侧的阶段自动跳过。全局 pointerdown / keydown / hashchange / visibility hidden 都会立即停止轮播（`data-kiosk-control` 属性排除轮播按钮自身）。入口两处：顶栏语言 pill 旁 `▶ 轮播模式` 按钮 + Live 页"查看请求流程"按钮旁 `▶ 开启轮播`。右下角常驻 `轮播中 · <phase>` 悬浮 pill 提示状态。Live 页 kiosk 期间不再渲染 EmptyState（新建对话页），snap 未就位时改为显示 loading 占位。MoM/Baseline 打字机由 `onDone` 计数（两侧都完成才进入下一阶段），配合 `liveAnswersMaxMs=30000ms` 兜底；Pipeline 停留 25s。
+
+**现象**：展会现场没有工作人员接管时，Dashboard 只能停在 Overview / Live / Pipeline 中的某一页，观众看不到"MoM 报告 → 一次调用的对比 → 内部请求流程"这条闭环故事。
+
+**后果**：观众理解不到 MoM 的完整价值链路，落地效果打折。
+
+**初步判断**：需要一个不依赖后端改动的前端自动播放机制，且必须在观众触屏/键盘时立即让出控制权，避免"抢用户手"。
+
+**关联**：
+-> web/src/hooks/useKioskMode.ts（新增 — phase machine + fetchQueueDetailed + 全局停止监听 + notifyLiveAnswerDone）
+-> web/src/hooks/useTypewriter.ts（新增 — 按字符推进的通用 hook，onDone 回调）
+-> web/src/App.tsx（挂 KioskProvider；新增 KioskOverlay 悬浮状态 pill）
+-> web/src/components/layout/Sidebar.tsx（顶栏加 KioskButton pill）
+-> web/src/pages/LivePage.tsx（KioskResultView 分阶段渲染 + KioskStartButton；kiosk 时不再走 EmptyState）
+-> web/src/pages/live-shared.tsx（MomColumn / BaselineColumn 加 typewriter + cursorOn；OutputCard 触发 notifyLiveAnswerDone）
+-> web/src/pages/PipelinePage.tsx（AdvisorCard / AggregatorCard preview 打字机 + autoScroll；kiosk 空 nodes 时显示提示卡片）
+-> web/src/components/primitives/MarkdownBody.tsx（新增 `autoScroll` prop，text 变化时滚到底）
+-> web/src/global.css（`kioskEnterUp` / `kioskEnterFade` / `kioskPulseRing` 关键帧）
+-> web/src/i18n/dict.ts（`t.kiosk.{start,stop,running,startHint,empty,liveStartLabel}` 中英各 6 key）
+-> 004CHANGELOG.md [2026-07-16-13]
+
 <!--
 新增条目模板：
 
