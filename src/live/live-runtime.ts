@@ -212,7 +212,7 @@ export async function runLiveTurn(
   const momStartedAt = Date.now();
   const momPromise = (async () => {
     try {
-      const response = await orchestrator.nonStreaming(anthropicReq, sessionId, log);
+      const response = await orchestrator.nonStreaming(anthropicReq, sessionId, log, gatewayRequestId);
       const finishedAt = Date.now();
       const traceUsage = toTraceUsage(response.usage);
       const pricing = snapshotPricing(

@@ -44,12 +44,19 @@ export interface Orchestrator {
     body: AnthropicMessagesRequest,
     sessionId: string | null,
     log: Logger,
+    // Optional caller-provided id. When set, all trace rows this call
+    // produces (advisors + assembly + aggregator + judge if any) share this
+    // gateway_request_id. `submitLiveTurn` passes it so `comparisons` and
+    // `traces` join on the same gwId; the plain Anthropic-gateway path
+    // leaves it undefined and orchestrator mints its own.
+    gatewayRequestIdOverride?: string,
   ): Promise<AnthropicMessagesResponse>;
   streaming(
     body: AnthropicMessagesRequest,
     sessionId: string | null,
     output: NodeJS.WritableStream,
     log: Logger,
+    gatewayRequestIdOverride?: string,
   ): Promise<void>;
 }
 
@@ -61,9 +68,9 @@ export function createOrchestrator(runtime: RuntimeConfig): Orchestrator {
   });
   const providerHost = extractHost(provider.base_url);
   return {
-    nonStreaming: (body, sessionId, log) =>
-      orchestrateNonStreaming(body, sessionId, provider, providerHost, mom, mom_config_source, cache, log),
-    streaming: (body, sessionId, output, log) =>
+    nonStreaming: (body, sessionId, log, gatewayRequestIdOverride) =>
+      orchestrateNonStreaming(body, sessionId, provider, providerHost, mom, mom_config_source, cache, log, gatewayRequestIdOverride),
+    streaming: (body, sessionId, output, log, gatewayRequestIdOverride) =>
       orchestrateStreaming(
         body,
         sessionId,
@@ -74,6 +81,7 @@ export function createOrchestrator(runtime: RuntimeConfig): Orchestrator {
         mom_config_source,
         cache,
         log,
+        gatewayRequestIdOverride,
       ),
   };
 }
@@ -95,8 +103,9 @@ async function orchestrateNonStreaming(
   pricingSource: string,
   cache: FanoutCache,
   log: Logger,
+  gatewayRequestIdOverride?: string,
 ): Promise<AnthropicMessagesResponse> {
-  const gatewayRequestId = randomUUID();
+  const gatewayRequestId = gatewayRequestIdOverride ?? randomUUID();
   if (mom.mom_mode !== 'always') {
     return runPassthroughNonStreaming(
       body,
@@ -195,8 +204,9 @@ async function orchestrateStreaming(
   pricingSource: string,
   cache: FanoutCache,
   log: Logger,
+  gatewayRequestIdOverride?: string,
 ): Promise<void> {
-  const gatewayRequestId = randomUUID();
+  const gatewayRequestId = gatewayRequestIdOverride ?? randomUUID();
   if (mom.mom_mode !== 'always') {
     await runPassthroughStreaming(
       body,
