@@ -1,39 +1,46 @@
 {
   "presets": [
     {
-      "id": "binarySearch",
-      "title_zh": "Rust 二分查找",
-      "title_en": "Rust binary search",
-      "zh": "用 Rust 写一个泛型 binary_search<T: Ord>(slice: &[T], target: &T) -> Option<usize>，加一段文档注释，并指出一个边界情况。",
-      "en": "Write a generic Rust `binary_search<T: Ord>(slice: &[T], target: &T) -> Option<usize>`. Include a doc comment and call out one edge case."
+      "id": "quantum-computing-practical-applications",
+      "title_zh": "量子计算离实用还有多远？",
+      "title_en": "How close is quantum computing to practical use?",
+      "zh": "用普通人能听懂的方式解释量子计算正在如何走向实际应用，重点介绍它在药物研发、密码学和优化问题上的进展、当前瓶颈，以及未来几年最可能落地的场景。",
+      "en": "Explain in plain language how quantum computing is progressing toward practical applications. Focus on drug discovery, cryptography, and optimization, including current bottlenecks and the applications most likely to become useful in the next few years."
     },
     {
-      "id": "cap",
-      "title_zh": "CAP 定理",
-      "title_en": "CAP theorem",
-      "zh": "用 200 字以内向一位中级后端工程师解释 CAP 定理，每个 trade-off 举一个具体例子。",
-      "en": "In under 200 words, explain the CAP theorem to a mid-level backend engineer. Give one concrete example per trade-off."
+      "id": "backend-to-ml-career-path",
+      "title_zh": "后端工程师如何转型机器学习？",
+      "title_en": "How can a backend engineer move into machine learning?",
+      "zh": "一位有 8 年后端开发经验的软件工程师，希望在 12 个月内转型为机器学习工程师，学习预算为 3 万到 5 万元，无法脱产或异地学习。请比较三条路径：考取主流云平台的机器学习认证、参加系统化培训课程、自学深度学习并参与至少 3 个开源项目。分析每条路径的时间投入、技能覆盖、作品集价值、招聘认可度和预期回报，并给出一份可执行的 12 个月计划。",
+      "en": "A software engineer with eight years of backend experience wants to move into machine learning engineering within 12 months, with a learning budget of RMB 30,000 to 50,000 and no ability to study full-time or relocate. Compare three paths: earning machine-learning certifications from major cloud platforms, completing a structured training program, or self-studying deep learning while contributing to at least three open-source projects. Analyze time commitment, skill coverage, portfolio value, hiring signals, and expected return, then provide an actionable 12-month plan."
     },
     {
-      "id": "refactor",
-      "title_zh": "重构代码片段",
-      "title_en": "Refactor snippet",
-      "zh": "重构这段 Python 代码提高可读性并补上类型标注。def f(x,y,z):\n  r=[]\n  for i in range(len(x)):\n    if x[i]>y: r.append(x[i]*z)\n  return r",
-      "en": "Refactor this Python for readability and add type hints:\ndef f(x,y,z):\n  r=[]\n  for i in range(len(x)):\n    if x[i]>y: r.append(x[i]*z)\n  return r"
+      "id": "rescue-inhaler-safety",
+      "title_zh": "吸入器让症状加重怎么办？",
+      "title_en": "What should I do if an inhaler makes symptoms worse?",
+      "zh": "换了新的急救吸入器后，喘息和胸闷在使用后几分钟内明显加重，家用血氧仪偶尔显示 91%，但过去通常约为 95%。应该立即停用、联系医生，还是继续观察？请先识别需要紧急就医的危险信号，再给出安全、非诊断性的下一步建议。",
+      "en": "After switching to a new rescue inhaler, wheezing and chest tightness become noticeably worse within minutes of using it, and a home oximeter sometimes reads 91% instead of the usual 95%. Should the person stop using it, contact a doctor, or wait and observe? First identify red flags that require urgent care, then give safe, non-diagnostic next steps."
     },
     {
-      "id": "race",
-      "title_zh": "排查竞态问题",
-      "title_en": "Debug race condition",
-      "zh": "一个 Node.js worker 偶尔把同一条消息写两遍到 Redis。fan-out 队列有 N 个消费者，列出 3 个最可能的根因，以及各自的验证方式。",
-      "en": "A Node.js worker occasionally writes the same message to Redis twice. The fan-out queue has N consumers. List the 3 most likely root causes and how to verify each."
+      "id": "group-travel-itinerary",
+      "title_zh": "如何规划一趟多人旅行？",
+      "title_en": "How should I plan a group trip?",
+      "zh": "为 7 个人设计一个 9 天的旅行计划，人均预算 7,000 元人民币，至少安排 2 天自然或乡村体验。请给出交通、住宿、文化活动、户外活动、休闲娱乐和每日费用明细，并检查路线是否适合连续出行。方案应尽量通用，不绑定某个国家、出发城市或特定酒店。",
+      "en": "Design a 9-day trip for seven people with a budget of RMB 7,000 per person, including at least two days of nature or countryside experiences. Provide transport, accommodation, cultural and outdoor activities, leisure options, and a daily cost breakdown. Check that the route is practical for consecutive travel and avoid tying the plan to one country, departure city, or specific hotel."
     },
     {
-      "id": "urlShort",
-      "title_zh": "设计短链服务",
-      "title_en": "Design a URL shortener",
-      "zh": "设计一个每秒处理 5k 写请求的短链服务，覆盖 ID 方案、存储、缓存，以及一个可能的故障模式。",
-      "en": "Design a URL shortener that handles 5k writes per second. Cover ID scheme, storage, caching, and one likely failure mode."
+      "id": "cambrian-explosion-explained",
+      "title_zh": "寒武纪大爆发是怎么发生的？",
+      "title_en": "How did the Cambrian Explosion happen?",
+      "zh": "用通俗但准确的方式解释寒武纪大爆发为什么会在相对较短的地质时间内出现大量动物多样性。比较环境变化（例如海洋和大气中的氧气变化）与遗传和发育机制两类解释，说明现有证据、争议点，以及科学家还不知道什么。",
+      "en": "Explain in accessible but accurate language why the Cambrian Explosion produced such a large increase in animal diversity over a relatively short geological period. Compare environmental explanations, such as changes in oceanic and atmospheric oxygen, with genetic and developmental explanations. Summarize the evidence, the main disputes, and what scientists still do not know."
+    },
+    {
+      "id": "deepfake-detection-explained",
+      "title_zh": "现在如何识别视频和音频深度伪造？",
+      "title_en": "How are video and audio deepfakes detected today?",
+      "zh": "面向普通观众解释 2022 年以来深度伪造检测的主要方法，包括视频、音频和多模态检测。说明为什么实验室基准测试的效果往往高于真实世界，模型如何应对新型伪造，隐私和误判风险是什么，以及欧盟、美国和国际层面有哪些代表性监管方向。",
+      "en": "Explain for a general audience the main approaches to detecting video, audio, and multimodal deepfakes since 2022. Describe why results on laboratory benchmarks are often better than results in the real world, how detectors handle new kinds of fakes, the risks of privacy violations and false positives, and the main regulatory directions in the EU, the United States, and internationally."
     }
   ]
 }
