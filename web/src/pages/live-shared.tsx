@@ -3,6 +3,7 @@
 // (StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard /
 // PresetsList / ComposerBar / RunSelect) keeps LivePage's JSX readable.
 
+import { useEffect, useState } from 'react';
 import { Card } from '../components/primitives/Card';
 import { Button } from '../components/primitives/Button';
 import { MarkdownBody } from '../components/primitives/MarkdownBody';
@@ -27,6 +28,19 @@ export const EMPTY_JUDGE_SCORES = {
 
 const USER_PROMPT_CLIP = 140;
 
+// Total token count used in the compact StatsRow — input + cache_read +
+// cache_creation + output. Historically the row showed only output_tokens
+// which understated MoM's usage (cache-read is where MoM saves money vs
+// Baseline; hiding it made "high cost, low tokens" look like a bug).
+function totalTokens(usage: {
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  output_tokens: number;
+}): number {
+  return usage.input_tokens + usage.cache_read_tokens + usage.cache_creation_tokens + usage.output_tokens;
+}
+
 // Fixed height for the MoM / Baseline output boxes so the two columns stay
 // the same size regardless of which one has content first — Baseline is
 // often the first to stream in and would otherwise stretch its column
@@ -45,13 +59,23 @@ function clipPrompt(text: string): string {
 // ---------------------------------------------------------------------------
 
 export function StatusStrip({
-  live, polling, transportError,
+  live, polling, transportError, onDelete, deleting, deleteError,
 }: {
   live: ComparisonResponse | null;
   polling: boolean;
   transportError: string | null;
+  onDelete?: () => void | Promise<void>;
+  deleting?: boolean;
+  deleteError?: string | null;
 }) {
   const { t } = useI18n();
+  const [confirming, setConfirming] = useState(false);
+
+  // Reset the local confirm state whenever the user switches to a different
+  // run — dropdown pick, "+ New run", etc.
+  const gwId = live?.gateway_request_id ?? null;
+  useEffect(() => { setConfirming(false); }, [gwId]);
+
   if (!live && !polling && !transportError) {
     return (
       <Card>
@@ -69,6 +93,12 @@ export function StatusStrip({
       }[live.status]
     : t.live.statusPending;
   const prompt = live?.prompt ?? null;
+  // Delete affordance is available even while the run is still polling —
+  // if it hangs or the backend crashed mid-run, users still need to be
+  // able to remove the row. Backend-side updates to the row after DELETE
+  // are silent 0-row UPDATEs (safe), and useLiveRun.tick's 404 branch
+  // stops the poller cleanly (see ISS-055 / ISS-062).
+  const canDelete = onDelete != null && live != null;
   return (
     <Card>
       <div style={{ display: 'flex', gap: space.md, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -87,6 +117,51 @@ export function StatusStrip({
         <span style={{ fontSize: font.size.xxs, color: color.textMuted, fontFamily: 'ui-monospace, monospace' }}>
           {statusLabel}{polling ? ' · ' + t.live.submittedHint : ''}
         </span>
+        {canDelete && !confirming && (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            title={t.live.deleteRun}
+            aria-label={t.live.deleteRun}
+            style={{
+              width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              padding: 0, borderRadius: '50%', fontSize: font.size.md, lineHeight: 1,
+              background: color.bgSubtle, color: color.textSecondary,
+              border: `1px solid ${color.borderStrong}`, cursor: 'pointer',
+            }}
+          >
+            ×
+          </button>
+        )}
+        {canDelete && confirming && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: font.size.xs, color: color.textSecondary }}>
+              {deleting ? t.live.deleteRunPending : t.live.deleteRunConfirm}
+            </span>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirming(false)}
+              disabled={deleting}
+              style={{ height: 32, padding: `0 ${space.sm}`, fontSize: font.size.xs }}
+            >
+              {t.live.deleteRunConfirmNo}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => { void onDelete?.(); }}
+              disabled={deleting}
+              style={{
+                height: 32, padding: `0 ${space.sm}`, fontSize: font.size.xs,
+                color: '#FFF', background: color.negative, borderColor: color.negative,
+              }}
+            >
+              {t.live.deleteRunConfirmYes}
+            </Button>
+            {deleteError && (
+              <span style={{ fontSize: font.size.xs, color: color.negative }}>{deleteError}</span>
+            )}
+          </span>
+        )}
         {transportError && (
           <span style={{ fontSize: font.size.xs, color: color.negative }}>
             {t.live.transportErrorLabel}: {transportError}
@@ -129,11 +204,11 @@ export function MomColumn({ snap, typewriter, cursorOn }: { snap: ComparisonResp
       cursor={cursorOn ? 'mom' : null}
       footer={
         mom ? (
-          <StatsRow latencyMs={mom.latency_ms} tokens={mom.usage.output_tokens} costUsd={mom.cost_usd ?? 0} lang={lang} />
+          <StatsRow latencyMs={mom.latency_ms} tokens={totalTokens(mom.usage)} costUsd={mom.cost_usd ?? 0} lang={lang} />
         ) : snap?.mom_error ? (
           <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {snap.mom_error.message}</span>
         ) : snap ? (
-          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.pendingMom}</span>
+          <PendingLabel text={t.live.pendingMom} />
         ) : null
       }
     />
@@ -160,14 +235,32 @@ export function BaselineColumn({ snap, typewriter, cursorOn }: { snap: Compariso
       cursor={cursorOn ? 'baseline' : null}
       footer={
         baseline ? (
-          <StatsRow latencyMs={baseline.latency_ms} tokens={baseline.usage.output_tokens} costUsd={baseline.cost_usd ?? 0} lang={lang} />
+          <StatsRow latencyMs={baseline.latency_ms} tokens={totalTokens(baseline.usage)} costUsd={baseline.cost_usd ?? 0} lang={lang} />
         ) : errorMsg ? (
           <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {errorMsg}</span>
         ) : snap ? (
-          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.pendingBaseline}</span>
+          <PendingLabel text={t.live.pendingBaseline} />
         ) : null
       }
     />
+  );
+}
+
+// Shimmering "generating…" indicator. The shine sweeps across the text so
+// the audience can tell the run is still working while waiting for the
+// first snapshot / baseline stream.
+function PendingLabel({ text }: { text: string }) {
+  return (
+    <span
+      className="shine-text"
+      style={{
+        fontSize: font.size.sm,
+        ['--shine-base' as string]: color.textMuted,
+        ['--shine-hi' as string]: color.mom,
+      }}
+    >
+      {text}
+    </span>
   );
 }
 

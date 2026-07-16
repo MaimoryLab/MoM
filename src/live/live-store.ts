@@ -304,3 +304,34 @@ export function listRecentComparisons(
     .get() as unknown as { c: number };
   return { items: rows.map(deserialize), total: totalRow.c };
 }
+
+export function deleteComparison(gwId: string): number {
+  const info = db()
+    .prepare('DELETE FROM comparisons WHERE gateway_request_id = ?')
+    .run(gwId);
+  return Number(info.changes ?? 0);
+}
+
+// Any comparison row still marked 'pending' at process start belongs to a
+// runLiveTurn that got cut off (server killed / crashed mid-run). The
+// background promise died with the process, so the row will never advance
+// on its own — flip it to 'error' with a marker message and stamp
+// updated_at so the frontend's poller sees a terminal state instead of
+// spinning forever. Idempotent: runs on every boot, only touches rows in
+// pending state.
+export function markStalePendingComparisonsAsError(): number {
+  const now = Date.now();
+  const info = db()
+    .prepare(
+      `UPDATE comparisons
+         SET status = 'error',
+             mom_error_json = ?,
+             updated_at = ?
+       WHERE status = 'pending'`,
+    )
+    .run(
+      JSON.stringify({ message: 'server restarted while running' }),
+      now,
+    );
+  return Number(info.changes ?? 0);
+}

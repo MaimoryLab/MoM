@@ -21,7 +21,7 @@ import {
   snapshotPricing,
   toTraceUsage,
 } from '../cost/pricing.js';
-import { saveTraceRequest } from '../storage/traces.js';
+import { getTraceRequestsByGatewayRequestId, saveTraceRequest } from '../storage/traces.js';
 import { runBaselineCall } from './baseline.js';
 import { runJudgeCompare } from '../judge/judge-runtime.js';
 import {
@@ -212,22 +212,23 @@ export async function runLiveTurn(
   const momStartedAt = Date.now();
   const momPromise = (async () => {
     try {
-      const response = await orchestrator.nonStreaming(anthropicReq, sessionId, log);
+      const response = await orchestrator.nonStreaming(anthropicReq, sessionId, log, gatewayRequestId);
       const finishedAt = Date.now();
-      const traceUsage = toTraceUsage(response.usage);
-      const pricing = snapshotPricing(
-        mom.aggregator.model,
-        mom.pricing_table,
-        mom_config_source,
-      );
-      const cost = pricing ? calculateCostFromSnapshot(traceUsage, pricing) : null;
       const fullText = extractResponseText(response.content);
+      // MoM cost & tokens must span the *whole* pipeline (advisors +
+      // aggregator), not just the aggregator's own call. Traces for both
+      // roles are already persisted by orchestrator at this point; read
+      // them back and sum. Fixes the "tokens low but cost high" mismatch:
+      // previously token display = aggregator.output_tokens while cost
+      // display included baseline+judge indirectly via Cost card, which
+      // made the two numbers look inconsistent.
+      const rolledUp = rollUpMomUsageAndCost(gatewayRequestId, finishedAt - momStartedAt);
       updateComparisonMom(
         gatewayRequestId,
         {
           text: fullText,
-          usage: traceUsage,
-          cost_usd: cost,
+          usage: rolledUp.usage,
+          cost_usd: rolledUp.cost,
           finished_at: finishedAt,
           latency_ms: finishedAt - momStartedAt,
         },
@@ -283,6 +284,7 @@ export async function runLiveTurn(
       baselineText: baselineOutcome.text as string,
       judge: mom.judge,
       provider,
+      log,
     });
     finalizeJudge({
       judgeResult,
@@ -303,6 +305,40 @@ function extractResponseText(content: ContentBlock[]): string {
     if (b.type === 'text') parts.push(b.text);
   }
   return parts.join('');
+}
+
+// Sum usage + cost across every advisor + aggregator trace for this
+// gatewayRequestId. Each trace already stores its own PricingSnapshot, so
+// cost is per-row and only requires summing. baseline / judge traces are
+// deliberately excluded — they are shown as their own line items on the
+// Live page, not folded into "MoM".
+function rollUpMomUsageAndCost(
+  gatewayRequestId: string,
+  _latencyMs: number,
+): { usage: TraceUsage; cost: number | null } {
+  const traces = getTraceRequestsByGatewayRequestId(gatewayRequestId);
+  const usage: TraceUsage = {
+    input_tokens: 0,
+    cache_read_tokens: 0,
+    cache_creation_tokens: 0,
+    output_tokens: 0,
+    reasoning_tokens: 0,
+  };
+  let cost = 0;
+  let anyPricing = false;
+  for (const tr of traces) {
+    if (tr.role !== 'advisor' && tr.role !== 'aggregator') continue;
+    usage.input_tokens += tr.usage.input_tokens;
+    usage.cache_read_tokens += tr.usage.cache_read_tokens;
+    usage.cache_creation_tokens += tr.usage.cache_creation_tokens;
+    usage.output_tokens += tr.usage.output_tokens;
+    usage.reasoning_tokens += tr.usage.reasoning_tokens;
+    if (tr.pricing) {
+      anyPricing = true;
+      cost += calculateCostFromSnapshot(tr.usage, tr.pricing);
+    }
+  }
+  return { usage, cost: anyPricing ? cost : null };
 }
 
 function finalizeBaseline(args: {

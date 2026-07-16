@@ -53,6 +53,10 @@ interface KioskContextValue {
   // OutputCard calls this when its typewriter finishes. When BOTH MoM and
   // Baseline have reported done we advance to the next Live sub-step early.
   notifyLiveAnswerDone: () => void;
+  // LivePage calls this after a run is deleted so the auto-play queue never
+  // lands on a 404'd id. If the deleted id is currently playing, the current
+  // phase is restarted against the next queue entry.
+  invalidateQueue: (deletedGwId: string) => Promise<void>;
 }
 
 const NULL_CTX: KioskContextValue = {
@@ -65,6 +69,7 @@ const NULL_CTX: KioskContextValue = {
   stop: () => {},
   toggle: () => {},
   notifyLiveAnswerDone: () => {},
+  invalidateQueue: async () => {},
 };
 
 const KioskContext = createContext<KioskContextValue>(NULL_CTX);
@@ -139,6 +144,9 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   const queueIdxRef = useRef(0);
   const enabledRef = useRef(false);
   const timerRef = useRef<number | null>(null);
+  // Tracks the currently-active phase so invalidateQueue can restart it
+  // against the new queue after a deletion. Mirrors setPhase() calls.
+  const phaseRef = useRef<KioskPhase>('overview');
   // Marks a short window during which the next hashchange is one we caused
   // (via kioskNavigate). Anything else means the user tapped a nav pill.
   const selfNavRef = useRef(false);
@@ -213,6 +221,7 @@ export function KioskProvider({ children }: { children: ReactNode }) {
       return;
     }
     setCurrentGwId(entry.gwId);
+    phaseRef.current = 'pipeline';
     setPhase('pipeline');
     kioskNavigate('pipeline', entry.gwId);
     later(KIOSK_TIMING.pipelinePlayMs, () => {
@@ -234,6 +243,7 @@ export function KioskProvider({ children }: { children: ReactNode }) {
       return;
     }
     setCurrentGwId(entry.gwId);
+    phaseRef.current = 'live';
     setPhase('live');
     setLiveStep('prompt');
     kioskNavigate('live');
@@ -271,6 +281,7 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   };
 
   const runOverview = () => {
+    phaseRef.current = 'overview';
     setPhase('overview');
     kioskNavigate('overview');
     later(KIOSK_TIMING.overviewHoldMs, () => runLive(), 'overview→live');
@@ -296,6 +307,44 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   const toggle = useCallback(() => {
     if (enabledRef.current) stop(); else start();
   }, [start, stop]);
+
+  const invalidateQueue = useCallback(async (deletedGwId: string) => {
+    // Cheap path: not running kiosk. Nothing to fix — LivePage's own refetch
+    // covers the RunSelect dropdown.
+    if (!enabledRef.current) return;
+
+    const idx = queueRef.current.findIndex((e) => e.gwId === deletedGwId);
+    if (idx === -1) return;
+
+    const wasCurrent = idx === (queueIdxRef.current % Math.max(1, queueRef.current.length));
+
+    if (wasCurrent) {
+      // Deleting the run being shown right now — kill the pending phase
+      // timer, refresh queue, and restart the same phase against the new
+      // head of the queue.
+      clearTimer();
+      let q: KioskQueueEntry[] = [];
+      try { q = await fetchQueueDetailed(); } catch { /* keep q = [] */ }
+      if (!enabledRef.current) return;
+      queueRef.current = q;
+      queueIdxRef.current = 0;
+      setQueueLength(q.length);
+      const phase = phaseRef.current;
+      if (phase === 'live') runLive();
+      else if (phase === 'pipeline') runPipeline();
+      else runOverview();
+      return;
+    }
+
+    // Deleted id is queued somewhere else. Splice it out; if it sat before
+    // the current index, decrement so we don't skip the next entry.
+    queueRef.current = queueRef.current.filter((e) => e.gwId !== deletedGwId);
+    if (idx < queueIdxRef.current) queueIdxRef.current -= 1;
+    if (queueRef.current.length === 0) queueIdxRef.current = 0;
+    else queueIdxRef.current = queueIdxRef.current % queueRef.current.length;
+    setQueueLength(queueRef.current.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---- Global stop signals -----------------------------------------------
 
@@ -345,7 +394,8 @@ export function KioskProvider({ children }: { children: ReactNode }) {
     stop,
     toggle,
     notifyLiveAnswerDone,
-  }), [enabled, phase, liveStep, currentGwId, queueLength, start, stop, toggle, notifyLiveAnswerDone]);
+    invalidateQueue,
+  }), [enabled, phase, liveStep, currentGwId, queueLength, start, stop, toggle, notifyLiveAnswerDone, invalidateQueue]);
 
   return createElement(KioskContext.Provider, { value }, children);
 }

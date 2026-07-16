@@ -1,5 +1,6 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  ApiError,
   getComparison,
   isTerminalStatus,
   submitLiveRun,
@@ -84,6 +85,13 @@ export function LiveJobProvider({ children }: { children: ReactNode }) {
       if (isTerminalStatus(snap.status)) return;
     } catch (err) {
       if (activeGwRef.current !== gwId) return;
+      // The run was deleted (from another tab, or by us). Stop polling and
+      // fall back to empty state so the UI doesn't sit on a 404 loop.
+      if (err instanceof ApiError && err.status === 404) {
+        activeGwRef.current = null;
+        setState({ current: null, polling: false, transportError: null });
+        return;
+      }
       setState((s) => ({
         ...s,
         transportError: err instanceof Error ? err.message : String(err),

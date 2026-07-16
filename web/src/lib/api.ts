@@ -306,6 +306,12 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+export async function apiDelete<T>(path: string): Promise<T> {
+  const res = await fetch(path, { method: 'DELETE' });
+  if (!res.ok) throw await toApiError(res);
+  return (await res.json()) as T;
+}
+
 // ---------------- Wrappers ----------------
 
 export function getConfig(): Promise<ConfigResponse> {
@@ -447,6 +453,12 @@ export interface ComparisonListResponse {
   limit: number;
 }
 
+export interface DeleteComparisonResponse {
+  deleted: true;
+  gateway_request_id: string;
+  traces_removed: number;
+}
+
 export interface PresetEntry {
   id: string;
   title_zh: string;
@@ -474,6 +486,10 @@ export function getComparison(gwId: string): Promise<ComparisonResponse> {
 
 export function listComparisons(limit = 20): Promise<ComparisonListResponse> {
   return apiGet(`/api/comparisons?limit=${limit}`);
+}
+
+export function deleteComparison(gwId: string): Promise<DeleteComparisonResponse> {
+  return apiDelete(`/api/comparison/${encodeURIComponent(gwId)}`);
 }
 
 export function getPresets(): Promise<PresetsResponse> {

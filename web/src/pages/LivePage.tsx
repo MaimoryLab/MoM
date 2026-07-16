@@ -18,7 +18,7 @@ import { useLiveJob } from '../hooks/useLiveRun';
 import { useKiosk } from '../hooks/useKioskMode';
 import { navigateTo } from '../App';
 import {
-  getPresets, listComparisons,
+  deleteComparison, getPresets, listComparisons,
   type ComparisonListItem, type PresetEntry,
 } from '../lib/api';
 import {
@@ -33,6 +33,9 @@ export function LivePage() {
   const [presetsError, setPresetsError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ComparisonListItem[]>([]);
   const [jobsError, setJobsError] = useState<string | null>(null);
+  const [jobsBumpKey, setJobsBumpKey] = useState(0);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const live = useLiveJob();
   const kiosk = useKiosk();
 
@@ -66,11 +69,27 @@ export function LivePage() {
       .then((res) => { if (!cancelled) setJobs(res.items); })
       .catch((err) => { if (!cancelled) setJobsError(err instanceof Error ? err.message : String(err)); });
     return () => { cancelled = true; };
-  }, [historyKey]);
+  }, [historyKey, jobsBumpKey]);
 
   const current = live.current;
   const currentGw = current?.gateway_request_id ?? null;
   const busy = live.polling;
+
+  const handleDelete = async () => {
+    if (!currentGw || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteComparison(currentGw);
+      live.reset();
+      setJobsBumpKey((k) => k + 1);
+      if (kiosk.enabled) await kiosk.invalidateQueue(currentGw);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const submit = (text: string) => {
     const p = text.trim();
@@ -128,6 +147,9 @@ export function LivePage() {
             snap={current}
             polling={live.polling}
             transportError={live.transportError}
+            onDelete={handleDelete}
+            deleting={deleting}
+            deleteError={deleteError}
           />
         )}
       </div>
@@ -182,16 +204,26 @@ function EmptyState({
 }
 
 function ResultView({
-  snap, polling, transportError,
+  snap, polling, transportError, onDelete, deleting, deleteError,
 }: {
   snap: ReturnType<typeof useLiveJob>['current'];
   polling: boolean;
   transportError: string | null;
+  onDelete?: () => void | Promise<void>;
+  deleting?: boolean;
+  deleteError?: string | null;
 }) {
   const { t } = useI18n();
   return (
     <>
-      <StatusStrip live={snap} polling={polling} transportError={transportError} />
+      <StatusStrip
+        live={snap}
+        polling={polling}
+        transportError={transportError}
+        onDelete={onDelete}
+        deleting={deleting}
+        deleteError={deleteError}
+      />
       <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: space.md }}>
         <MomColumn snap={snap} />

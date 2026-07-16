@@ -57,6 +57,29 @@ input, select, textarea { font-family: inherit; }
   100% { box-shadow: 0 0 0 0 rgba(62, 91, 219, 0); }
 }
 
+/* Text-only shimmer for "生成中" indicators. Consumers set --shine-base
+   (idle text color) and --shine-hi (peak color) via inline style. */
+@keyframes shine-sweep {
+  0%   { background-position: 200% 50%; }
+  100% { background-position: -200% 50%; }
+}
+
+.shine-text {
+  background-image: linear-gradient(
+    90deg,
+    var(--shine-base) 0%,
+    var(--shine-base) 40%,
+    var(--shine-hi)   50%,
+    var(--shine-base) 60%,
+    var(--shine-base) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shine-sweep 2s linear infinite;
+}
+
 /* Custom scrollbar — cool tint to match new palette */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }

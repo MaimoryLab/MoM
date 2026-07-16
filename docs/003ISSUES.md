@@ -1864,6 +1864,313 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> web/src/i18n/dict.ts（`t.kiosk.{start,stop,running,startHint,empty,liveStartLabel}` 中英各 6 key）
 -> 004CHANGELOG.md [2026-07-16-13]
 
+## [ISS-053] Live 顶部状态条冗长提示把用户 prompt 挤到看不见
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`t.live.submittedHint` 从「任务在后台执行中，每 3 秒自动刷新一次快照。」缩短为「运行中」（en: `Running`）。状态标签与它拼成 `MoM 完成 · 运行中` 依然读得懂，但不再吞掉 prompt 展示区宽度。
+
+**现象**：
+点开一次 Live 调用，顶部 StatusStrip 右侧会拼出 `进行中 · 任务在后台执行中，每 3 秒自动刷新一次快照。`，占据超过半行；左侧的 `USER PROMPT: …` 常被挤到看不见。
+
+**后果**：
+Live 页是展厅主视图，用户提问是解释 MoM/Baseline 输出的关键上下文；把它挤没会让观众不知道两侧模型在回答什么。
+
+**初步判断**：
+已确认。i18n 文案冗余；`polling` 时拼接的辅助文本不需要把刷新周期告诉用户。
+
+**关联**：
+-> web/src/i18n/dict.ts（`live.submittedHint` zh/en 缩短）
+-> 004CHANGELOG.md [2026-07-16-14]
+
+## [ISS-054] Live 页 MoM 列 pending 文案错标 `pendingBaseline`；两侧生成中提示缺乏动画
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：新增 `t.live.pendingMom`（zh: 「MoM 正在生成…」/ en: 「MoM is generating…」）替换 MoM 列的错标 key；新增全局 `@keyframes shine-sweep` + `.shine-text` 类，由本地 `PendingLabel` 组件消费，两列 pending 文案带一条冷调渐变光扫过，暗示"还在工作"。
+
+**现象**：
+MoM / Baseline 尚未回来的空档，两列 footer 都用同一个 `t.live.pendingBaseline`（「Baseline 正在生成…」）文案——MoM 列本该显示自己的字样。且两条文案完全静态，用户会怀疑页面卡住。
+
+**后果**：
+误标造成信息错位；静态文案让 30 秒左右的 MoM 首字延迟感觉像卡死，展会现场观众会离开。
+
+**初步判断**：
+已确认。属实现失误 + 微交互缺失，与后端 pipeline 时序无关。
+
+**关联**：
+-> web/src/pages/live-shared.tsx（MomColumn 改用 `pendingMom`；新增 `PendingLabel` shine 组件）
+-> web/src/i18n/dict.ts（`live.pendingMom` zh/en 新增；`pendingBaseline` en 文案改成 `Baseline is generating…`）
+-> web/src/global.css（`@keyframes shine-sweep` + `.shine-text` 使用 `--shine-base` / `--shine-hi` 两个自定义属性）
+-> 004CHANGELOG.md [2026-07-16-15]
+
+## [ISS-055] Live 历史记录无法删除，脏记录会让展厅轮播模式碰到 404 卡死
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：后端新增 `DELETE /api/comparison/:gateway_request_id`，用一段 `BEGIN/COMMIT/ROLLBACK` 事务同时删掉 `comparisons` 行与所有同 `gateway_request_id` 的 `traces` 行，两侧要么全部落地要么原样保留；前端 `useLiveRun.tick` 增加 404 分支（停止轮询、清空 state），`useKiosk` 新增 `invalidateQueue(deletedGwId)`——若命中当前正在播放的 gwId 就 clearTimer + 重取队列 + 从当前 phase 重进；`StatusStrip` 右侧内联「删除 → [取消][确认删除]」小簇。
+
+**现象**：
+Live / Pipeline 两页都能列出历史调用，但没有任何入口删除。既有脏调用会一直堆积；展厅 kiosk 模式的队列从 `listComparisons` + `listTraces` 交集/并集取值，任何一侧被外部（如 sqlite 手动清表）清空都会让另一侧记录变成"僵尸"，kiosk 播到那里 GET 404，`useLiveRun` 又不识别 404，导致 3s 一次的死循环。
+
+**后果**：
+展厅不可维护；如果运营者想 kiosk 里只保留精心挑过的 demo，只能重启后端清库，粗暴且不可控；kiosk 到僵尸 id 会卡在 loading 空态。
+
+**初步判断**：
+已确认。删除必须在两张表的原子操作里完成，前端 kiosk 队列与轮询 hook 必须能对"记录消失"做出反应，否则删除只是把假象换个位置。
+
+**关联**：
+-> src/gateway/live-api.ts（`DELETE /api/comparison/:gateway_request_id` 路由 + 事务包裹）
+-> src/live/live-store.ts（`deleteComparison(gwId)` helper）
+-> src/storage/traces.ts（`deleteTracesByGatewayRequestId(gwId)` helper）
+-> src/types/dashboard-api.ts（`DeleteComparisonResponse` 契约）
+-> web/src/lib/api.ts（`apiDelete<T>()` + `deleteComparison()` 客户端）
+-> web/src/hooks/useLiveRun.ts（`tick` catch 分支识别 `ApiError.status === 404`）
+-> web/src/hooks/useKioskMode.ts（`invalidateQueue(gwId)` 挂到 Context）
+-> web/src/pages/live-shared.tsx（`StatusStrip` 内联删除簇）
+-> web/src/pages/LivePage.tsx（`handleDelete` + `jobsBumpKey`）
+-> web/src/i18n/dict.ts（`live.deleteRun{,Confirm,ConfirmYes,ConfirmNo,Pending,Error}` zh/en 6 key）
+-> 004CHANGELOG.md [2026-07-16-16]
+
+## [ISS-056] Pipeline 历史选择器信息噪声：hash + 模型名把 prompt 挤没
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`PipelinePage` 顶部 TurnSelect 数据源从 `listTraces({role: 'aggregator'})` 切成 `listComparisons(20)`，option 文案从 `time · <hash8> · <model>` 改成和 Live 页 RunSelect 一致的 `time · <clipped-prompt>`。`recent` 状态类型从 `TraceSummary[]` 收敛为 `ComparisonListItem[]`，其它读取 `recent` 的地方只用 `length` 与 `map`，不受影响。
+
+**现象**：
+`http://localhost:5173/dashboard/#pipeline` 顶部 TurnSelect 每一项显示 `18:32:14 · a7f2e1cd · deepseek-v4-flash`。gateway_request_id 前缀和 aggregator 模型名对现场观众/用户没有语义价值，反而占满宽度，看不到"这是哪个 prompt 触发的"。同一份数据在 Live 页的 RunSelect 里显示的是 `时间 + prompt 截断`，两页体验割裂。
+
+**后果**：
+Pipeline 是给观众看请求流程的展示页，历史选择需要一眼认出"是那次问 Rust 二分查找的"；hash + 模型名让人得点开才知道，浪费观众注意力，也把 Pipeline 的历史心智模型和 Live 页拉开。
+
+**初步判断**：
+已确认。`listTraces` 曾是 Pipeline 唯一入口，本身没有 prompt 字段所以只能塞 hash + model 顶包；ISS-035 起 `listComparisons` 已经把 prompt 平推出来，Pipeline 早该跟上。
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（`recent` 类型 + `listComparisons` 替换 `listTraces`；`TurnSelect` option 文案与 minWidth/maxWidth 与 Live 页对齐）
+-> 004CHANGELOG.md [2026-07-16-17]
+
+## [ISS-057] Pipeline TurnSelect 会列出没有 aggregator trace 的 gwId，点开落到空态
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`PipelinePage` dropdown 数据源改成 `listComparisons(20)` 与 `listTraces({role:'aggregator'})` 的**交集**——option 只列出两侧都在的 gwId，保证每条选中都能画流程图；文案继续走 comparisons 侧的 `time · clipped-prompt`，交集判定走 traces 侧的 `Set<gateway_request_id>`。这与 `useKioskMode.fetchQueueDetailed` 的取交集策略一致，两处不再打架。
+
+**现象**：
+ISS-056 把 Pipeline dropdown 换到 `listComparisons(20)` 后，凡是 `traces` 表里没有 aggregator trace 的 gwId 也会被列出来（MoM early error / passthrough / ISS-035 之前的老数据）。用户点这种 option，右侧渲染出「还没有 aggregator turn 记录」的空态提示。示例：gwId `5052957c` 存在于 `comparisons`，但 `getTracesByGateway` 返回的列表里没有 `role='aggregator'` 那一行。
+
+**后果**：
+展厅历史选择器可能落到"选了不代表能看"的状态，破坏 Pipeline 页作为"点历史 → 看流程"的心智；kiosk 队列长期沿用交集策略从不出现这个问题，Pipeline 手选交互回归后反而更差。
+
+**初步判断**：
+已确认。ISS-056 简化时把"必然有 aggregator trace"的隐式契约丢了；`getTracesByGateway` 无 aggregator 行时 `buildTurnData` 得到 `turn.nodes.length === 0`，走 ISS-052 加的空态卡片分支。
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（初始加载改成 `Promise.all([listComparisons(20), listTraces({role:'aggregator'})])` 后取 gwId 交集）
+-> 004CHANGELOG.md [2026-07-16-18]
+
+## [ISS-058] Pipeline TurnSelect 采用严格交集后，最近 20 窗口不重叠时下拉整体清空
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：把 dropdown 数据源改成 traces(role='aggregator') 为主源 + comparisons 作为 prompt 增补：`recent` 类型从 `ComparisonListItem[]` 换成本地 `TurnOption { gateway_request_id, started_at, prompt, fallback_model }`；aggregator traces 的每一条都进 `recent`（保证能画流程图），prompt 从 `comparisons` 里按 gwId 查表，命中就用 `time · <clipped-prompt>`，没命中就 fallback 到 `time · <hash8> · <model>`。这样既不因老数据消失、也不因窗口不重叠让 dropdown 变空。
+
+**现象**：
+ISS-057 的严格交集实现（`comparisons ∩ aggregator-traces`）在 `listComparisons(20)` 与 `listTraces(20, role='aggregator')` 的 gwId 集合完全不重叠时（老 aggregator trace 是 Phase 3-5 test 数据、没有对应 comparison 行；新 comparison 都是 MoM 早失败没跑到 aggregator）→ 交集为空 → Pipeline 页 dropdown 一个 option 都不显示。用户反馈："Live 页历史正常，Pipeline 一个都没有；之前虽然格式错，起码有内容"。
+
+**后果**：
+Pipeline 页历史完全丢失，展厅无法从下拉找到任何旧 turn；ISS-057 是"从坏 option 里过滤掉不能画的"，走过头变成"两侧不重叠时全丢"，回归比 ISS-056 之前更差。
+
+**初步判断**：
+已确认。根因是把"过滤"和"prompt 增补"耦合到一个数据源上；aggregator traces 单独就能承担"能不能画"这个语义，comparisons 只是文案增强，两者不该做严格 join。
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（`recent` 类型改为 `TurnOption`；aggregator traces 全进，`Map<gwId, prompt>` 增补，缺 prompt 时回落 hash8 + model）
+-> 004CHANGELOG.md [2026-07-16-19]
+
+## [ISS-059] Pipeline TurnSelect 需要和 Live 历史 100% 同源同格式，不允许 fallback 到 hash+model
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：ISS-058 的"aggregator traces 为主源 + comparisons 做 prompt 增补 + 缺 prompt fallback hash+model"被用户明确否掉——诉求是"跟 Live 的历史记录一样"，视觉一致优先于覆盖率。改回单纯 `listComparisons(20)`，与 Live RunSelect 同源同格式；一个 comparison 若没对应 aggregator trace，点开时右侧本来就有的 `turn.nodes.length===0` 空态卡兜住，代价可接受。
+
+**现象**：
+ISS-058 落地后 Pipeline dropdown 大部分 option 显示 `time · <hash8> · <model>`，因为最近 20 aggregator traces（老 Phase 3-5 test 数据）和最近 20 comparisons（新数据）几乎不重叠。用户反馈"格式又恢复原状了，等于没改"。
+
+**后果**：
+Pipeline 历史记录心智仍与 Live 割裂，ISS-056 的初衷（两页历史列表格式统一）被抵消。
+
+**初步判断**：
+已确认。ISS-057 → ISS-058 一路上试图守住"每条 option 都能画流程图"这个隐式契约，但用户实际要的是"格式统一 + Live 页删除已经能让脏 comparison 无法再被点到"，两个约束次序颠倒了。
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（dropdown 数据源改回 `listComparisons(20)`；`recent` 类型回到 `ComparisonListItem[]`；`TurnSelect` 文案纯粹 `time · clipped-prompt`）
+-> 004CHANGELOG.md [2026-07-16-20]
+
+## [ISS-060] Live StatusStrip 删除入口是"删除"文字按钮，用户找不到；期望是显眼的叉号图标
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`StatusStrip` 删除触发按钮从 ghost 变体的"删除"文字按钮改成一个 28×28 圆形 `×` 图标按钮（`bgSubtle` 底 + `borderStrong` 描边 + `textSecondary` 灰字），带 `title="删除"` tooltip。点击行为不变——仍展开内联的「取消 / 确认删除」小簇二次确认，防误触。
+
+**现象**：
+用户"我之前加了删除历史记录的功能，说是点开查看历史右边有个叉号可以同步删除…这个功能似乎也没成功修改"——ISS-055 把触发做成了 ghost 风格的"删除"文字按钮，在 StatusStrip 右侧灰调背景下几乎看不出是按钮，用户误以为没做。
+
+**后果**：
+功能可用但用户觉得没做，事实上等价没做。
+
+**初步判断**：
+已确认。ISS-055 时怕"删除历史"太醒目导致误点，选了 ghost 变体；现在用图标 + 二次确认小簇，两头都占：显眼 + 不误删。
+
+**关联**：
+-> web/src/pages/live-shared.tsx（`StatusStrip` 触发从 `<Button variant="ghost">删除</Button>` 换成 `×` 图标按钮；二次确认簇不变）
+-> 004CHANGELOG.md [2026-07-16-20]
+
+## [ISS-061] Pipeline dropdown 列出的 comparison 里含未跑到 aggregator 的行，点开仍空
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`PipelinePage` 加载 `listComparisons(20)` 后按 `status ∈ {mom_done, baseline_done, judge_done}` 过滤——由 `src/live/live-runtime.ts:225` 与 `src/orchestrator/orchestrator.ts:595` 的时序可知，只有跑完 MoM 主链路的 comparison 才会带 aggregator trace，`pending` / `error` 状态天生就没有 aggregator trace，本来就不该进 dropdown。数据源仍是 `listComparisons(20)`，与 Live 页 RunSelect 同源同格式；只是把"点了必空"的状态提前过滤掉。
+
+**现象**：
+ISS-059 把 dropdown 数据源改回 `listComparisons(20)` 后，pending 与 error 状态的 comparison 也进了列表；点这类 option → 右侧渲染"还没有 aggregator turn 记录"空态卡。用户反馈"现在历史记录是对的，但是没有图"。
+
+**后果**：
+Pipeline 页历史列表"能显示 ≠ 能画"，观众/用户点历史仍有概率落空。
+
+**初步判断**：
+已确认。`comparison.status` 在 `updateComparisonMom(...'mom_done')` 时才写入，且 `orchestrator.nonStreaming` 在 status 更新前先 `saveTraceRequest({role: 'aggregator'})`——status 与 aggregator trace 存在的因果关系确定。
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（`listComparisons(20)` 后按 status 过滤 mom_done / baseline_done / judge_done）
+-> 004CHANGELOG.md [2026-07-16-21]
+
+## [ISS-062] 根因：submitLiveTurn 与 orchestrator 各自 randomUUID，comparisons 与 traces 的 gateway_request_id 从不重合
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`Orchestrator.nonStreaming` / `streaming` 加可选 `gatewayRequestIdOverride?: string` 参数；`orchestrateNonStreaming` / `orchestrateStreaming` 内部 `randomUUID()` 改成 `gatewayRequestIdOverride ?? randomUUID()`；`src/live/live-runtime.ts:215` 把 `submitLiveTurn` 创建的 `gatewayRequestId` 传下去。`src/gateway/messages-handler.ts` 两处 Claude Code → gateway 的调用不传，保持原语义（gateway 自己是最上游）。baseline / judge 分支使用的 `writeTrace()` 早已直接接受 `gatewayRequestId` 入参，无需改动。
+
+**现象**：
+Pipeline 页任何一次尝试对齐 Live 历史（ISS-056 → ISS-057 → ISS-058 → ISS-059 → ISS-061）都会陷入"格式对了没图 / 有图格式不对"的死循环。深挖后确认：`submitLiveTurn` 用 `randomUUID()` 创建 gwId A 写入 `comparisons` 表；紧接着 `orchestrator.nonStreaming(anthropicReq, sessionId, log)` 内部又 `randomUUID()` 创建独立 gwId B，`orchestrator` 内部 advisor / assembly / aggregator 的所有 `saveTraceRequest` 都用 gwId B。`comparisons.gateway_request_id = A`，`traces.gateway_request_id = B`，两张表在 Live 上下文里**从来没有一个 gwId 是共享的**。Live 页只查 comparisons 所以看不到问题；Pipeline 页 `getTracesByGateway(A)` 永远返回空。
+
+**后果**：
+Pipeline 页历史与 Live 页历史在同一次调用上根本不指向同一份 trace 数据，"点历史看流程"这个心智完全建立在一个隐性错位上。之前展示能出图纯靠 Pipeline dropdown 走 `listTraces(role='aggregator')`（返回 gwId B）与 `getTracesByGateway(B)` 自洽——两页历史列表从来是两套语义。ISS-056 想把两页对齐时踩到了这个雷。
+
+**初步判断**：
+已确认。`grep -n "randomUUID" src/orchestrator/orchestrator.ts` 显示 line 99 与 line 208 各自 mint，`grep "orchestrator\\.nonStreaming" src/live/live-runtime.ts:215` 显示 caller 没传 gwId。fix 前后差异用现有 mom.db 复现：新提 turn 后 `sqlite3 mom.db "SELECT gateway_request_id, role FROM traces ORDER BY started_at DESC LIMIT 20"` 与 `SELECT gateway_request_id FROM comparisons ORDER BY started_at DESC LIMIT 5` 求交集，fix 前空、fix 后包含新 turn 的 gwId。
+
+**已知遗留**：
+现有 comparisons 行的 traces 仍在旧 gwId 下，历史数据的 Pipeline 图仍是空。fresh submit 后即修复。用户可用 `DELETE /api/comparison/:gwId`（ISS-055）清掉旧脏记录。
+
+**关联**：
+-> src/orchestrator/orchestrator.ts（`Orchestrator` interface + 两个 `orchestrateXxx` 加 `gatewayRequestIdOverride` 参数）
+-> src/live/live-runtime.ts（`orchestrator.nonStreaming(..., gatewayRequestId)`）
+-> 004CHANGELOG.md [2026-07-16-22]
+
+## [ISS-063] MoM 卡片 token 只算 aggregator.output_tokens，与 cost 口径不一致
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：MoM 完成时改为回读 `getTraceRequestsByGatewayRequestId(gwId)` 得到本轮 advisor + aggregator 所有 trace 行，累加它们的 `usage`（input / cache_read / cache_creation / output / reasoning 全部维度）与 `calculateCostFromSnapshot(usage, trace.pricing)` 得到全链路 usage + cost，写回 `comparisons.mom_usage_json` / `mom_cost_usd`。baseline / judge 排除。前端 `StatsRow` 的 `tokens` 参数从 `usage.output_tokens` 改为 `input+cache_read+cache_creation+output` 全部相加，视觉上"总 token × 均价 ≈ 总花费"，可反向校对。
+
+**现象**：
+Live 页 MoM 列右下角 StatsRow 显示的 token 数明显小于 Baseline，但 cost 反而高——`tokens={mom.usage.output_tokens}` 只显示 aggregator 那一次调用的 output tokens；`mom_cost_usd` 之前算的也是同一份 aggregator 单调用 usage × aggregator pricing。看着不对但根源是"口径太窄"，advisor 全链路开销从未进入 comparisons.mom 表；用户对着 MoM 卡片直接反向验算立刻发现异常。
+
+**后果**：
+展厅关键卖点"MoM 节省成本"被自己的 UI 打脸——观众看数字对不上会怀疑数据。且 MoM 的 cache_read 优势（cache 命中率高是 MoM 便宜的核心机制）在 output-only 视图里完全隐形。
+
+**初步判断**：
+已确认。`orchestrator.nonStreaming` 返回值只暴露 aggregator response；advisor traces 已经落库，`getTraceRequestsByGatewayRequestId` 回读汇总是最小侵入路径，且相当于给 comparisons 做 materialized view。
+
+**关联**：
+-> src/storage/traces.ts（新增 `getTraceRequestsByGatewayRequestId(gwId): TraceRequest[]`）
+-> src/live/live-runtime.ts（`rollUpMomUsageAndCost(gwId)` 累加 advisor + aggregator；替换掉原来只喂 aggregator response 到 `updateComparisonMom` 的路径）
+-> web/src/pages/live-shared.tsx（`StatsRow.tokens` 从 `usage.output_tokens` 改为四维之和 via `totalTokens(usage)` helper）
+-> 004CHANGELOG.md [2026-07-16-23]
+
+## [ISS-064] 正在跑的 comparison 无法删除；后端重启后遗留 pending 行没兜底
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[健壮性]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：两处联动——(a) `StatusStrip` 的 `canDelete` 判定去掉 `!polling` 限制，polling 中也允许删；后端 DELETE 事务与后台仍在跑的 `updateComparisonXxx` 天然容错（0-row UPDATE 静默 no-op），`useLiveRun.tick` 已有 404 分支停轮询（ISS-055 起）。(b) `src/live/live-store.ts` 新增 `markStalePendingComparisonsAsError()`，把所有 status='pending' 行改成 'error' + `mom_error_json = {"message":"server restarted while running"}`；`src/index.ts` 在 `initDB()` 之后立即调用，boot log 打印数量。
+
+**现象**：
+- 用户 A：Live 页显示"运行中"时右上角 `×` 按钮消失，无法删除卡住的调用。
+- 用户 B：`Ctrl+C` 杀掉后端后，`comparisons` 表遗留 status='pending' 的行，重启后前端永远看到"pending"，`useLiveRun.tick` 3s 轮询无终态。
+
+**后果**：
+展厅现场任何一次卡顿（网络抖、上游 5xx 内部重试超长、operator 误操作 kill 进程）都可能留下永不解决的僵尸 pending 记录；无法通过 UI 清理。
+
+**初步判断**：
+已确认。ISS-055 起 `canDelete` 特意加了 `!polling` 因为怕误删活跃调用；实际上并无技术风险——后端删除是幂等事务，后台 promise 后续写入 0 行无副作用；前端 tick 已识别 404。启动时刷 pending → error 是自愈机制，独立于删除路径。
+
+**关联**：
+-> src/live/live-store.ts（`markStalePendingComparisonsAsError()`）
+-> src/index.ts（`initDB` 后立即调用，log stale count）
+-> web/src/pages/live-shared.tsx（`StatusStrip.canDelete` 移除 `!polling` 门槛，注释解释后端幂等 + 前端 404 兜底）
+-> 004CHANGELOG.md [2026-07-16-23]
+
+## [ISS-065] Judge 打分偶发 parse_error，展厅现场看到失败
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`runJudgeCompare` 由单次调用改为 up to 5 次重试的循环。旧的单次实现抽成 `runJudgeCompareOnce`，外层每轮换 temperature（0 → 0.1 → 0.2 → 0.3 → 0.4）重试；触发条件：`parse_error === true`（JSON 形状不对）或 `error !== null` 且不是 4xx（transport / provider 5xx / 网络抖动）。4xx（auth / bad request）视为永久失败立即返回。A/B mapping 在 attempt 0 决定，跨所有 attempt 复用，防止重试打乱 mom / baseline 归属。usage / latency 跨 attempt 累加，cost 计算不失真。加 `log?: Logger` 打 `judge_retry` / `judge_permanent_failure` 事件便于排查。上限 5 是用户提出的产品线要求——"直到跑成功为止，最多 5 次，担心还失败产品体验就差了"；数值上 5 次已把观测到的 parse_error 覆盖到接近 0，同时 worst-case 延迟与 token spend 有上界。
+
+**现象**：
+Live 页 Judge 打分偶发失败，前端显示错误状态且分数为 0。根源是 judge 模型输出的 JSON 形状不满足 `parseJudgeCompare` 要求（多余 markdown、trailing comma、`response_a` 键名少写等），`parse_error: true` 一路传到前端。展厅现场任何一次失败都直接影响观众对系统稳定性的信心。
+
+**后果**：
+展厅关键卖点 Judge 打分对比是 MoM vs Baseline 的可视化重点，偶发失败破坏 demo 说服力。
+
+**初步判断**：
+已确认。属模型输出格式偶发漂移，同 prompt 再跑一次多数能好；bump 一点 temperature 可以让模型不重复同一份坏输出。上限 5 兜底防止某些 model 系统性坏 JSON 时无限烧 token。
+
+**关联**：
+-> src/judge/judge-runtime.ts（`runJudgeCompare` 重构成 5 次上限重试循环 + `runJudgeCompareOnce` inner；`JUDGE_MAX_ATTEMPTS=5`；`JUDGE_RETRY_TEMPERATURES=[0,0.1,0.2,0.3,0.4]`；新增 `log?` param）
+-> src/live/live-runtime.ts（`finalizeJudge` 上游 `runJudgeCompare` 传入 `log`）
+-> 004CHANGELOG.md [2026-07-16-24]
+
 <!--
 新增条目模板：
 

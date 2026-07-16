@@ -1,3 +1,163 @@
+## [2026-07-16-24] fix(judge): bounded retry (up to 5) when judge parse or transport fails [ISS-065]
+
+### 改动
+- `src/judge/judge-runtime.ts`：`runJudgeCompare` 由单次调用改为最多 5 次重试的循环。旧的单次逻辑抽到 `runJudgeCompareOnce`，外层循环遇到 `parse_error` 或 transport 错误就换 temperature 重试（0 → 0.1 → 0.2 → 0.3 → 0.4）；4xx 视为永久错误立即跳出；累计 usage / latency 跨所有尝试；A/B mapping 决定一次后跨所有 attempt 复用（防止重试时打乱语义）。加 `log?: Logger` 参数，重试与永久失败都发 pino 结构化事件（`judge_retry` / `judge_permanent_failure`）便于线上排查
+- `src/live/live-runtime.ts`：`finalizeJudge` 上游 `runJudgeCompare` 调用传入 `log`
+
+### 涉及文件
+- src/judge/judge-runtime.ts：+ 重试循环 + 累计 usage + Logger 打点
+- src/live/live-runtime.ts：传 log 到 judge
+
+### 关联
+-> ISS-065
+
+## [2026-07-16-23] fix(live): MoM token+cost cover advisors, deletable pending rows, startup pending sweep [ISS-063][ISS-064]
+
+### 改动
+- `src/storage/traces.ts`：新增 `getTraceRequestsByGatewayRequestId(gwId): TraceRequest[]`（`SELECT data FROM traces WHERE gateway_request_id = ? ORDER BY started_at ASC`）
+- `src/live/live-runtime.ts`：`runMomPipeline` 完成后不再用 aggregator response 的 usage 直接写 comparisons，而是调 `rollUpMomUsageAndCost(gwId)` 汇总本轮所有 role∈{advisor, aggregator} 的 trace 的 `usage` 与 `calculateCostFromSnapshot(usage, trace.pricing)` 结果；baseline / judge 排除
+- `src/live/live-store.ts`：新增 `markStalePendingComparisonsAsError()`，`UPDATE comparisons SET status='error', mom_error_json='{"message":"server restarted while running"}', updated_at=now WHERE status='pending'`
+- `src/index.ts`：`initDB()` 后立即 `markStalePendingComparisonsAsError()`，count > 0 打印日志
+- `web/src/pages/live-shared.tsx`：`StatsRow` 的 `tokens` 参数改为 `totalTokens(usage)`（input + cache_read + cache_creation + output）；`StatusStrip.canDelete` 移除 `!polling` 门槛，注释解释后端幂等 + 前端 404 兜底
+
+### 涉及文件
+- src/storage/traces.ts：+ getTraceRequestsByGatewayRequestId
+- src/live/live-runtime.ts：+ rollUpMomUsageAndCost，替换 MoM 完成写路径
+- src/live/live-store.ts：+ markStalePendingComparisonsAsError
+- src/index.ts：boot 时刷僵尸 pending
+- web/src/pages/live-shared.tsx：token 显示 4 维累加；delete 按钮 polling 中也可点
+
+### 关联
+-> ISS-063
+-> ISS-064
+
+## [2026-07-16-22] fix(live): thread submitLiveTurn's gateway_request_id into orchestrator so comparisons + traces join [ISS-062]
+
+### 改动
+- `src/orchestrator/orchestrator.ts`：`Orchestrator.nonStreaming` / `streaming` 签名加可选 `gatewayRequestIdOverride?: string`；`orchestrateNonStreaming` / `orchestrateStreaming` 里的 `randomUUID()` 改成 `gatewayRequestIdOverride ?? randomUUID()`。上游能给就用，否则维持"最上游"语义
+- `src/live/live-runtime.ts`：`orchestrator.nonStreaming(anthropicReq, sessionId, log)` 传入 `submitLiveTurn` 的 `gatewayRequestId`。修复此前 `comparisons.gateway_request_id` 与 `traces.gateway_request_id` 永远错位的根因
+- `src/gateway/messages-handler.ts`：不传（Claude Code → gateway 是最上游，orchestrator 自己 mint 保持原语义）
+
+### 涉及文件
+- src/orchestrator/orchestrator.ts：nonStreaming / streaming 接受可选 gwId override
+- src/live/live-runtime.ts：把 submitLiveTurn 的 gwId 传给 orchestrator
+
+### 关联
+-> ISS-062
+
+## [2026-07-16-21] fix(web): pipeline dropdown filters comparisons by status so every option can render [ISS-061]
+
+### 改动
+- `web/src/pages/PipelinePage.tsx`：`listComparisons(20)` 结果按 `status ∈ {mom_done, baseline_done, judge_done}` 过滤后再进 `recent`；数据源与 Live 页 RunSelect 依旧同源、文案依旧 `time · clipped-prompt`，只是把"点了必空"（pending 未跑完 / error MoM 挂了）的状态挡在 dropdown 外面
+
+### 涉及文件
+- web/src/pages/PipelinePage.tsx：dropdown 按 comparison.status 过滤，保证 option 都能画流程图
+
+### 关联
+-> ISS-061
+
+## [2026-07-16-20] fix(web): pipeline history uses listComparisons; live delete becomes an × icon [ISS-059][ISS-060]
+
+### 改动
+- `web/src/pages/PipelinePage.tsx`：dropdown 数据源改回单纯 `listComparisons(20)`，`recent` 类型回到 `ComparisonListItem[]`，`TurnSelect` 文案纯粹 `time · clipped-prompt`，与 Live 页 RunSelect 完全同源同格式；ISS-058 的 aggregator-traces-主源 + hash+model fallback 方案在最近 20 窗口不重叠时会退化成"格式全乱"，用户诉求是"格式一致 > 每条都能画"，本次尊重
+- `web/src/pages/live-shared.tsx`：`StatusStrip` 删除触发按钮从 ghost 变体的"删除"文字改成 28×28 圆形 `×` 图标按钮（`bgSubtle` 底 + `borderStrong` 描边），带 `title` tooltip；后续内联的「取消 / 确认删除」小簇不变，防止一击即删
+
+### 涉及文件
+- web/src/pages/PipelinePage.tsx：dropdown 回归 listComparisons + Live 一致文案
+- web/src/pages/live-shared.tsx：StatusStrip 删除入口改成 × 图标按钮
+
+### 关联
+-> ISS-059
+-> ISS-060
+
+## [2026-07-16-19] fix(web): pipeline TurnSelect keeps aggregator traces even when comparisons window misses [ISS-058]
+
+### 改动
+- `web/src/pages/PipelinePage.tsx`：`recent` 类型从 `ComparisonListItem[]` 换成本地 `TurnOption { gateway_request_id, started_at, prompt, fallback_model }`；aggregator traces 每条都进 `recent`（担保"能画流程"），从 `comparisons` 侧构建 `Map<gwId, prompt>` 只做**文案增补**——命中显示 `time · clipped-prompt`（Live 格式），未命中 fallback 到 `time · hash8 · model`（老数据可读）。摒弃严格交集，避免两侧最近 20 窗口不重叠时下拉整体清空
+
+### 涉及文件
+- web/src/pages/PipelinePage.tsx：dropdown 主源改成 aggregator traces，comparisons 作为 prompt lookup
+
+### 关联
+-> ISS-058
+
+## [2026-07-16-18] fix(web): pipeline TurnSelect only lists gwIds with aggregator trace [ISS-057]
+
+### 改动
+- `web/src/pages/PipelinePage.tsx`：dropdown 初始加载从单请求 `listComparisons(20)` 改成 `Promise.all([listComparisons(20), listTraces({role:'aggregator'})])`，用 traces 侧的 `Set<gateway_request_id>` 过滤 comparisons 侧，交集才进 `recent`；文案继续 `time · clipped-prompt`。与 `useKioskMode.fetchQueueDetailed` 的取交集策略保持一致
+
+### 涉及文件
+- web/src/pages/PipelinePage.tsx：`recent` 只保留 comparisons ∩ aggregator-traces 的 gwId
+
+### 关联
+-> ISS-057
+
+## [2026-07-16-17] polish(web): pipeline TurnSelect matches Live history format [ISS-056]
+
+### 改动
+- `web/src/pages/PipelinePage.tsx`：`recent` 类型 `TraceSummary[]` → `ComparisonListItem[]`；数据源 `listTraces({ limit: 20, role: 'aggregator' })` → `listComparisons(20)`；`TurnSelect` option 文案 `time · hash8 · model` → `time · clipped-prompt`（`PROMPT_CLIP=40` 与 Live 页 RunSelect 保持一致）；`<select>` 尺寸从 `minWidth: 220` 提到 `minWidth: 260, maxWidth: 420`，与 Live 页一致，去掉 `fontFamily: monospace`（不再是 hash 展示）
+
+### 涉及文件
+- web/src/pages/PipelinePage.tsx：Pipeline 顶部 TurnSelect 与 Live 历史列表统一为 time + prompt 截断
+
+### 关联
+-> ISS-056
+
+## [2026-07-16-16] feat(live): delete history run atomically across comparisons + traces [ISS-055]
+
+### 改动
+- `src/gateway/live-api.ts`：新增 `DELETE /api/comparison/:gateway_request_id` 路由。用 `db.exec('BEGIN')` → `deleteTracesByGatewayRequestId` → `deleteComparison` → `COMMIT` 包成一段事务，任一失败 `ROLLBACK` 并抛出；两侧 `changes` 都为 0 时返回 404，否则返回 `DeleteComparisonResponse { deleted: true, gateway_request_id, traces_removed }`
+- `src/live/live-store.ts`：新增 `deleteComparison(gwId): number` helper（`DELETE FROM comparisons WHERE gateway_request_id = ?`，返回 changes 数）
+- `src/storage/traces.ts`：新增 `deleteTracesByGatewayRequestId(gwId): number` helper（`DELETE FROM traces WHERE gateway_request_id = ?`）
+- `src/types/dashboard-api.ts`：新增 `DeleteComparisonResponse` 契约
+- `web/src/lib/api.ts`：新增 `apiDelete<T>(path)` 与 `deleteComparison(gwId): Promise<DeleteComparisonResponse>`；`DeleteComparisonResponse` 类型对齐后端
+- `web/src/hooks/useLiveRun.ts`：`tick` 的 `catch` 分支识别 `ApiError.status === 404` → 清 `activeGwRef`、`setState({ current: null, polling: false, transportError: null })`、不再 reschedule。修掉此前删除后 3s 无限 404 轮询
+- `web/src/hooks/useKioskMode.ts`：`KioskContextValue` 新增 `invalidateQueue(deletedGwId: string): Promise<void>` 与 `phaseRef` 跟踪当前 phase；若被删 id 是当前正在播放的 → `clearTimer` + 重取 `fetchQueueDetailed()` + 从 `phaseRef.current` 对应的 `run*()` 重进；否则从 `queueRef` splice + 调整 `queueIdxRef`
+- `web/src/pages/live-shared.tsx`：`StatusStrip` 加 `onDelete? / deleting? / deleteError?` 三个 prop 与本地 `confirming` 状态；`gwId` 变化时 useEffect 重置 confirm；仅在 `!polling && live != null` 时展示右侧 ghost「删除」按钮，点击后原地替换为「取消 / 确认删除」小簇，确认按钮走 `color.negative` 底色；错误时 `deleteError` 红字紧随
+- `web/src/pages/LivePage.tsx`：新增 `jobsBumpKey / deleting / deleteError` 状态与 `handleDelete` 闭包（`deleteComparison → live.reset → setJobsBumpKey → kiosk.invalidateQueue if enabled`）；`historyKey` effect deps 加 `jobsBumpKey` 以在删除后重取历史；`ResultView` prop 转发到 `StatusStrip`
+- `web/src/i18n/dict.ts`：`live.deleteRun{,Confirm,ConfirmYes,ConfirmNo,Pending,Error}` zh/en 6 key
+
+### 涉及文件
+- src/gateway/live-api.ts：+ DELETE 路由 + 事务包裹
+- src/live/live-store.ts：+ deleteComparison helper
+- src/storage/traces.ts：+ deleteTracesByGatewayRequestId helper
+- src/types/dashboard-api.ts：+ DeleteComparisonResponse
+- web/src/lib/api.ts：+ apiDelete + deleteComparison
+- web/src/hooks/useLiveRun.ts：+ 404 stop-polling 分支
+- web/src/hooks/useKioskMode.ts：+ invalidateQueue + phaseRef
+- web/src/pages/live-shared.tsx：+ StatusStrip 内联删除簇
+- web/src/pages/LivePage.tsx：+ handleDelete / jobsBumpKey
+- web/src/i18n/dict.ts：+ delete 相关 6 key
+
+### 关联
+-> ISS-055
+
+## [2026-07-16-15] fix(web): shine animation on live pending labels + fix MoM label [ISS-054]
+
+### 改动
+- `web/src/pages/live-shared.tsx`：`MomColumn` footer 的 pending 文案 key 从错标的 `pendingBaseline` 改成新的 `pendingMom`；抽出局部组件 `PendingLabel`（`className="shine-text"` + 两个 CSS 自定义属性 `--shine-base` / `--shine-hi`）供两列复用
+- `web/src/global.css`：新增 `@keyframes shine-sweep`（`background-position` 从 `200% 50%` 移到 `-200% 50%`）与 `.shine-text` 类（`linear-gradient` 三段渐变 + `background-clip: text` + `color: transparent`，2s 循环）
+- `web/src/i18n/dict.ts`：`live.pendingMom` zh/en 新增；`live.pendingBaseline` en 从 `Awaiting baseline…` 改成 `Baseline is generating…` 与 zh 版风格对齐
+
+### 涉及文件
+- web/src/pages/live-shared.tsx：MomColumn 用新 key；+ PendingLabel 组件
+- web/src/global.css：+ shine-sweep 关键帧 + .shine-text 类
+- web/src/i18n/dict.ts：+ pendingMom；pendingBaseline en 文案统一
+
+### 关联
+-> ISS-054
+
+## [2026-07-16-14] polish(web): shorten live status hint to just "running" [ISS-053]
+
+### 改动
+- `web/src/i18n/dict.ts`：`live.submittedHint` zh 从 `任务在后台执行中，每 3 秒自动刷新一次快照。` 改成 `运行中`；en 从 `Your run is executing in the background. Snapshot refreshes every 3 seconds.` 改成 `Running`
+
+### 涉及文件
+- web/src/i18n/dict.ts：submittedHint zh/en 缩短
+
+### 关联
+-> ISS-053
+
 ## [2026-07-16-13] feat(web): kiosk auto-play mode for exhibition dashboard [ISS-052]
 
 ### 改动
