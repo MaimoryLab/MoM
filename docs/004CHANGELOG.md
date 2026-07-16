@@ -1,3 +1,16 @@
+## [2026-07-16-24] fix(judge): bounded retry (up to 5) when judge parse or transport fails [ISS-065]
+
+### 改动
+- `src/judge/judge-runtime.ts`：`runJudgeCompare` 由单次调用改为最多 5 次重试的循环。旧的单次逻辑抽到 `runJudgeCompareOnce`，外层循环遇到 `parse_error` 或 transport 错误就换 temperature 重试（0 → 0.1 → 0.2 → 0.3 → 0.4）；4xx 视为永久错误立即跳出；累计 usage / latency 跨所有尝试；A/B mapping 决定一次后跨所有 attempt 复用（防止重试时打乱语义）。加 `log?: Logger` 参数，重试与永久失败都发 pino 结构化事件（`judge_retry` / `judge_permanent_failure`）便于线上排查
+- `src/live/live-runtime.ts`：`finalizeJudge` 上游 `runJudgeCompare` 调用传入 `log`
+
+### 涉及文件
+- src/judge/judge-runtime.ts：+ 重试循环 + 累计 usage + Logger 打点
+- src/live/live-runtime.ts：传 log 到 judge
+
+### 关联
+-> ISS-065
+
 ## [2026-07-16-23] fix(live): MoM token+cost cover advisors, deletable pending rows, startup pending sweep [ISS-063][ISS-064]
 
 ### 改动

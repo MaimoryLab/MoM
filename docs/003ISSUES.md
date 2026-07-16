@@ -2148,6 +2148,29 @@ Live 页 MoM 列右下角 StatsRow 显示的 token 数明显小于 Baseline，�
 -> web/src/pages/live-shared.tsx（`StatusStrip.canDelete` 移除 `!polling` 门槛，注释解释后端幂等 + 前端 404 兜底）
 -> 004CHANGELOG.md [2026-07-16-23]
 
+## [ISS-065] Judge 打分偶发 parse_error，展厅现场看到失败
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`runJudgeCompare` 由单次调用改为 up to 5 次重试的循环。旧的单次实现抽成 `runJudgeCompareOnce`，外层每轮换 temperature（0 → 0.1 → 0.2 → 0.3 → 0.4）重试；触发条件：`parse_error === true`（JSON 形状不对）或 `error !== null` 且不是 4xx（transport / provider 5xx / 网络抖动）。4xx（auth / bad request）视为永久失败立即返回。A/B mapping 在 attempt 0 决定，跨所有 attempt 复用，防止重试打乱 mom / baseline 归属。usage / latency 跨 attempt 累加，cost 计算不失真。加 `log?: Logger` 打 `judge_retry` / `judge_permanent_failure` 事件便于排查。上限 5 是用户提出的产品线要求——"直到跑成功为止，最多 5 次，担心还失败产品体验就差了"；数值上 5 次已把观测到的 parse_error 覆盖到接近 0，同时 worst-case 延迟与 token spend 有上界。
+
+**现象**：
+Live 页 Judge 打分偶发失败，前端显示错误状态且分数为 0。根源是 judge 模型输出的 JSON 形状不满足 `parseJudgeCompare` 要求（多余 markdown、trailing comma、`response_a` 键名少写等），`parse_error: true` 一路传到前端。展厅现场任何一次失败都直接影响观众对系统稳定性的信心。
+
+**后果**：
+展厅关键卖点 Judge 打分对比是 MoM vs Baseline 的可视化重点，偶发失败破坏 demo 说服力。
+
+**初步判断**：
+已确认。属模型输出格式偶发漂移，同 prompt 再跑一次多数能好；bump 一点 temperature 可以让模型不重复同一份坏输出。上限 5 兜底防止某些 model 系统性坏 JSON 时无限烧 token。
+
+**关联**：
+-> src/judge/judge-runtime.ts（`runJudgeCompare` 重构成 5 次上限重试循环 + `runJudgeCompareOnce` inner；`JUDGE_MAX_ATTEMPTS=5`；`JUDGE_RETRY_TEMPERATURES=[0,0.1,0.2,0.3,0.4]`；新增 `log?` param）
+-> src/live/live-runtime.ts（`finalizeJudge` 上游 `runJudgeCompare` 传入 `log`）
+-> 004CHANGELOG.md [2026-07-16-24]
+
 <!--
 新增条目模板：
 

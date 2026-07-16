@@ -55,7 +55,7 @@ MoM/
 │   ├── judge/                        # 新增 — Phase 6（ISS-033）；判分子系统（当前只有 judge compare；aggregation_mode=judge 的结构化整合推 PLAN7）
 │   │   ├── judge-prompt.ts          # JUDGE_COMPARE_PROMPT_EN / _ZH（匿名 A/B、JSON-only、5 维定义）+ buildJudgeCompareUserMessage(拼 prompt + Response A + Response B)
 │   │   ├── judge-parse.ts           # parseJudgeCompare(raw) — 二阶段：strict JSON.parse → 失败退到正则抽首个 {...} 块；clamp 5 维分到 [0,100]；两条都挂返 null
-│   │   └── judge-runtime.ts         # runJudgeCompare({lang, prompt, momText, baselineText, judge, provider, rand?}) → JudgeCompareResult；始终不抛，error 归入返回值 error 字段
+│   │   └── judge-runtime.ts         # runJudgeCompare({lang, prompt, momText, baselineText, judge, provider, rand?, log?}) → JudgeCompareResult；始终不抛，error 归入返回值；ISS-065 起遇 parse_error / transport 5xx 最多重试 5 次，temperature 0→0.4 递增，4xx 视为永久失败立即返回，累计 usage/latency 跨 attempt
 │   ├── live/                         # 新增 — Phase 6（ISS-033）；Live Compare 编排 + comparisons 存储；ISS-035 起去 SSE 改异步 job
 │   │   ├── live-types.ts            # ComparisonRecord / ComparisonMomRow / ComparisonBaselineRow / ComparisonJudgeRow / ComparisonStatus；ISS-035 加 ComparisonMomErrorRow + 3 快照字段
 │   │   ├── live-store.ts            # comparisons 表 CRUD；ISS-035 起 createComparison 收 3 快照参数 + updateComparisonMomError + listRecentComparisons；deserialize 把 JSON blob 反塞回 ComparisonRecord；ISS-055 追加 deleteComparison(gwId)；ISS-064 追加 markStalePendingComparisonsAsError()（启动时把 pending 行统一改成 error）
