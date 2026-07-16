@@ -117,22 +117,70 @@ npm run sync-pricing -- --dry-run
 
 ## 启动
 
+前端 Dashboard 有两种运行方式，二选一。日常开发建议走 vite dev 模式（热更新 + 代理），部署或只是查看现状用产物模式（一份静态资源由网关托管）。
+
+### 方式 A：一键启动前后端（推荐日常开发）
+
 ```bash
-# 构建前端（可选：不构建时 /dashboard/ 会返回占位 HTML）
+# 网关（3000）+ vite dev server（5173）并行启动，日志按前缀区分
+npm run dev:all
+```
+
+启动后：
+
+- 网关日志会打印两条访问地址（`http://localhost:3000/dashboard/` 产物模式、`http://localhost:5173/dashboard/` vite dev 模式）
+- vite dev 的实际端口以其自身输出为准（5173 被占用时会自动往后找 5174/5175）
+- 前端在 vite dev 模式下已配好代理，`/api` 与 `/v1` 自动转发到 3000，不必额外配置
+
+单独跑其中一侧时用：`npm run dev`（只启网关）、`npm run dev:web`（只启前端 vite dev）。
+
+### 方式 B：先构建再由网关托管产物
+
+```bash
+# 构建前端（产物落在 web/dist；不构建时 /dashboard/ 会返回占位 HTML）
 npm run build:web
 
 # 启动网关（默认端口 3000）
 npm run dev
 ```
 
-Claude Code 侧：
+访问 `http://localhost:3000/dashboard/`。
+
+### Claude Code 侧
 
 ```bash
 export ANTHROPIC_BASE_URL=http://localhost:3000
 claude
 ```
 
-访问 `http://localhost:3000/dashboard/` 可看到前端骨架。
+`ANTHROPIC_BASE_URL` 只指向网关端口（3000），与 vite dev 端口无关——vite dev 只是给 Dashboard 前端热更新用的。
+
+### 想在前端看到 MoM vs Baseline 对比
+
+`data/mom.config.json` 里默认 `comparison` 是关闭的：
+
+```json
+"comparison": {
+  "enabled": false,
+  "baseline_model": ""
+}
+```
+
+想启用 Dashboard 的 Live Compare 面板（`/api/live/run` 会同时跑 MoM + baseline + judge 打分）时改成：
+
+```json
+"comparison": {
+  "enabled": true,
+  "baseline_model": "<provider 侧真实的 baseline 模型名>"
+}
+```
+
+要点：
+
+- `baseline_model` 必须是 `.env` 里 `PROVIDER_BASE_URL` 那个 provider 侧真实存在的模型 id
+- 建议把该 baseline 模型也一并同步进 `pricing_table`（重跑 `npm run sync-pricing` 即可），否则 baseline 侧的成本会显示为 null
+- 该开关只影响 Dashboard 的 Live Compare 独立入口，Claude Code 主客户端走的 `/v1/messages` 不会被 baseline + judge 拖慢
+- 修改后走 Dashboard 保存或直接改文件都可以，`POST /api/config` 走的是 orchestrator 热重建，不必重启网关
 
 ---
 
