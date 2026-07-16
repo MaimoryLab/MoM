@@ -1941,6 +1941,28 @@ Live / Pipeline 两页都能列出历史调用，但没有任何入口删除。�
 -> web/src/i18n/dict.ts（`live.deleteRun{,Confirm,ConfirmYes,ConfirmNo,Pending,Error}` zh/en 6 key）
 -> 004CHANGELOG.md [2026-07-16-16]
 
+## [ISS-056] Pipeline 历史选择器信息噪声：hash + 模型名把 prompt 挤没
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`PipelinePage` 顶部 TurnSelect 数据源从 `listTraces({role: 'aggregator'})` 切成 `listComparisons(20)`，option 文案从 `time · <hash8> · <model>` 改成和 Live 页 RunSelect 一致的 `time · <clipped-prompt>`。`recent` 状态类型从 `TraceSummary[]` 收敛为 `ComparisonListItem[]`，其它读取 `recent` 的地方只用 `length` 与 `map`，不受影响。
+
+**现象**：
+`http://localhost:5173/dashboard/#pipeline` 顶部 TurnSelect 每一项显示 `18:32:14 · a7f2e1cd · deepseek-v4-flash`。gateway_request_id 前缀和 aggregator 模型名对现场观众/用户没有语义价值，反而占满宽度，看不到"这是哪个 prompt 触发的"。同一份数据在 Live 页的 RunSelect 里显示的是 `时间 + prompt 截断`，两页体验割裂。
+
+**后果**：
+Pipeline 是给观众看请求流程的展示页，历史选择需要一眼认出"是那次问 Rust 二分查找的"；hash + 模型名让人得点开才知道，浪费观众注意力，也把 Pipeline 的历史心智模型和 Live 页拉开。
+
+**初步判断**：
+已确认。`listTraces` 曾是 Pipeline 唯一入口，本身没有 prompt 字段所以只能塞 hash + model 顶包；ISS-035 起 `listComparisons` 已经把 prompt 平推出来，Pipeline 早该跟上。
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（`recent` 类型 + `listComparisons` 替换 `listTraces`；`TurnSelect` option 文案与 minWidth/maxWidth 与 Live 页对齐）
+-> 004CHANGELOG.md [2026-07-16-17]
+
 <!--
 新增条目模板：
 

@@ -112,7 +112,7 @@ MoM/
 │       │   ├── OverviewPage.tsx   # Pareto 主图 + benchmark combo 副图 + 3 KPI（效果层）
 │       │   ├── LivePage.tsx       # 更新 — ISS-052 / ISS-055；两态单页 + kiosk 分支：kiosk.enabled 时永远走 KioskResultView（按 kiosk.liveStep 分阶段揭示 StatusStrip / MoM+Baseline / Judge / Cost，snap 未就位时显示 loading 占位），不再落到 EmptyState；kiosk 期间隐藏顶部 RunSelect；KioskStartButton 在 ResultView 底部"查看请求流程"旁；useEffect 监听 kiosk.currentGwId 触发 live.select；ISS-055 起 handleDelete + jobsBumpKey/deleting/deleteError 状态，删除后 live.reset + 触发历史列表重取 + kiosk.invalidateQueue
 │       │   ├── live-shared.tsx    # 更新 — ISS-052 / ISS-054 / ISS-055；MomColumn / BaselineColumn 加 typewriter / cursorOn；OutputCard 内接入 useTypewriter，autoScroll 跟随文本增长；typewriter 完成走 kiosk.notifyLiveAnswerDone 推进阶段；ISS-054 起 MomColumn 用新 pendingMom key + PendingLabel shine 组件；ISS-055 起 StatusStrip 加内联「删除 → 取消/确认」簇（onDelete / deleting / deleteError 三 prop）
-│       │   ├── PipelinePage.tsx   # 更新 — ISS-052；AdvisorCard / AggregatorCard 接入 useTypewriter，kiosk.enabled && status==='done' 时 preview 打字机 + scrollRef 自动滚到底；turn.nodes.length===0 时显示提示卡片而非光秃箭头
+│       │   ├── PipelinePage.tsx   # 更新 — ISS-052 / ISS-056；AdvisorCard / AggregatorCard 接入 useTypewriter，kiosk.enabled && status==='done' 时 preview 打字机 + scrollRef 自动滚到底；turn.nodes.length===0 时显示提示卡片而非光秃箭头；ISS-056 起 TurnSelect 数据源改走 listComparisons(20)，文案与 Live 页 RunSelect 一致（time · clipped-prompt）
 │       │   ├── CostPage.tsx       # 节省 banner + 4 KPI + 每轮堆叠柱 + 饼图 + cache 命中矩阵 + 累计时间线
 │       │   └── SettingsPage.tsx   # 语言 / Provider 只读 / Aggregator / Advisor slots / Judge / Comparison / Pricing
 │       ├── components/            # 新增 — ISS-028

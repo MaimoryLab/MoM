@@ -1,3 +1,14 @@
+## [2026-07-16-17] polish(web): pipeline TurnSelect matches Live history format [ISS-056]
+
+### 改动
+- `web/src/pages/PipelinePage.tsx`：`recent` 类型 `TraceSummary[]` → `ComparisonListItem[]`；数据源 `listTraces({ limit: 20, role: 'aggregator' })` → `listComparisons(20)`；`TurnSelect` option 文案 `time · hash8 · model` → `time · clipped-prompt`（`PROMPT_CLIP=40` 与 Live 页 RunSelect 保持一致）；`<select>` 尺寸从 `minWidth: 220` 提到 `minWidth: 260, maxWidth: 420`，与 Live 页一致，去掉 `fontFamily: monospace`（不再是 hash 展示）
+
+### 涉及文件
+- web/src/pages/PipelinePage.tsx：Pipeline 顶部 TurnSelect 与 Live 历史列表统一为 time + prompt 截断
+
+### 关联
+-> ISS-056
+
 ## [2026-07-16-16] feat(live): delete history run atomically across comparisons + traces [ISS-055]
 
 ### 改动
