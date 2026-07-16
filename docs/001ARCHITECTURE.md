@@ -254,6 +254,7 @@ runLiveTurn(...)
 
 GET /api/comparisons?limit=20                   → listRecentComparisons → ComparisonListItem[]（Live 页 Jobs 列表）
 GET /api/comparison/:gateway_request_id         → getComparisonById → ComparisonRecord | 404（Live 页 3s 轮询）
+DELETE /api/comparison/:gateway_request_id      → BEGIN → deleteTracesByGatewayRequestId + deleteComparison → COMMIT | ROLLBACK → DeleteComparisonResponse / 404（ISS-055）
 GET /api/presets                                → 读 data/presets.json → PresetsResponse（Live 页预置按钮）
 ```
 
@@ -297,6 +298,7 @@ GET /api/presets                                → 读 data/presets.json → Pr
 - **Live 入口边界**（Phase 6 起）：Live Compare 走**独立入口** `POST /api/live/run`，与 `/v1/messages` 完全解耦。`comparison.enabled` 只影响 `/api/live/run`，Claude Code 主客户端调用 `/v1/messages` 不会被 baseline+judge 拖累
 - **Live turn 组合**（Phase 6 起）：一次 `POST /api/live/run` = MoM 主链路（advisor N + aggregator 1）+ baseline（可选，non-streaming）+ judge_compare（两者均产文时）。四阶段调用节奏：MoM streaming 与 baseline non-streaming **并发**发起，`Promise.all` 归拢后 **串行** judge compare
 - **Live 存储切分**（Phase 6 起）：baseline / judge 的**元数据**（usage / pricing / latency / status / error）落 `traces` 表（`role='baseline'` / `role='judge'`），MoM / baseline **正文** + judge **5 维分与 A/B 映射** 落 `comparisons` 表；两者 join key = `gateway_request_id`
+- **Live 删除原子性**（ISS-055 起）：`DELETE /api/comparison/:gwId` 用一段 `BEGIN / COMMIT / ROLLBACK` 事务同时删掉两张表的记录；`metrics_cache` 不主动清（按窗口自然重建）；kiosk 轮播队列由 `useKiosk.invalidateQueue(gwId)` 事后同步，`useLiveRun.tick` 遇 404 停轮询——三者共同保证"comparison 存在 / traces 缺失"或反过来的僵尸态不出现
 - **Judge 匿名 A/B**（Phase 6 起）：judge prompt 中 MoM 与 baseline 匿名为 Response A / Response B，服务端在 dispatch 前随机映射，parse 后再回填 mom / baseline 标签；`comparisons.judge_ab_mapping_json` 记录本次分配供 bias 分析
 - **Judge JSON 解析降级**（Phase 6 起）：`parseJudgeCompare` 二阶段——strict `JSON.parse` → 失败退到正则抽首个 `{...}` 块再 parse，两条都失败则 `parse_error=true` + 5 维全 0 + `judge_error` 事件。regex-fallback 走通时 `fallback=true` 标记落库供 Dashboard 展示
 - **Live SSE 8 事件**（Phase 6 起）：`created / mom_delta / mom_done / mom_error / baseline_done / baseline_error / judge_done / judge_error / end`；SSE `event:` 名与 payload `type` 一致；同一连接单流推完关闭

@@ -25,7 +25,7 @@ MoM/
 │   │   ├── server.ts              # Fastify 实例、路由挂载、静态挂载 web/dist；startServer(port, runtime, { momConfigPath, benchmarksPath })；Phase 4 起挂载所有 /api/* 路由 + OrchestratorHolder
 │   │   ├── messages-handler.ts    # createMessagesHandler(holder) — 通过 holder.get() 拿最新 orchestrator，支持 POST /api/config 后 hot reload；从 X-Session-ID header 提取 sessionId；拆分 non-streaming / streaming；streaming 分支上提 SSE header + hijack + 兜底 error 帧
 │   │   ├── trace-api.ts           # 新增 — ISS-011；registerTraceAPI(app) 注册 GET /trace/requests?session_id=<uuid>（eval 视角批量查询）
-│   │   ├── live-api.ts            # 更新 — ISS-035；POST /api/live/run 改 202 + submitLiveTurn 后台跑；GET /api/comparisons 最近 20 job 列表；GET /api/comparison/:gwId 快照（含 3 快照模型 id + mom_error）
+│   │   ├── live-api.ts            # 更新 — ISS-035 / ISS-055；POST /api/live/run 改 202 + submitLiveTurn 后台跑；GET /api/comparisons 最近 20 job 列表；GET /api/comparison/:gwId 快照（含 3 快照模型 id + mom_error）；DELETE /api/comparison/:gwId 事务删除 comparison + 同 gwId traces（ISS-055）
 │   │   ├── presets-api.ts         # 新增 — ISS-035；GET /api/presets 读 data/presets.json（缺失/非法 → 空数组）
 │   │   ├── validator.ts           # 请求体最小校验（model / messages / max_tokens）
 │   │   └── sse.ts                 # parseSSELine / formatSSEEvent + createSSEParser（Phase 3 起）增量分帧器
@@ -58,7 +58,7 @@ MoM/
 │   │   └── judge-runtime.ts         # runJudgeCompare({lang, prompt, momText, baselineText, judge, provider, rand?}) → JudgeCompareResult；始终不抛，error 归入返回值 error 字段
 │   ├── live/                         # 新增 — Phase 6（ISS-033）；Live Compare 编排 + comparisons 存储；ISS-035 起去 SSE 改异步 job
 │   │   ├── live-types.ts            # ComparisonRecord / ComparisonMomRow / ComparisonBaselineRow / ComparisonJudgeRow / ComparisonStatus；ISS-035 加 ComparisonMomErrorRow + 3 快照字段
-│   │   ├── live-store.ts            # comparisons 表 CRUD；ISS-035 起 createComparison 收 3 快照参数 + updateComparisonMomError + listRecentComparisons；deserialize 把 JSON blob 反塞回 ComparisonRecord
+│   │   ├── live-store.ts            # comparisons 表 CRUD；ISS-035 起 createComparison 收 3 快照参数 + updateComparisonMomError + listRecentComparisons；deserialize 把 JSON blob 反塞回 ComparisonRecord；ISS-055 追加 deleteComparison(gwId)
 │   │   ├── baseline.ts              # runBaselineCall(original, baselineModel, provider) → BaselineResult；单模型 non-streaming，不抛，error 归 result.error
 │   │   └── live-runtime.ts          # ISS-035 重写：submitLiveTurn 同步 createComparison + 立即返回 gwId；runLiveTurn 后台并发跑 orchestrator.nonStreaming + baseline + judge，落 comparisons + 3 类 TraceRequest（含 response_text / last_user_text 文本字段）
 │   ├── provider/
@@ -67,7 +67,7 @@ MoM/
 │   │   └── stream-forward.ts      # 流式 SSE parse + normalization + 转发；签名 NodeJS.WritableStream + {onEvent?, log?}
 │   ├── storage/
 │   │   ├── db.ts                  # node:sqlite 单例；DDL 常量内联（traces 表 ISS-009 起 14 列 + 3 个索引 / metrics_cache；ISS-033 新增 comparisons 表：PK gateway_request_id + mom/baseline/judge 三段字段 + 2 个索引）
-│   │   └── traces.ts              # 新增 — Phase 3；ISS-009 起 saveTraceRequest / getTraceRequestById / getTraceRequestsBySessionId / getRecentTraceRequests
+│   │   └── traces.ts              # 新增 — Phase 3；ISS-009 起 saveTraceRequest / getTraceRequestById / getTraceRequestsBySessionId / getRecentTraceRequests；ISS-055 追加 deleteTracesByGatewayRequestId（DELETE /api/comparison 事务的一半）
 │   └── types/
 │       ├── anthropic.ts           # Anthropic Messages API 请求/响应/SSE 事件类型
 │       ├── mom.ts                 # ProviderConfig / MoMConfig / RuntimeConfig / TraceRequest（role Phase 6 起 union 加 'baseline' | 'judge'；TraceErrorType 加 baseline_error | judge_error） / TraceUsage / PricingSnapshot / TraceError / RequestSummary / ResponseSummary / AdvisorResult / AggregatorResult / JudgeScores / JudgeCompareResult（Phase 6） / JudgeResult（保留给 PLAN7 integration） / BaselineResult / TriggerReason / Logger + DEFAULT_MOM_CONFIG
@@ -104,14 +104,14 @@ MoM/
 │       │   ├── context.tsx        # I18nProvider + useI18n；语言持久化 localStorage
 │       │   └── format.ts          # 成本 / 延迟 / token 数按 locale 格式化
 │       ├── hooks/                 # 新增 — ISS-028
-│       │   ├── useLiveRun.ts      # 更新 — ISS-035；LiveJobProvider + useLiveJob(Context)：submitLiveRun 触发后 3s 轮询 getComparison(gwId)；state 提到 App 层，切页面不丢
-│       │   ├── useKioskMode.ts    # 新增 — ISS-052；KioskProvider phase machine（overview → live 分阶段 → pipeline → next）+ fetchQueueDetailed(listComparisons ∩ listTraces role=aggregator) + 全局 pointerdown/keydown/hashchange/visibility hidden 停止；notifyLiveAnswerDone 由两侧打字机 onDone 计数推进阶段
+│       │   ├── useLiveRun.ts      # 更新 — ISS-035 / ISS-055；LiveJobProvider + useLiveJob(Context)：submitLiveRun 触发后 3s 轮询 getComparison(gwId)；state 提到 App 层，切页面不丢；ISS-055 起 tick 识别 ApiError.status===404 → 停轮询清 state（防止删除后无限 404 循环）
+│       │   ├── useKioskMode.ts    # 更新 — ISS-052 / ISS-055；KioskProvider phase machine（overview → live 分阶段 → pipeline → next）+ fetchQueueDetailed(listComparisons ∩ listTraces role=aggregator) + 全局 pointerdown/keydown/hashchange/visibility hidden 停止；notifyLiveAnswerDone 由两侧打字机 onDone 计数推进阶段；ISS-055 追加 invalidateQueue(gwId) + phaseRef，删除命中当前 gwId 时重取队列并从当前 phase 重进
 │       │   ├── useTypewriter.ts   # 新增 — ISS-052；按字符递增的通用打字机 hook（active/msPerChar/onDone）；kiosk 期间 Live MoM/Baseline 与 Pipeline advisor/aggregator preview 都消费它
 │       │   └── useEventSource.ts  # 空壳，签名与未来 SSE 一致；未消费
 │       ├── pages/                 # 新增 — ISS-028；五页（ISS-049 起：Chat 页合并进 Live）
 │       │   ├── OverviewPage.tsx   # Pareto 主图 + benchmark combo 副图 + 3 KPI（效果层）
-│       │   ├── LivePage.tsx       # 更新 — ISS-052；两态单页 + kiosk 分支：kiosk.enabled 时永远走 KioskResultView（按 kiosk.liveStep 分阶段揭示 StatusStrip / MoM+Baseline / Judge / Cost，snap 未就位时显示 loading 占位），不再落到 EmptyState；kiosk 期间隐藏顶部 RunSelect；KioskStartButton 在 ResultView 底部"查看请求流程"旁；useEffect 监听 kiosk.currentGwId 触发 live.select
-│       │   ├── live-shared.tsx    # 更新 — ISS-052；MomColumn / BaselineColumn 加 typewriter / cursorOn；OutputCard 内接入 useTypewriter，autoScroll 跟随文本增长；typewriter 完成走 kiosk.notifyLiveAnswerDone 推进阶段
+│       │   ├── LivePage.tsx       # 更新 — ISS-052 / ISS-055；两态单页 + kiosk 分支：kiosk.enabled 时永远走 KioskResultView（按 kiosk.liveStep 分阶段揭示 StatusStrip / MoM+Baseline / Judge / Cost，snap 未就位时显示 loading 占位），不再落到 EmptyState；kiosk 期间隐藏顶部 RunSelect；KioskStartButton 在 ResultView 底部"查看请求流程"旁；useEffect 监听 kiosk.currentGwId 触发 live.select；ISS-055 起 handleDelete + jobsBumpKey/deleting/deleteError 状态，删除后 live.reset + 触发历史列表重取 + kiosk.invalidateQueue
+│       │   ├── live-shared.tsx    # 更新 — ISS-052 / ISS-054 / ISS-055；MomColumn / BaselineColumn 加 typewriter / cursorOn；OutputCard 内接入 useTypewriter，autoScroll 跟随文本增长；typewriter 完成走 kiosk.notifyLiveAnswerDone 推进阶段；ISS-054 起 MomColumn 用新 pendingMom key + PendingLabel shine 组件；ISS-055 起 StatusStrip 加内联「删除 → 取消/确认」簇（onDelete / deleting / deleteError 三 prop）
 │       │   ├── PipelinePage.tsx   # 更新 — ISS-052；AdvisorCard / AggregatorCard 接入 useTypewriter，kiosk.enabled && status==='done' 时 preview 打字机 + scrollRef 自动滚到底；turn.nodes.length===0 时显示提示卡片而非光秃箭头
 │       │   ├── CostPage.tsx       # 节省 banner + 4 KPI + 每轮堆叠柱 + 饼图 + cache 命中矩阵 + 累计时间线
 │       │   └── SettingsPage.tsx   # 语言 / Provider 只读 / Aggregator / Advisor slots / Judge / Comparison / Pricing

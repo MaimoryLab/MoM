@@ -1,3 +1,58 @@
+## [2026-07-16-16] feat(live): delete history run atomically across comparisons + traces [ISS-055]
+
+### 改动
+- `src/gateway/live-api.ts`：新增 `DELETE /api/comparison/:gateway_request_id` 路由。用 `db.exec('BEGIN')` → `deleteTracesByGatewayRequestId` → `deleteComparison` → `COMMIT` 包成一段事务，任一失败 `ROLLBACK` 并抛出；两侧 `changes` 都为 0 时返回 404，否则返回 `DeleteComparisonResponse { deleted: true, gateway_request_id, traces_removed }`
+- `src/live/live-store.ts`：新增 `deleteComparison(gwId): number` helper（`DELETE FROM comparisons WHERE gateway_request_id = ?`，返回 changes 数）
+- `src/storage/traces.ts`：新增 `deleteTracesByGatewayRequestId(gwId): number` helper（`DELETE FROM traces WHERE gateway_request_id = ?`）
+- `src/types/dashboard-api.ts`：新增 `DeleteComparisonResponse` 契约
+- `web/src/lib/api.ts`：新增 `apiDelete<T>(path)` 与 `deleteComparison(gwId): Promise<DeleteComparisonResponse>`；`DeleteComparisonResponse` 类型对齐后端
+- `web/src/hooks/useLiveRun.ts`：`tick` 的 `catch` 分支识别 `ApiError.status === 404` → 清 `activeGwRef`、`setState({ current: null, polling: false, transportError: null })`、不再 reschedule。修掉此前删除后 3s 无限 404 轮询
+- `web/src/hooks/useKioskMode.ts`：`KioskContextValue` 新增 `invalidateQueue(deletedGwId: string): Promise<void>` 与 `phaseRef` 跟踪当前 phase；若被删 id 是当前正在播放的 → `clearTimer` + 重取 `fetchQueueDetailed()` + 从 `phaseRef.current` 对应的 `run*()` 重进；否则从 `queueRef` splice + 调整 `queueIdxRef`
+- `web/src/pages/live-shared.tsx`：`StatusStrip` 加 `onDelete? / deleting? / deleteError?` 三个 prop 与本地 `confirming` 状态；`gwId` 变化时 useEffect 重置 confirm；仅在 `!polling && live != null` 时展示右侧 ghost「删除」按钮，点击后原地替换为「取消 / 确认删除」小簇，确认按钮走 `color.negative` 底色；错误时 `deleteError` 红字紧随
+- `web/src/pages/LivePage.tsx`：新增 `jobsBumpKey / deleting / deleteError` 状态与 `handleDelete` 闭包（`deleteComparison → live.reset → setJobsBumpKey → kiosk.invalidateQueue if enabled`）；`historyKey` effect deps 加 `jobsBumpKey` 以在删除后重取历史；`ResultView` prop 转发到 `StatusStrip`
+- `web/src/i18n/dict.ts`：`live.deleteRun{,Confirm,ConfirmYes,ConfirmNo,Pending,Error}` zh/en 6 key
+
+### 涉及文件
+- src/gateway/live-api.ts：+ DELETE 路由 + 事务包裹
+- src/live/live-store.ts：+ deleteComparison helper
+- src/storage/traces.ts：+ deleteTracesByGatewayRequestId helper
+- src/types/dashboard-api.ts：+ DeleteComparisonResponse
+- web/src/lib/api.ts：+ apiDelete + deleteComparison
+- web/src/hooks/useLiveRun.ts：+ 404 stop-polling 分支
+- web/src/hooks/useKioskMode.ts：+ invalidateQueue + phaseRef
+- web/src/pages/live-shared.tsx：+ StatusStrip 内联删除簇
+- web/src/pages/LivePage.tsx：+ handleDelete / jobsBumpKey
+- web/src/i18n/dict.ts：+ delete 相关 6 key
+
+### 关联
+-> ISS-055
+
+## [2026-07-16-15] fix(web): shine animation on live pending labels + fix MoM label [ISS-054]
+
+### 改动
+- `web/src/pages/live-shared.tsx`：`MomColumn` footer 的 pending 文案 key 从错标的 `pendingBaseline` 改成新的 `pendingMom`；抽出局部组件 `PendingLabel`（`className="shine-text"` + 两个 CSS 自定义属性 `--shine-base` / `--shine-hi`）供两列复用
+- `web/src/global.css`：新增 `@keyframes shine-sweep`（`background-position` 从 `200% 50%` 移到 `-200% 50%`）与 `.shine-text` 类（`linear-gradient` 三段渐变 + `background-clip: text` + `color: transparent`，2s 循环）
+- `web/src/i18n/dict.ts`：`live.pendingMom` zh/en 新增；`live.pendingBaseline` en 从 `Awaiting baseline…` 改成 `Baseline is generating…` 与 zh 版风格对齐
+
+### 涉及文件
+- web/src/pages/live-shared.tsx：MomColumn 用新 key；+ PendingLabel 组件
+- web/src/global.css：+ shine-sweep 关键帧 + .shine-text 类
+- web/src/i18n/dict.ts：+ pendingMom；pendingBaseline en 文案统一
+
+### 关联
+-> ISS-054
+
+## [2026-07-16-14] polish(web): shorten live status hint to just "running" [ISS-053]
+
+### 改动
+- `web/src/i18n/dict.ts`：`live.submittedHint` zh 从 `任务在后台执行中，每 3 秒自动刷新一次快照。` 改成 `运行中`；en 从 `Your run is executing in the background. Snapshot refreshes every 3 seconds.` 改成 `Running`
+
+### 涉及文件
+- web/src/i18n/dict.ts：submittedHint zh/en 缩短
+
+### 关联
+-> ISS-053
+
 ## [2026-07-16-13] feat(web): kiosk auto-play mode for exhibition dashboard [ISS-052]
 
 ### 改动

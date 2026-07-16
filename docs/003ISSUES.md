@@ -1864,6 +1864,83 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> web/src/i18n/dict.ts（`t.kiosk.{start,stop,running,startHint,empty,liveStartLabel}` 中英各 6 key）
 -> 004CHANGELOG.md [2026-07-16-13]
 
+## [ISS-053] Live 顶部状态条冗长提示把用户 prompt 挤到看不见
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`t.live.submittedHint` 从「任务在后台执行中，每 3 秒自动刷新一次快照。」缩短为「运行中」（en: `Running`）。状态标签与它拼成 `MoM 完成 · 运行中` 依然读得懂，但不再吞掉 prompt 展示区宽度。
+
+**现象**：
+点开一次 Live 调用，顶部 StatusStrip 右侧会拼出 `进行中 · 任务在后台执行中，每 3 秒自动刷新一次快照。`，占据超过半行；左侧的 `USER PROMPT: …` 常被挤到看不见。
+
+**后果**：
+Live 页是展厅主视图，用户提问是解释 MoM/Baseline 输出的关键上下文；把它挤没会让观众不知道两侧模型在回答什么。
+
+**初步判断**：
+已确认。i18n 文案冗余；`polling` 时拼接的辅助文本不需要把刷新周期告诉用户。
+
+**关联**：
+-> web/src/i18n/dict.ts（`live.submittedHint` zh/en 缩短）
+-> 004CHANGELOG.md [2026-07-16-14]
+
+## [ISS-054] Live 页 MoM 列 pending 文案错标 `pendingBaseline`；两侧生成中提示缺乏动画
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：新增 `t.live.pendingMom`（zh: 「MoM 正在生成…」/ en: 「MoM is generating…」）替换 MoM 列的错标 key；新增全局 `@keyframes shine-sweep` + `.shine-text` 类，由本地 `PendingLabel` 组件消费，两列 pending 文案带一条冷调渐变光扫过，暗示"还在工作"。
+
+**现象**：
+MoM / Baseline 尚未回来的空档，两列 footer 都用同一个 `t.live.pendingBaseline`（「Baseline 正在生成…」）文案——MoM 列本该显示自己的字样。且两条文案完全静态，用户会怀疑页面卡住。
+
+**后果**：
+误标造成信息错位；静态文案让 30 秒左右的 MoM 首字延迟感觉像卡死，展会现场观众会离开。
+
+**初步判断**：
+已确认。属实现失误 + 微交互缺失，与后端 pipeline 时序无关。
+
+**关联**：
+-> web/src/pages/live-shared.tsx（MomColumn 改用 `pendingMom`；新增 `PendingLabel` shine 组件）
+-> web/src/i18n/dict.ts（`live.pendingMom` zh/en 新增；`pendingBaseline` en 文案改成 `Baseline is generating…`）
+-> web/src/global.css（`@keyframes shine-sweep` + `.shine-text` 使用 `--shine-base` / `--shine-hi` 两个自定义属性）
+-> 004CHANGELOG.md [2026-07-16-15]
+
+## [ISS-055] Live 历史记录无法删除，脏记录会让展厅轮播模式碰到 404 卡死
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：后端新增 `DELETE /api/comparison/:gateway_request_id`，用一段 `BEGIN/COMMIT/ROLLBACK` 事务同时删掉 `comparisons` 行与所有同 `gateway_request_id` 的 `traces` 行，两侧要么全部落地要么原样保留；前端 `useLiveRun.tick` 增加 404 分支（停止轮询、清空 state），`useKiosk` 新增 `invalidateQueue(deletedGwId)`——若命中当前正在播放的 gwId 就 clearTimer + 重取队列 + 从当前 phase 重进；`StatusStrip` 右侧内联「删除 → [取消][确认删除]」小簇。
+
+**现象**：
+Live / Pipeline 两页都能列出历史调用，但没有任何入口删除。既有脏调用会一直堆积；展厅 kiosk 模式的队列从 `listComparisons` + `listTraces` 交集/并集取值，任何一侧被外部（如 sqlite 手动清表）清空都会让另一侧记录变成"僵尸"，kiosk 播到那里 GET 404，`useLiveRun` 又不识别 404，导致 3s 一次的死循环。
+
+**后果**：
+展厅不可维护；如果运营者想 kiosk 里只保留精心挑过的 demo，只能重启后端清库，粗暴且不可控；kiosk 到僵尸 id 会卡在 loading 空态。
+
+**初步判断**：
+已确认。删除必须在两张表的原子操作里完成，前端 kiosk 队列与轮询 hook 必须能对"记录消失"做出反应，否则删除只是把假象换个位置。
+
+**关联**：
+-> src/gateway/live-api.ts（`DELETE /api/comparison/:gateway_request_id` 路由 + 事务包裹）
+-> src/live/live-store.ts（`deleteComparison(gwId)` helper）
+-> src/storage/traces.ts（`deleteTracesByGatewayRequestId(gwId)` helper）
+-> src/types/dashboard-api.ts（`DeleteComparisonResponse` 契约）
+-> web/src/lib/api.ts（`apiDelete<T>()` + `deleteComparison()` 客户端）
+-> web/src/hooks/useLiveRun.ts（`tick` catch 分支识别 `ApiError.status === 404`）
+-> web/src/hooks/useKioskMode.ts（`invalidateQueue(gwId)` 挂到 Context）
+-> web/src/pages/live-shared.tsx（`StatusStrip` 内联删除簇）
+-> web/src/pages/LivePage.tsx（`handleDelete` + `jobsBumpKey`）
+-> web/src/i18n/dict.ts（`live.deleteRun{,Confirm,ConfirmYes,ConfirmNo,Pending,Error}` zh/en 6 key）
+-> 004CHANGELOG.md [2026-07-16-16]
+
 <!--
 新增条目模板：
 
