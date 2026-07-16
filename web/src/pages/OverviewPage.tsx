@@ -34,6 +34,7 @@ export function OverviewPage() {
           value={<span style={{ color: color.mom }}>{momScore.toFixed(1)}</span>}
           hint={t.overview.kpi.scoreMoMHint}
           accent="mom"
+          labelTransform="none"
         />
         <KpiCard
           label={t.overview.kpi.scoreBaseline}

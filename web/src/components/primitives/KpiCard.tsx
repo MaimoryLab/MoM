@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { color, font, radius, shadow, space } from '../../theme';
 
 type Props = {
@@ -6,9 +6,10 @@ type Props = {
   value: ReactNode;
   hint?: ReactNode;
   accent?: 'default' | 'mom' | 'positive' | 'negative';
+  labelTransform?: CSSProperties['textTransform'];
 };
 
-export function KpiCard({ label, value, hint, accent = 'default' }: Props) {
+export function KpiCard({ label, value, hint, accent = 'default', labelTransform = 'uppercase' }: Props) {
   const accentColor =
     accent === 'mom'      ? color.mom      :
     accent === 'positive' ? color.positive :
@@ -29,7 +30,7 @@ export function KpiCard({ label, value, hint, accent = 'default' }: Props) {
         minWidth: 0,
       }}
     >
-      <div style={{ fontSize: font.size.xs, color: color.textSecondary, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: font.weight.medium }}>
+      <div style={{ fontSize: font.size.xs, color: color.textSecondary, textTransform: labelTransform, letterSpacing: '0.06em', fontWeight: font.weight.medium }}>
         {label}
       </div>
       <div style={{ fontSize: font.size.kpi, fontWeight: font.weight.semibold, color: accentColor, letterSpacing: '-0.02em', lineHeight: 1.05 }}>

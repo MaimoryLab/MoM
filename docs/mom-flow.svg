@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="620" viewBox="0 0 820 620" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="820" height="620" fill="#f8fafc"/>
+  <text x="410" y="38" text-anchor="middle" font-size="22" font-weight="700" fill="#0f172a">MoM 多模型协作流程</text>
+
+  <!-- Client -->
+  <rect x="310" y="60" width="200" height="48" rx="8" fill="#e0e7ff" stroke="#6366f1"/>
+  <text x="410" y="89" text-anchor="middle" font-size="15" font-weight="600" fill="#312e81">Claude Code (客户端)</text>
+  <text x="410" y="128" text-anchor="middle" font-size="12" fill="#475569">POST /v1/messages · Anthropic Messages API</text>
+  <line x1="410" y1="108" x2="410" y2="150" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Gateway box -->
+  <rect x="40" y="150" width="740" height="420" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="60" y="176" font-size="13" font-weight="700" fill="#0f172a">MoM 网关 (Fastify :3000)</text>
+
+  <!-- Trigger / cache -->
+  <rect x="230" y="192" width="360" height="46" rx="8" fill="#fef9c3" stroke="#eab308"/>
+  <text x="410" y="212" text-anchor="middle" font-size="13" font-weight="600" fill="#713f12">① Trigger + Fan-out 缓存</text>
+  <text x="410" y="229" text-anchor="middle" font-size="11" fill="#854d0e">命中→复用 advisor 结果 · 未命中→fan-out</text>
+  <line x1="410" y1="238" x2="410" y2="268" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Fan-out label -->
+  <text x="410" y="262" text-anchor="middle" font-size="12" font-weight="600" fill="#334155">② Fan-out：并发调用 N 个 advisor（禁用工具）</text>
+
+  <!-- Advisors -->
+  <rect x="70" y="278" width="180" height="70" rx="8" fill="#dcfce7" stroke="#22c55e"/>
+  <text x="160" y="304" text-anchor="middle" font-size="13" font-weight="600" fill="#166534">Advisor #1</text>
+  <text x="160" y="323" text-anchor="middle" font-size="11" fill="#15803d">廉价模型 A</text>
+  <text x="160" y="339" text-anchor="middle" font-size="10" fill="#4b5563">→ reference 文本</text>
+
+  <rect x="320" y="278" width="180" height="70" rx="8" fill="#dcfce7" stroke="#22c55e"/>
+  <text x="410" y="304" text-anchor="middle" font-size="13" font-weight="600" fill="#166534">Advisor #2</text>
+  <text x="410" y="323" text-anchor="middle" font-size="11" fill="#15803d">廉价模型 B</text>
+  <text x="410" y="339" text-anchor="middle" font-size="10" fill="#4b5563">→ reference 文本</text>
+
+  <rect x="570" y="278" width="180" height="70" rx="8" fill="#fee2e2" stroke="#ef4444"/>
+  <text x="660" y="304" text-anchor="middle" font-size="13" font-weight="600" fill="#991b1b">Advisor #3</text>
+  <text x="660" y="323" text-anchor="middle" font-size="11" fill="#b91c1c">✗ 失败</text>
+  <text x="660" y="339" text-anchor="middle" font-size="10" fill="#4b5563">→ 占位符，不中断</text>
+
+  <line x1="160" y1="348" x2="380" y2="384" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="410" y1="348" x2="410" y2="384" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="660" y1="348" x2="440" y2="384" stroke="#64748b" stroke-width="1.5"/>
+
+  <!-- Concat -->
+  <rect x="230" y="384" width="360" height="46" rx="8" fill="#e0f2fe" stroke="#0ea5e9"/>
+  <text x="410" y="404" text-anchor="middle" font-size="13" font-weight="600" fill="#075985">③ References 拼接 (concat)</text>
+  <text x="410" y="421" text-anchor="middle" font-size="11" fill="#0369a1">追加到最后一条 user message · 前缀原样保留</text>
+  <line x1="410" y1="430" x2="410" y2="452" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Aggregator -->
+  <rect x="270" y="452" width="280" height="60" rx="8" fill="#f3e8ff" stroke="#a855f7"/>
+  <text x="410" y="476" text-anchor="middle" font-size="13" font-weight="600" fill="#6b21a8">④ Aggregator (较强模型)</text>
+  <text x="410" y="495" text-anchor="middle" font-size="11" fill="#7e22ce">原始对话 + 专家组参考 → 最终回复</text>
+  <line x1="410" y1="512" x2="410" y2="534" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Trace note -->
+  <text x="410" y="552" text-anchor="middle" font-size="11" fill="#64748b">⑤ Trace 落盘：N 条 advisor + 1 条 aggregator（共享 session_id / gateway_request_id）</text>
+
+  <!-- Return arrow -->
+  <line x1="410" y1="570" x2="410" y2="600" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="410" y="615" text-anchor="middle" font-size="12" fill="#4338ca" font-weight="600">最终回复回传 Claude Code（协议无感知）</text>
+</svg>
