@@ -58,16 +58,16 @@ MoM/
 │   │   └── judge-runtime.ts         # runJudgeCompare({lang, prompt, momText, baselineText, judge, provider, rand?}) → JudgeCompareResult；始终不抛，error 归入返回值 error 字段
 │   ├── live/                         # 新增 — Phase 6（ISS-033）；Live Compare 编排 + comparisons 存储；ISS-035 起去 SSE 改异步 job
 │   │   ├── live-types.ts            # ComparisonRecord / ComparisonMomRow / ComparisonBaselineRow / ComparisonJudgeRow / ComparisonStatus；ISS-035 加 ComparisonMomErrorRow + 3 快照字段
-│   │   ├── live-store.ts            # comparisons 表 CRUD；ISS-035 起 createComparison 收 3 快照参数 + updateComparisonMomError + listRecentComparisons；deserialize 把 JSON blob 反塞回 ComparisonRecord；ISS-055 追加 deleteComparison(gwId)
+│   │   ├── live-store.ts            # comparisons 表 CRUD；ISS-035 起 createComparison 收 3 快照参数 + updateComparisonMomError + listRecentComparisons；deserialize 把 JSON blob 反塞回 ComparisonRecord；ISS-055 追加 deleteComparison(gwId)；ISS-064 追加 markStalePendingComparisonsAsError()（启动时把 pending 行统一改成 error）
 │   │   ├── baseline.ts              # runBaselineCall(original, baselineModel, provider) → BaselineResult；单模型 non-streaming，不抛，error 归 result.error
-│   │   └── live-runtime.ts          # ISS-035 重写：submitLiveTurn 同步 createComparison + 立即返回 gwId；runLiveTurn 后台并发跑 orchestrator.nonStreaming + baseline + judge，落 comparisons + 3 类 TraceRequest（含 response_text / last_user_text 文本字段）；ISS-062 起把 submitLiveTurn 的 gwId 传给 orchestrator，两张表首次真正共享 gwId
+│   │   └── live-runtime.ts          # ISS-035 重写：submitLiveTurn 同步 createComparison + 立即返回 gwId；runLiveTurn 后台并发跑 orchestrator.nonStreaming + baseline + judge，落 comparisons + 3 类 TraceRequest（含 response_text / last_user_text 文本字段）；ISS-062 起把 submitLiveTurn 的 gwId 传给 orchestrator，两张表首次真正共享 gwId；ISS-063 起 MoM 完成时 `rollUpMomUsageAndCost(gwId)` 汇总 advisor + aggregator traces 的 usage/cost 再写 comparisons.mom
 │   ├── provider/
 │   │   ├── anthropic-normalize.ts # 过滤不可安全回传的 unsigned thinking blocks；SSE content block index 连续重映射
 │   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders(provider)；响应 normalization
 │   │   └── stream-forward.ts      # 流式 SSE parse + normalization + 转发；签名 NodeJS.WritableStream + {onEvent?, log?}
 │   ├── storage/
 │   │   ├── db.ts                  # node:sqlite 单例；DDL 常量内联（traces 表 ISS-009 起 14 列 + 3 个索引 / metrics_cache；ISS-033 新增 comparisons 表：PK gateway_request_id + mom/baseline/judge 三段字段 + 2 个索引）
-│   │   └── traces.ts              # 新增 — Phase 3；ISS-009 起 saveTraceRequest / getTraceRequestById / getTraceRequestsBySessionId / getRecentTraceRequests；ISS-055 追加 deleteTracesByGatewayRequestId（DELETE /api/comparison 事务的一半）
+│   │   └── traces.ts              # 新增 — Phase 3；ISS-009 起 saveTraceRequest / getTraceRequestById / getTraceRequestsBySessionId / getRecentTraceRequests；ISS-055 追加 deleteTracesByGatewayRequestId（DELETE /api/comparison 事务的一半）；ISS-063 追加 getTraceRequestsByGatewayRequestId（MoM 完成时汇总 advisor + aggregator usage/cost 用）
 │   └── types/
 │       ├── anthropic.ts           # Anthropic Messages API 请求/响应/SSE 事件类型
 │       ├── mom.ts                 # ProviderConfig / MoMConfig / RuntimeConfig / TraceRequest（role Phase 6 起 union 加 'baseline' | 'judge'；TraceErrorType 加 baseline_error | judge_error） / TraceUsage / PricingSnapshot / TraceError / RequestSummary / ResponseSummary / AdvisorResult / AggregatorResult / JudgeScores / JudgeCompareResult（Phase 6） / JudgeResult（保留给 PLAN7 integration） / BaselineResult / TriggerReason / Logger + DEFAULT_MOM_CONFIG

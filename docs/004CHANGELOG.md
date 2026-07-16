@@ -1,3 +1,23 @@
+## [2026-07-16-23] fix(live): MoM token+cost cover advisors, deletable pending rows, startup pending sweep [ISS-063][ISS-064]
+
+### 改动
+- `src/storage/traces.ts`：新增 `getTraceRequestsByGatewayRequestId(gwId): TraceRequest[]`（`SELECT data FROM traces WHERE gateway_request_id = ? ORDER BY started_at ASC`）
+- `src/live/live-runtime.ts`：`runMomPipeline` 完成后不再用 aggregator response 的 usage 直接写 comparisons，而是调 `rollUpMomUsageAndCost(gwId)` 汇总本轮所有 role∈{advisor, aggregator} 的 trace 的 `usage` 与 `calculateCostFromSnapshot(usage, trace.pricing)` 结果；baseline / judge 排除
+- `src/live/live-store.ts`：新增 `markStalePendingComparisonsAsError()`，`UPDATE comparisons SET status='error', mom_error_json='{"message":"server restarted while running"}', updated_at=now WHERE status='pending'`
+- `src/index.ts`：`initDB()` 后立即 `markStalePendingComparisonsAsError()`，count > 0 打印日志
+- `web/src/pages/live-shared.tsx`：`StatsRow` 的 `tokens` 参数改为 `totalTokens(usage)`（input + cache_read + cache_creation + output）；`StatusStrip.canDelete` 移除 `!polling` 门槛，注释解释后端幂等 + 前端 404 兜底
+
+### 涉及文件
+- src/storage/traces.ts：+ getTraceRequestsByGatewayRequestId
+- src/live/live-runtime.ts：+ rollUpMomUsageAndCost，替换 MoM 完成写路径
+- src/live/live-store.ts：+ markStalePendingComparisonsAsError
+- src/index.ts：boot 时刷僵尸 pending
+- web/src/pages/live-shared.tsx：token 显示 4 维累加；delete 按钮 polling 中也可点
+
+### 关联
+-> ISS-063
+-> ISS-064
+
 ## [2026-07-16-22] fix(live): thread submitLiveTurn's gateway_request_id into orchestrator so comparisons + traces join [ISS-062]
 
 ### 改动

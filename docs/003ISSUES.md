@@ -2099,6 +2099,55 @@ Pipeline 页历史与 Live 页历史在同一次调用上根本不指向同一�
 -> src/live/live-runtime.ts（`orchestrator.nonStreaming(..., gatewayRequestId)`）
 -> 004CHANGELOG.md [2026-07-16-22]
 
+## [ISS-063] MoM 卡片 token 只算 aggregator.output_tokens，与 cost 口径不一致
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：MoM 完成时改为回读 `getTraceRequestsByGatewayRequestId(gwId)` 得到本轮 advisor + aggregator 所有 trace 行，累加它们的 `usage`（input / cache_read / cache_creation / output / reasoning 全部维度）与 `calculateCostFromSnapshot(usage, trace.pricing)` 得到全链路 usage + cost，写回 `comparisons.mom_usage_json` / `mom_cost_usd`。baseline / judge 排除。前端 `StatsRow` 的 `tokens` 参数从 `usage.output_tokens` 改为 `input+cache_read+cache_creation+output` 全部相加，视觉上"总 token × 均价 ≈ 总花费"，可反向校对。
+
+**现象**：
+Live 页 MoM 列右下角 StatsRow 显示的 token 数明显小于 Baseline，但 cost 反而高——`tokens={mom.usage.output_tokens}` 只显示 aggregator 那一次调用的 output tokens；`mom_cost_usd` 之前算的也是同一份 aggregator 单调用 usage × aggregator pricing。看着不对但根源是"口径太窄"，advisor 全链路开销从未进入 comparisons.mom 表；用户对着 MoM 卡片直接反向验算立刻发现异常。
+
+**后果**：
+展厅关键卖点"MoM 节省成本"被自己的 UI 打脸——观众看数字对不上会怀疑数据。且 MoM 的 cache_read 优势（cache 命中率高是 MoM 便宜的核心机制）在 output-only 视图里完全隐形。
+
+**初步判断**：
+已确认。`orchestrator.nonStreaming` 返回值只暴露 aggregator response；advisor traces 已经落库，`getTraceRequestsByGatewayRequestId` 回读汇总是最小侵入路径，且相当于给 comparisons 做 materialized view。
+
+**关联**：
+-> src/storage/traces.ts（新增 `getTraceRequestsByGatewayRequestId(gwId): TraceRequest[]`）
+-> src/live/live-runtime.ts（`rollUpMomUsageAndCost(gwId)` 累加 advisor + aggregator；替换掉原来只喂 aggregator response 到 `updateComparisonMom` 的路径）
+-> web/src/pages/live-shared.tsx（`StatsRow.tokens` 从 `usage.output_tokens` 改为四维之和 via `totalTokens(usage)` helper）
+-> 004CHANGELOG.md [2026-07-16-23]
+
+## [ISS-064] 正在跑的 comparison 无法删除；后端重启后遗留 pending 行没兜底
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[健壮性]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：两处联动——(a) `StatusStrip` 的 `canDelete` 判定去掉 `!polling` 限制，polling 中也允许删；后端 DELETE 事务与后台仍在跑的 `updateComparisonXxx` 天然容错（0-row UPDATE 静默 no-op），`useLiveRun.tick` 已有 404 分支停轮询（ISS-055 起）。(b) `src/live/live-store.ts` 新增 `markStalePendingComparisonsAsError()`，把所有 status='pending' 行改成 'error' + `mom_error_json = {"message":"server restarted while running"}`；`src/index.ts` 在 `initDB()` 之后立即调用，boot log 打印数量。
+
+**现象**：
+- 用户 A：Live 页显示"运行中"时右上角 `×` 按钮消失，无法删除卡住的调用。
+- 用户 B：`Ctrl+C` 杀掉后端后，`comparisons` 表遗留 status='pending' 的行，重启后前端永远看到"pending"，`useLiveRun.tick` 3s 轮询无终态。
+
+**后果**：
+展厅现场任何一次卡顿（网络抖、上游 5xx 内部重试超长、operator 误操作 kill 进程）都可能留下永不解决的僵尸 pending 记录；无法通过 UI 清理。
+
+**初步判断**：
+已确认。ISS-055 起 `canDelete` 特意加了 `!polling` 因为怕误删活跃调用；实际上并无技术风险——后端删除是幂等事务，后台 promise 后续写入 0 行无副作用；前端 tick 已识别 404。启动时刷 pending → error 是自愈机制，独立于删除路径。
+
+**关联**：
+-> src/live/live-store.ts（`markStalePendingComparisonsAsError()`）
+-> src/index.ts（`initDB` 后立即调用，log stale count）
+-> web/src/pages/live-shared.tsx（`StatusStrip.canDelete` 移除 `!polling` 门槛，注释解释后端幂等 + 前端 404 兜底）
+-> 004CHANGELOG.md [2026-07-16-23]
+
 <!--
 新增条目模板：
 
