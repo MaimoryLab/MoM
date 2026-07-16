@@ -133,7 +133,7 @@ export function MomColumn({ snap, typewriter, cursorOn }: { snap: ComparisonResp
         ) : snap?.mom_error ? (
           <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {snap.mom_error.message}</span>
         ) : snap ? (
-          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.pendingBaseline}</span>
+          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.pendingMom}</span>
         ) : null
       }
     />

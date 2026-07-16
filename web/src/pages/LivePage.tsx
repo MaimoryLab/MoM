@@ -89,7 +89,7 @@ export function LivePage() {
     <PageShell
       title={t.nav.live}
       subtitle={lang === 'zh'
-        ? 'MoM 输出 vs Baseline 输出'
+        ? '混合模型 输出 vs Baseline 输出'
         : 'MoM output vs Baseline output'}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: space.md, minHeight: 640 }}>
