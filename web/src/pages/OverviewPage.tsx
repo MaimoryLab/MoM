@@ -13,6 +13,7 @@ export function OverviewPage() {
   const scoreOf = (id: string) => paretoData.find((p) => p.id === id)?.score ?? 0;
   const momScore = scoreOf('mom');
   const fable5Score = scoreOf('fable5');
+  const gpt56Score = scoreOf('gpt56Sol');
   const aggScore = scoreOf('aggOnly');
   return (
     <PageShell title={t.overview.heroTitle} subtitle={t.overview.heroSubtitle}>
@@ -24,7 +25,7 @@ export function OverviewPage() {
         />
         <KpiCard
           label={t.overview.kpi.scoreGpt56}
-          value={<span>XX.X</span>}
+          value={<span>{gpt56Score.toFixed(1)}</span>}
           hint={t.overview.kpi.scoreGpt56Hint}
         />
         <KpiCard
