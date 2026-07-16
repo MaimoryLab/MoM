@@ -7,6 +7,13 @@ interface Props {
   text: string;
   minHeight?: number;
   maxHeight?: number;
+  /**
+   * Fixed height in px — sets minHeight and maxHeight to the same value so
+   * the box never grows or shrinks with content. Overrides minHeight/maxHeight.
+   * Use this for side-by-side comparison views where two boxes must stay the
+   * same size regardless of which one has content first.
+   */
+  height?: number;
   cursor?: 'mom' | 'baseline' | null;
   /**
    * When true, drop the outer chrome (border / bgSubtle / padding / max-height /
@@ -22,7 +29,9 @@ interface Props {
  * Streaming-friendly: safe to re-render on every mom_delta.
  * No raw HTML, no syntax highlighter (bundle size).
  */
-export function MarkdownBody({ text, minHeight = 260, maxHeight = 420, cursor, flush = false }: Props) {
+export function MarkdownBody({ text, minHeight = 260, maxHeight = 420, height, cursor, flush = false }: Props) {
+  const boxMin = height ?? minHeight;
+  const boxMax = height ?? maxHeight;
   const wrapperStyle: CSSProperties = flush
     ? {
         margin: 0,
@@ -41,8 +50,8 @@ export function MarkdownBody({ text, minHeight = 260, maxHeight = 420, cursor, f
         lineHeight: 1.6,
         color: color.textPrimary,
         wordBreak: 'break-word',
-        minHeight,
-        maxHeight,
+        minHeight: boxMin,
+        maxHeight: boxMax,
         overflow: 'auto',
       };
   return (

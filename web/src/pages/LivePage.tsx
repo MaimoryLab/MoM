@@ -2,15 +2,13 @@
 //
 // Post-ISS-036 the compose surface moved to ChatPage. This page is now a big
 // side-by-side viewer that shows one comparison at a time (from
-// LiveJobProvider state) plus a Rolling-Rank chart underneath. The audience
-// sees prompt + MoM answer + baseline answer + judge verdict + cost delta,
-// nothing to interact with except swapping which past run is being viewed.
+// LiveJobProvider state). The audience sees prompt + MoM answer + baseline
+// answer + judge verdict + cost delta, nothing to interact with except
+// swapping which past run is being viewed.
 
 import { useEffect, useState } from 'react';
 import { PageShell } from '../components/layout/PageShell';
-import { Card } from '../components/primitives/Card';
 import { Button } from '../components/primitives/Button';
-import { RankingChart } from '../components/charts/RankingChart';
 import { useI18n } from '../i18n/context';
 import { color, space } from '../theme';
 import { useLiveJob } from '../hooks/useLiveRun';
@@ -51,10 +49,6 @@ export function LivePage() {
         : 'MoM output vs Baseline output'}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: space.md }}>
-        <Card title={t.live.rankingTitle} subtitle={t.live.rankingSubtitle}>
-          <RankingChart seed={currentGw ?? 'preview'} />
-        </Card>
-        <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: space.md, flexWrap: 'wrap' }}>
           <RunSelect
             value={currentGw}

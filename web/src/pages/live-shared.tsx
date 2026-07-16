@@ -5,12 +5,12 @@
 // Baseline / Judge / Cost views; only the entry-points and layout differ.
 
 import { Card } from '../components/primitives/Card';
-import { Badge } from '../components/primitives/Badge';
 import { Button } from '../components/primitives/Button';
 import { MarkdownBody } from '../components/primitives/MarkdownBody';
 import { JudgeRadar } from '../components/charts/JudgeRadar';
 import { useI18n } from '../i18n/context';
 import { formatCost, formatLatency, formatTokens } from '../i18n/format';
+import { humanizeModelName } from '../lib/model-name';
 import { color, font, radius, space } from '../theme';
 import type {
   ComparisonBaselineSnapshot,
@@ -25,6 +25,12 @@ export const EMPTY_JUDGE_SCORES = {
 };
 
 const USER_PROMPT_CLIP = 140;
+
+// Fixed height for the MoM / Baseline output boxes so the two columns stay
+// the same size regardless of which one has content first — Baseline is
+// often the first to stream in and would otherwise stretch its column
+// while MoM's still-empty column stayed short.
+const OUTPUT_BOX_HEIGHT = 380;
 
 function clipPrompt(text: string): string {
   const t = text.trim();
@@ -104,21 +110,18 @@ export function MomColumn({ snap }: { snap: ComparisonResponse | null }) {
   const mom = snap?.mom ?? null;
   const advisors = snap?.advisors_snapshot ?? [];
   const aggregator = snap?.aggregator_model ?? null;
+  const advisorsLabel = advisors.length > 0
+    ? advisors.map(humanizeModelName).join(' · ')
+    : t.live.unknownModel;
+  const aggregatorLabel = aggregator ? humanizeModelName(aggregator) : t.live.unknownModel;
   return (
     <OutputCard
-      titleBadge={<Badge tone="mom">{advisors.length} {t.live.advisors}</Badge>}
       title={t.live.momTitle}
       subtitle={
-        <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span>{t.live.momSubtitle}</span>
-          {snap && (
-            <span style={{ fontSize: font.size.xxs, color: color.textMuted, fontFamily: 'ui-monospace, monospace' }}>
-              {t.live.momModels}: {advisors.length > 0 ? advisors.join(' · ') : t.live.unknownModel}
-              {' — '}
-              {t.live.aggregatorModel}: {aggregator ?? t.live.unknownModel}
-            </span>
-          )}
-        </span>
+        <ModelSubtitle rows={[
+          { label: t.live.momModels, value: advisorsLabel },
+          { label: t.live.aggregatorModel, value: aggregatorLabel },
+        ]} />
       }
       body={mom?.text ?? ''}
       footer={
@@ -137,18 +140,17 @@ export function MomColumn({ snap }: { snap: ComparisonResponse | null }) {
 export function BaselineColumn({ snap }: { snap: ComparisonResponse | null }) {
   const { t, lang } = useI18n();
   const baseline = snap?.baseline ?? null;
-  const modelLabel = baseline?.model ?? snap?.baseline_model_snapshot ?? t.live.unknownModel;
+  const rawModel = baseline?.model ?? snap?.baseline_model_snapshot ?? null;
+  const modelLabel = rawModel ? humanizeModelName(rawModel) : t.live.unknownModel;
   const errorMsg = snap?.baseline_error?.message ?? null;
   return (
     <OutputCard
       title={t.live.baselineTitle}
       subtitle={
-        <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span>{t.live.baselineSubtitle}</span>
-          <span style={{ fontSize: font.size.xxs, color: color.textMuted, fontFamily: 'ui-monospace, monospace' }}>
-            {t.live.baselineModel}: {modelLabel}
-          </span>
-        </span>
+        <ModelSubtitle rows={[
+          { value: t.live.baselineSingleCall },
+          { value: modelLabel },
+        ]} />
       }
       body={baseline?.text ?? ''}
       footer={
@@ -167,29 +169,37 @@ export function BaselineColumn({ snap }: { snap: ComparisonResponse | null }) {
 }
 
 function OutputCard({
-  title, titleBadge, subtitle, body, footer,
+  title, subtitle, body, footer,
 }: {
   title: string;
-  titleBadge?: React.ReactNode;
   subtitle: React.ReactNode;
   body: string;
   footer: React.ReactNode;
 }) {
   return (
-    <Card
-      title={
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm }}>
-          {title}
-          {titleBadge}
-        </span>
-      }
-      subtitle={subtitle}
-    >
-      <MarkdownBody text={body} cursor={null} />
+    <Card title={title} subtitle={subtitle}>
+      <MarkdownBody text={body} cursor={null} height={OUTPUT_BOX_HEIGHT} />
       <div style={{ display: 'flex', gap: space.md, fontSize: font.size.sm, color: color.textSecondary, alignItems: 'center' }}>
         {footer}
       </div>
     </Card>
+  );
+}
+
+// Two-line model info sits under the card title. Both MoM and Baseline pass
+// exactly two rows so the two card headers keep the same height and the
+// answer bodies below line up. A row without a label renders just its value
+// (used by Baseline's descriptive first line, "single-model call").
+function ModelSubtitle({ rows }: { rows: Array<{ label?: string; value: string }> }) {
+  const rowStyle = { fontSize: font.size.xs, color: color.textSecondary, fontFamily: 'ui-monospace, monospace' } as const;
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {rows.map((row, i) => (
+        <span key={i} style={rowStyle}>
+          {row.label ? `${row.label}: ${row.value}` : row.value}
+        </span>
+      ))}
+    </span>
   );
 }
 
