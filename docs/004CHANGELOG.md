@@ -1,3 +1,14 @@
+## [2026-07-16-21] fix(web): pipeline dropdown filters comparisons by status so every option can render [ISS-061]
+
+### 改动
+- `web/src/pages/PipelinePage.tsx`：`listComparisons(20)` 结果按 `status ∈ {mom_done, baseline_done, judge_done}` 过滤后再进 `recent`；数据源与 Live 页 RunSelect 依旧同源、文案依旧 `time · clipped-prompt`，只是把"点了必空"（pending 未跑完 / error MoM 挂了）的状态挡在 dropdown 外面
+
+### 涉及文件
+- web/src/pages/PipelinePage.tsx：dropdown 按 comparison.status 过滤，保证 option 都能画流程图
+
+### 关联
+-> ISS-061
+
 ## [2026-07-16-20] fix(web): pipeline history uses listComparisons; live delete becomes an × icon [ISS-059][ISS-060]
 
 ### 改动

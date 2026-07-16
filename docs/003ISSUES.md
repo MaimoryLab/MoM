@@ -2051,6 +2051,28 @@ Pipeline 历史记录心智仍与 Live 割裂，ISS-056 的初衷（两页历史
 -> web/src/pages/live-shared.tsx（`StatusStrip` 触发从 `<Button variant="ghost">删除</Button>` 换成 `×` 图标按钮；二次确认簇不变）
 -> 004CHANGELOG.md [2026-07-16-20]
 
+## [ISS-061] Pipeline dropdown 列出的 comparison 里含未跑到 aggregator 的行，点开仍空
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`PipelinePage` 加载 `listComparisons(20)` 后按 `status ∈ {mom_done, baseline_done, judge_done}` 过滤——由 `src/live/live-runtime.ts:225` 与 `src/orchestrator/orchestrator.ts:595` 的时序可知，只有跑完 MoM 主链路的 comparison 才会带 aggregator trace，`pending` / `error` 状态天生就没有 aggregator trace，本来就不该进 dropdown。数据源仍是 `listComparisons(20)`，与 Live 页 RunSelect 同源同格式；只是把"点了必空"的状态提前过滤掉。
+
+**现象**：
+ISS-059 把 dropdown 数据源改回 `listComparisons(20)` 后，pending 与 error 状态的 comparison 也进了列表；点这类 option → 右侧渲染"还没有 aggregator turn 记录"空态卡。用户反馈"现在历史记录是对的，但是没有图"。
+
+**后果**：
+Pipeline 页历史列表"能显示 ≠ 能画"，观众/用户点历史仍有概率落空。
+
+**初步判断**：
+已确认。`comparison.status` 在 `updateComparisonMom(...'mom_done')` 时才写入，且 `orchestrator.nonStreaming` 在 status 更新前先 `saveTraceRequest({role: 'aggregator'})`——status 与 aggregator trace 存在的因果关系确定。
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（`listComparisons(20)` 后按 status 过滤 mom_done / baseline_done / judge_done）
+-> 004CHANGELOG.md [2026-07-16-21]
+
 <!--
 新增条目模板：
 
