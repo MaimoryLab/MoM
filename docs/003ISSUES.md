@@ -1634,6 +1634,40 @@ Overview 页 Cost×效果 图横轴是 `Cost ($ / 1M output token)`——单价�
 -> web/src/components/charts/JudgeRadar.tsx（`data` 改 `useMemo` + 精确依赖数组）
 -> 004CHANGELOG.md [2026-07-16-4]
 
+---
+
+## [ISS-043] Overview 页鼠标 hover 触发 `ParetoTooltip` 抛 `TypeError` → React error recovery → 整棵组件树重挂载看起来像"刷新"——ISS-041/042 都是误诊
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[崩溃]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：见 CHANGELOG [2026-07-16-5]。`web/src/components/charts/ParetoChart.tsx:145` 读的是 `d.costCny.toFixed(3)`，但 `ChartPoint` 类型（同文件 28-36 行）只有 `cost` 字段，`toChartPoint()`（38-59 行）产出的对象里也没有 `costCny` —— ISS-038 那次「Pareto x 轴换成 CNY 每次问答」提交时字段名写错了：类型定义补了 `costCny`，运行时字段名保留 `cost`，TypeScript 因为 Recharts 泛型 payload 不做严格检查所以 build 不报错。修法一行：`d.costCny.toFixed(3)` → `d.cost.toFixed(3)`，props 类型 `costCny: number` 同步改成 `cost: number`。
+
+**现象**：
+在 Chrome 里打开 `http://localhost:5173/dashboard/#overview`，鼠标移到 ParetoChart（「成本 × 效果」旁边的性价比 Pareto 图）或 ComboChart（`ParetoTooltip` 会被 Recharts 内部错误触发到都不需要 hover 到 Pareto 上）时，DevTools Console 立刻抛：
+```
+ParetoChart.tsx:145 Uncaught TypeError: Cannot read properties of undefined (reading 'toFixed')
+    at ParetoTooltip (ParetoChart.tsx:145:97)
+```
+React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App）重挂载整棵组件树 → 用户看到的效果就是 Overview 页整块"闪一下重画"，误认为是"图表刷新"。
+
+**后果**：
+1. 每次 hover 都触发一次全树 unmount + mount，把 `LiveJobProvider` / `useHashRoute` / 所有页面组件的 state 全洗一遍——ISS-040 / ISS-041 / ISS-042 用户复测时"依然刷新"的根本原因是这里。
+2. Overview 页 ParetoChart 的 tooltip 永远显示不出来（每次 render 立刻 throw）。
+3. 展会现场观众鼠标只要碰过图表一次就会看到抖动，与"静态基准展示"的叙事直接冲突。
+
+**初步判断**：
+已确认。用户在 Chrome DevTools Console 里贴出的 stack trace 直接命中 `ParetoTooltip @ ParetoChart.tsx:145` + `Uncaught TypeError: Cannot read properties of undefined (reading 'toFixed')`。`git blame -L 145 web/src/components/charts/ParetoChart.tsx` 归到 `644cae4 refactor(web): switch Pareto x-axis to total CNY per Q&A [ISS-038]`；同 commit 把 `toChartPoint` 的字段名保留为 `cost` 但 tooltip 那行写成 `costCny`，属于 ISS-038 交付时的 dangling reference。
+
+之前 ISS-041（Recharts entry animation 未关）和 ISS-042（`data` 引用不稳定触发 Recharts state reset）都是**防御性改动，本身也有价值**，但都不是「用户 hover ComboChart 就刷新」的直接根因；用户复测时"还是不行"的原因是这条 `costCny` bug 一直挂着，只要 hover 就 throw，React 就重挂树。三条 issue 之间的关系是：ISS-043 是**真正的根因**，ISS-041 / ISS-042 是**同一现象下顺手修掉的两个已知性能坑**——都保留。
+
+**关联**：
+-> web/src/components/charts/ParetoChart.tsx:130,145（`costCny` 全部改回 `cost`）
+-> ISS-038 (`644cae4` 提交时 dangling reference)
+-> 004CHANGELOG.md [2026-07-16-5]
+
 <!--
 新增条目模板：
 

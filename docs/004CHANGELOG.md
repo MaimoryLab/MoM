@@ -1,3 +1,25 @@
+## [2026-07-16-5] fix(web): pareto tooltip reads d.cost not d.costCny [ISS-043]
+
+### 改动
+- `web/src/components/charts/ParetoChart.tsx:130`：`ParetoTooltip` props 类型里 `costCny: number` 改回 `cost: number`
+- `web/src/components/charts/ParetoChart.tsx:145`：模板字符串里 `d.costCny.toFixed(3)` 改回 `d.cost.toFixed(3)`——`d.costCny` 一直是 `undefined`，`.toFixed(3)` 立刻 throw `TypeError`，React 18 走 `recoverFromConcurrentError` 从 root 重挂整棵树，用户看到的"hover 就刷新"就是这一次全树 mount/unmount 造成的视觉抖动
+- 单位符号保留 `¥` + 「/次」文案，语义与 ISS-038 的 x 轴口径一致，只是把字段名从错的 `costCny` 换回 `ChartPoint` 实际生成的 `cost`
+
+### 涉及文件
+- web/src/components/charts/ParetoChart.tsx：`ParetoTooltip` 的 `costCny` 全部改回 `cost`
+- docs/003ISSUES.md：新增 ISS-043，状态 [已解决]（同时说明 ISS-041 / ISS-042 是同现象下顺手修掉的两个已知性能坑，保留）
+
+### 自检
+- `npm run typecheck`：退出码 0，无输出
+- `npm run build`：退出码 0，`tsc -p tsconfig.json` 通过
+- `npm run build:web`：退出码 0，vite build 产物与前一版持平
+- 增量项：用户在 Chrome DevTools Console 里贴出 `ParetoChart.tsx:145 Uncaught TypeError: Cannot read properties of undefined (reading 'toFixed')` 直接命中根因；`git blame` 归到 `644cae4 [ISS-038]` dangling reference
+- 待人工验证：hard refresh `http://localhost:5173/dashboard/#overview`，鼠标反复 hover ParetoChart 和 ComboChart，观察 Console 不再抛 TypeError，整块 Overview 页不再抖；Pareto 的 tooltip 应能正常弹出显示 model label + score + cost ¥ 值
+
+### 关联
+-> ISS-043
+-> ISS-038（回填 `644cae4` 遗留的字段名 dangling reference）
+
 ## [2026-07-16-4] fix(web): stabilize recharts data prop refs to stop hover-triggered chart reset [ISS-042]
 
 ### 改动
