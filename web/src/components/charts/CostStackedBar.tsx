@@ -34,10 +34,10 @@ export function CostStackedBar() {
             cursor={{ fill: color.gridLine, fillOpacity: 0.4 }}
           />
           <Legend wrapperStyle={{ fontSize: font.size.xs, paddingTop: 6 }} />
-          <Bar dataKey="advisorA"   name="Advisor A"  stackId="cost" fill={color.advisorA} />
-          <Bar dataKey="advisorB"   name="Advisor B"  stackId="cost" fill={color.advisorB} />
-          <Bar dataKey="advisorC"   name="Advisor C"  stackId="cost" fill={color.advisorC} />
-          <Bar dataKey="aggregator" name="Aggregator" stackId="cost" fill={color.mom} radius={[3,3,0,0]} />
+          <Bar dataKey="advisorA"   name="Advisor A"  stackId="cost" fill={color.advisorA} isAnimationActive={false} />
+          <Bar dataKey="advisorB"   name="Advisor B"  stackId="cost" fill={color.advisorB} isAnimationActive={false} />
+          <Bar dataKey="advisorC"   name="Advisor C"  stackId="cost" fill={color.advisorC} isAnimationActive={false} />
+          <Bar dataKey="aggregator" name="Aggregator" stackId="cost" fill={color.mom} radius={[3,3,0,0]} isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
     </div>

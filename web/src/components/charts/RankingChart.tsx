@@ -37,9 +37,9 @@ export function RankingChart({ seed }: Props) {
           />
           <Tooltip content={<RankTooltip lang={lang} labels={t.overview.legend} />} cursor={{ stroke: color.border }} />
           <Legend wrapperStyle={{ fontSize: font.size.xs, paddingTop: 10 }} />
-          <Line dataKey="mom"            name={t.overview.legend.mom}            stroke={color.mom}            strokeWidth={2}   dot={{ r: 4, fill: color.mom }}            activeDot={{ r: 6 }} />
-          <Line dataKey="aggregatorOnly" name={t.overview.legend.aggregatorOnly} stroke={color.aggregatorOnly} strokeWidth={1.5} dot={{ r: 3, fill: color.aggregatorOnly }} activeDot={{ r: 5 }} />
-          <Line dataKey="flagship"       name={t.overview.legend.flagship}       stroke={color.rankFlagship}  strokeWidth={1.5} dot={{ r: 3, fill: color.rankFlagship }}  activeDot={{ r: 5 }} />
+          <Line dataKey="mom"            name={t.overview.legend.mom}            stroke={color.mom}            strokeWidth={2}   dot={{ r: 4, fill: color.mom }}            activeDot={{ r: 6 }} isAnimationActive={false} />
+          <Line dataKey="aggregatorOnly" name={t.overview.legend.aggregatorOnly} stroke={color.aggregatorOnly} strokeWidth={1.5} dot={{ r: 3, fill: color.aggregatorOnly }} activeDot={{ r: 5 }} isAnimationActive={false} />
+          <Line dataKey="flagship"       name={t.overview.legend.flagship}       stroke={color.rankFlagship}  strokeWidth={1.5} dot={{ r: 3, fill: color.rankFlagship }}  activeDot={{ r: 5 }} isAnimationActive={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

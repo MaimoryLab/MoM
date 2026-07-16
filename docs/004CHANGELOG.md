@@ -1,3 +1,32 @@
+## [2026-07-16-3] fix(web): disable recharts entry animation on all chart series [ISS-041]
+
+### 改动
+- 给所有 Recharts 数据系列统一 `isAnimationActive={false}`——覆盖 `ComboChart`（3 Bar + 3 Line）/ `ParetoChart`（6 Scatter；frontier Line 之前已关）/ `RankingChart`（3 Line）/ `CostStackedBar`（4 Bar）/ `CostPie`（Pie）/ `CostTimeline`（Area）/ `JudgeRadar`（2 Radar）；`ResponsiveContainer` 的 `ResizeObserver` 在页面滚动 / hover 弹 Tooltip / window resize 触发容器尺寸微变化时不再回放入场动画
+- 未新增/删除组件，未改数据源、未改配色、未改布局；纯 prop 补齐
+
+### 涉及文件
+- web/src/components/charts/ComboChart.tsx：3 Bar + 3 Line 加 `isAnimationActive={false}`
+- web/src/components/charts/ParetoChart.tsx：6 Scatter 加 `isAnimationActive={false}`
+- web/src/components/charts/RankingChart.tsx：3 Line 加 `isAnimationActive={false}`
+- web/src/components/charts/CostStackedBar.tsx：4 Bar 加 `isAnimationActive={false}`
+- web/src/components/charts/CostPie.tsx：Pie 加 `isAnimationActive={false}`
+- web/src/components/charts/CostTimeline.tsx：Area 加 `isAnimationActive={false}`
+- web/src/components/charts/JudgeRadar.tsx：2 Radar 加 `isAnimationActive={false}`
+- docs/003ISSUES.md：新增 ISS-041，状态 [已解决]
+
+### 自检
+- `npm run typecheck`：退出码 0，无输出
+- `npm run build`：退出码 0，`tsc -p tsconfig.json` 通过
+- `npm run build:web`：退出码 0，vite build 输出 `dist/assets/index-ClQliM1p.js 839.44 kB │ gzip: 237.16 kB`（相较上一版 +0.38 kB，为新增 `isAnimationActive={false}` prop 的字面量开销，非组件新增）
+- 待人工验证：
+  - 在 chrome 打开 `http://localhost:5173/dashboard/#overview`，上下滚动页面，观察 `ComboChart` / `ParetoChart` 不再从 0 长回来
+  - 鼠标缓慢移入 `#overview` 页 `ComboChart` 图内，观察图表整体不再闪回重播动画（只有 Tooltip 悬浮层随光标出现）
+  - 切到 `#cost`，滚动并 hover，`CostStackedBar` / `CostPie` / `CostTimeline` 三张图均不重播动画
+  - 切到 `#live` 完成一次运行，鼠标移入 `JudgeRadar` / `RankingChart` 亦不重播动画
+
+### 关联
+-> ISS-041
+
 ## [2026-07-16-2] fix(web): stop 3-second auto-refresh flicker on chat / live [ISS-040]
 
 ### 改动

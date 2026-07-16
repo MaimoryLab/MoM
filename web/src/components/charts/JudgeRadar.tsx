@@ -39,8 +39,8 @@ export function JudgeRadar({ mom, baseline }: Props) {
             axisLine={false}
             tickCount={5}
           />
-          <Radar name="MoM"      dataKey="mom"      stroke={color.mom}      fill={color.mom}      fillOpacity={0.22} strokeWidth={2} />
-          <Radar name="Baseline" dataKey="baseline" stroke={color.flagship} fill={color.flagship} fillOpacity={0.10} strokeWidth={1.5} strokeDasharray="4 3" />
+          <Radar name="MoM"      dataKey="mom"      stroke={color.mom}      fill={color.mom}      fillOpacity={0.22} strokeWidth={2}   isAnimationActive={false} />
+          <Radar name="Baseline" dataKey="baseline" stroke={color.flagship} fill={color.flagship} fillOpacity={0.10} strokeWidth={1.5} strokeDasharray="4 3" isAnimationActive={false} />
           <Legend wrapperStyle={{ fontSize: font.size.xs, paddingTop: 6 }} />
           <Tooltip
             contentStyle={{

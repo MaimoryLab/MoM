@@ -1576,6 +1576,38 @@ Overview 页 Cost×效果 图横轴是 `Cost ($ / 1M output token)`——单价�
 -> web/src/pages/LivePage.tsx:29-40（同上）
 -> 004CHANGELOG.md [2026-07-16-2]
 
+---
+
+## [ISS-041] Overview / Cost / Live 图表：页面滚动、鼠标 hover、窗口 resize 时 Recharts 重播 entry 动画看起来像"自动刷新"
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：见 CHANGELOG [2026-07-16-3]。给所有 Recharts 数据系列（`Bar` / `Line` / `Area` / `Pie` / `Radar` / `Scatter`）统一加 `isAnimationActive={false}`——覆盖 ComboChart / ParetoChart / RankingChart / CostStackedBar / CostPie / CostTimeline / JudgeRadar 七张图；ParetoChart 之前只对 frontier `Line` 关了动画，Scatter 那 6 个模型点仍在动，这次一并关掉。
+
+**现象**：
+1. `#overview` 页只要往下滚动一下，`ComboChart` / `ParetoChart` 就会重新"从 0 长回来"一次——用户直观感受是"整块图表刷了一遍"。
+2. 鼠标一移入 `#overview` 页"成本 × 效果"（ComboChart）图内，图表整体也会闪一下重播入场动画。
+3. `#cost` 页的堆叠柱、饼图、区域图；`#live` 页的判官雷达图、动态排名图，都存在同一模式：容器尺寸一变（滚动条出现/隐藏、window resize）或 hover 触发 Tooltip 重排时，图表重演一次入场动画。
+
+**后果**：
+展会现场只要观众滚动或移动鼠标，图表就抖一下，观感上像"数据正在被后端悄悄推送刷新"——这与 MoM"静态基准展示"的叙事直接冲突，尤其容易让观众怀疑"是不是在偷偷重跑 benchmark"。
+
+**初步判断**：
+已确认。Recharts 的 `ResponsiveContainer` 通过 `ResizeObserver` 监听自身宽高变化，页面滚动带来的滚动条 toggle、系统 UI resize、hover 触发 tooltip 层引起容器尺寸微变化时，`ResponsiveContainer` 都会重新测量 → 内部 chart 组件重挂载 → 各数据系列走一次入场动画（Recharts 默认 `isAnimationActive={true}`，默认 `animationDuration ≈ 1500 ms`）。当前项目中所有 7 张 Recharts 图里，只有 `ParetoChart` 的 frontier `Line` 一处显式 `isAnimationActive={false}`，其余全部走默认。
+
+**关联**：
+-> web/src/components/charts/ComboChart.tsx:67-72（3 Bar + 3 Line 关动画）
+-> web/src/components/charts/ParetoChart.tsx:113-123（6 Scatter 关动画；frontier Line 之前已关）
+-> web/src/components/charts/RankingChart.tsx:40-42（3 Line 关动画）
+-> web/src/components/charts/CostStackedBar.tsx:37-40（4 Bar 关动画）
+-> web/src/components/charts/CostPie.tsx:25-34（Pie 关动画）
+-> web/src/components/charts/CostTimeline.tsx:41（Area 关动画）
+-> web/src/components/charts/JudgeRadar.tsx:42-43（2 Radar 关动画）
+-> 004CHANGELOG.md [2026-07-16-3]
+
 <!--
 新增条目模板：
 

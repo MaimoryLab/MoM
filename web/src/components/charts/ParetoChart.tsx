@@ -118,6 +118,7 @@ export function ParetoChart() {
               fill={model.fill}
               shape={model.shape}
               legendType={model.shape}
+              isAnimationActive={false}
             />
           ))}
         </ComposedChart>

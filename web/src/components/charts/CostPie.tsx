@@ -31,6 +31,7 @@ export function CostPie() {
             paddingAngle={2}
             stroke={color.surface}
             strokeWidth={2}
+            isAnimationActive={false}
           >
             {data.map((d) => (
               <Cell key={d.role} fill={COLORS[d.role]} />
