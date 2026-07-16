@@ -102,13 +102,20 @@ export function StatusStrip({
           {statusLabel}{polling ? ' · ' + t.live.submittedHint : ''}
         </span>
         {canDelete && !confirming && (
-          <Button
-            variant="ghost"
+          <button
+            type="button"
             onClick={() => setConfirming(true)}
-            style={{ height: 32, padding: `0 ${space.sm}`, fontSize: font.size.xs, color: color.textMuted }}
+            title={t.live.deleteRun}
+            aria-label={t.live.deleteRun}
+            style={{
+              width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              padding: 0, borderRadius: '50%', fontSize: font.size.md, lineHeight: 1,
+              background: color.bgSubtle, color: color.textSecondary,
+              border: `1px solid ${color.borderStrong}`, cursor: 'pointer',
+            }}
           >
-            {t.live.deleteRun}
-          </Button>
+            ×
+          </button>
         )}
         {canDelete && confirming && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' }}>
