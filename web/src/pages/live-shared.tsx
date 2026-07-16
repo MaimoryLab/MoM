@@ -28,6 +28,19 @@ export const EMPTY_JUDGE_SCORES = {
 
 const USER_PROMPT_CLIP = 140;
 
+// Total token count used in the compact StatsRow — input + cache_read +
+// cache_creation + output. Historically the row showed only output_tokens
+// which understated MoM's usage (cache-read is where MoM saves money vs
+// Baseline; hiding it made "high cost, low tokens" look like a bug).
+function totalTokens(usage: {
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  output_tokens: number;
+}): number {
+  return usage.input_tokens + usage.cache_read_tokens + usage.cache_creation_tokens + usage.output_tokens;
+}
+
 // Fixed height for the MoM / Baseline output boxes so the two columns stay
 // the same size regardless of which one has content first — Baseline is
 // often the first to stream in and would otherwise stretch its column
@@ -80,9 +93,12 @@ export function StatusStrip({
       }[live.status]
     : t.live.statusPending;
   const prompt = live?.prompt ?? null;
-  // Delete affordance is only offered on a completed / already-persisted run;
-  // showing it mid-flight would race with the polling cycle and is scary UX.
-  const canDelete = onDelete != null && live != null && !polling;
+  // Delete affordance is available even while the run is still polling —
+  // if it hangs or the backend crashed mid-run, users still need to be
+  // able to remove the row. Backend-side updates to the row after DELETE
+  // are silent 0-row UPDATEs (safe), and useLiveRun.tick's 404 branch
+  // stops the poller cleanly (see ISS-055 / ISS-062).
+  const canDelete = onDelete != null && live != null;
   return (
     <Card>
       <div style={{ display: 'flex', gap: space.md, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -188,7 +204,7 @@ export function MomColumn({ snap, typewriter, cursorOn }: { snap: ComparisonResp
       cursor={cursorOn ? 'mom' : null}
       footer={
         mom ? (
-          <StatsRow latencyMs={mom.latency_ms} tokens={mom.usage.output_tokens} costUsd={mom.cost_usd ?? 0} lang={lang} />
+          <StatsRow latencyMs={mom.latency_ms} tokens={totalTokens(mom.usage)} costUsd={mom.cost_usd ?? 0} lang={lang} />
         ) : snap?.mom_error ? (
           <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {snap.mom_error.message}</span>
         ) : snap ? (
@@ -219,7 +235,7 @@ export function BaselineColumn({ snap, typewriter, cursorOn }: { snap: Compariso
       cursor={cursorOn ? 'baseline' : null}
       footer={
         baseline ? (
-          <StatsRow latencyMs={baseline.latency_ms} tokens={baseline.usage.output_tokens} costUsd={baseline.cost_usd ?? 0} lang={lang} />
+          <StatsRow latencyMs={baseline.latency_ms} tokens={totalTokens(baseline.usage)} costUsd={baseline.cost_usd ?? 0} lang={lang} />
         ) : errorMsg ? (
           <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {errorMsg}</span>
         ) : snap ? (

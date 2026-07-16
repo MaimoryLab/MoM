@@ -3,6 +3,7 @@ import { getConfig, ConfigError } from './config.js';
 import { ProviderConfigError } from './config/provider-env.js';
 import { MoMConfigFileError } from './config/mom-config-file.js';
 import { startServer } from './gateway/server.js';
+import { markStalePendingComparisonsAsError } from './live/live-store.js';
 
 const DB_PATH = process.env.MOM_DB_PATH ?? 'mom.db';
 const MOM_CONFIG_PATH = process.env.MOM_CONFIG_PATH ?? 'data/mom.config.json';
@@ -13,6 +14,10 @@ const PORT = Number(process.env.MOM_PORT ?? 3000);
 
 async function main(): Promise<void> {
   initDB(DB_PATH);
+  const stale = markStalePendingComparisonsAsError();
+  if (stale > 0) {
+    console.log(`[MoM] marked ${stale} stale pending comparisons as error`);
+  }
   let runtime;
   try {
     runtime = getConfig(MOM_CONFIG_PATH);
