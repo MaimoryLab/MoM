@@ -41,13 +41,20 @@ export function ChatPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // Only refetch the history list when a run *finishes* (terminal status) or
+  // when the user selects a different gateway_request_id. Intermediate ticks
+  // during polling don't change the list contents and would just cause the
+  // dropdown to redraw every 3 s.
+  const historyKey = live.current
+    ? `${live.current.gateway_request_id}:${live.current.status === 'judge_done' || live.current.status === 'error' ? live.current.status : 'active'}`
+    : null;
   useEffect(() => {
     let cancelled = false;
     listComparisons(20)
       .then((res) => { if (!cancelled) setJobs(res.items); })
       .catch((err) => { if (!cancelled) setJobsError(err instanceof Error ? err.message : String(err)); });
     return () => { cancelled = true; };
-  }, [live.current?.gateway_request_id, live.current?.status]);
+  }, [historyKey]);
 
   const busy = live.polling;
 
@@ -433,7 +440,7 @@ function ComposerBar({
       <div
         style={{
           display: 'flex',
-          alignItems: 'flex-end',
+          alignItems: 'center',
           gap: space.sm,
           background: color.surface,
           border: `1px solid ${color.borderStrong}`,

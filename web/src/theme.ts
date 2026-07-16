@@ -23,11 +23,21 @@ export const color = {
 
   // series colors (cool, low-saturation)
   aggregatorOnly: '#7D8AB0', // 灰蓝,内部 aggregator baseline
-  flagship: '#8891A5',       // 冷中灰,Fable 5 / flagship compare
+  flagship: '#8891A5',       // 冷中灰,Fable 5 / flagship compare (Cost 页 baseline 条仍用它)
+  rankFlagship: '#E6923A',   // ISS-039: Ranking 图的 flagship 线专用琥珀橙,和 mom 蓝拉开对比
 
-  advisorA: '#5A6FE0',
-  advisorB: '#6D7AC0',
-  advisorC: '#8A93D1',
+  // ISS-039: advisor A/B/C 从浅蓝阶换成"暖橙 / 青绿 / 紫红"三色,让 Cost 饼图/堆叠柱
+  // 一眼分辨各角色占比;色相环上彼此相距 ≥ 60°,低饱和不刺眼,和 Ranking 的 rankFlagship
+  // 保持同色系(A = rankFlagship)。Aggregator 仍用 mom 蓝(见 CostPie/CostStackedBar)。
+  advisorA: '#E6923A',
+  advisorB: '#3EA69E',
+  advisorC: '#B85F9E',
+
+  // ISS-039 补丁: Overview Pareto 图 7 个模型点各开一色。MoM 保留品牌蓝,其余 6 个
+  // 从 benchmarkPalette 循环取色,展厅低饱和,和 Ranking / Cost 三色语义共享
+  // (rankFlagship / advisorB 青绿 / advisorC 紫红),额外补两个:珊瑚红 + 钩金黄。
+  coralRed: '#D66B6B',
+  hookGold: '#B8A050',
 
   // semantic
   positive: '#3E9E6E',

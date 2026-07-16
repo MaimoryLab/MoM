@@ -1,3 +1,138 @@
+## [2026-07-16-5] fix(web): pareto tooltip reads d.cost not d.costCny [ISS-043]
+
+### 改动
+- `web/src/components/charts/ParetoChart.tsx:130`：`ParetoTooltip` props 类型里 `costCny: number` 改回 `cost: number`
+- `web/src/components/charts/ParetoChart.tsx:145`：模板字符串里 `d.costCny.toFixed(3)` 改回 `d.cost.toFixed(3)`——`d.costCny` 一直是 `undefined`，`.toFixed(3)` 立刻 throw `TypeError`，React 18 走 `recoverFromConcurrentError` 从 root 重挂整棵树，用户看到的"hover 就刷新"就是这一次全树 mount/unmount 造成的视觉抖动
+- 单位符号保留 `¥` + 「/次」文案，语义与 ISS-038 的 x 轴口径一致，只是把字段名从错的 `costCny` 换回 `ChartPoint` 实际生成的 `cost`
+
+### 涉及文件
+- web/src/components/charts/ParetoChart.tsx：`ParetoTooltip` 的 `costCny` 全部改回 `cost`
+- docs/003ISSUES.md：新增 ISS-043，状态 [已解决]（同时说明 ISS-041 / ISS-042 是同现象下顺手修掉的两个已知性能坑，保留）
+
+### 自检
+- `npm run typecheck`：退出码 0，无输出
+- `npm run build`：退出码 0，`tsc -p tsconfig.json` 通过
+- `npm run build:web`：退出码 0，vite build 产物与前一版持平
+- 增量项：用户在 Chrome DevTools Console 里贴出 `ParetoChart.tsx:145 Uncaught TypeError: Cannot read properties of undefined (reading 'toFixed')` 直接命中根因；`git blame` 归到 `644cae4 [ISS-038]` dangling reference
+- 待人工验证：hard refresh `http://localhost:5173/dashboard/#overview`，鼠标反复 hover ParetoChart 和 ComboChart，观察 Console 不再抛 TypeError，整块 Overview 页不再抖；Pareto 的 tooltip 应能正常弹出显示 model label + score + cost ¥ 值
+
+### 关联
+-> ISS-043
+-> ISS-038（回填 `644cae4` 遗留的字段名 dangling reference）
+
+## [2026-07-16-4] fix(web): stabilize recharts data prop refs to stop hover-triggered chart reset [ISS-042]
+
+### 改动
+- `web/src/components/charts/ComboChart.tsx`：
+  - 把 `normalizeBenchmarkRows(benchmarks.per_benchmark)` 提到模块顶层的 `STATIC_PER_BENCHMARK`——原先每次 `ComboChart()` 函数重跑都会生成一个新的 array reference 塞给 `<ComposedChart data={…}>`，命中 Recharts `getDerivedStateFromProps` 里 `data !== prevState.prevData` 的严格引用比较，触发**完全 state reset + updateId + 1**（`updateId` 又会传给每条 `Bar/Line` 作 `animationId`，即便 `isAnimationActive={false}` state reset 本身仍会重跑轴映射 / tooltip 定位 / layer 重挂载，视觉上就是"整图闪一下"）
+  - `scoreDomain` / `costDomain` / `costDecimals` 用 `useMemo(() => ..., [])` 一次算完，避免每次 render 重跑 `flatMap` + `Math.min/max`
+  - `<Tooltip>` 加 `isAnimationActive={false}`——顺手关掉 tooltip 内容的淡入淡出，消除小面积的 hover 动画
+- `web/src/components/charts/CostPie.tsx`：把 `byRole.map(r => ({ name, value, role }))` 结果提到模块顶层的 `STATIC_ROWS`——同一模式
+- `web/src/components/charts/JudgeRadar.tsx`：`data` 数组依赖 props（`mom`/`baseline`）+ i18n 标签，无法搬到模块顶层，改用 `useMemo` + 精确依赖数组（5 个 `judgeDim` + 10 个分数值）——只有真的换了 preset / 语言时才重建
+
+### 涉及文件
+- web/src/components/charts/ComboChart.tsx：`STATIC_PER_BENCHMARK` + `useMemo` + Tooltip `isAnimationActive={false}`
+- web/src/components/charts/CostPie.tsx：`STATIC_ROWS` 提到模块顶层
+- web/src/components/charts/JudgeRadar.tsx：`data` 改 `useMemo`
+- docs/003ISSUES.md：新增 ISS-042，状态 [已解决]
+
+### 自检
+- `npm run typecheck`：退出码 0，无输出
+- `npm run build`：退出码 0，`tsc -p tsconfig.json` 通过
+- `npm run build:web`：退出码 0，vite build 产物与前一版持平（bundle 层面无新增依赖）
+- 手动验证 Recharts 源码：`node_modules/recharts/es6/chart/generateCategoricalChart.js:getDerivedStateFromProps` 内 `if (data !== prevState.prevData || ...) { newState = { ..._defaultState, ..., updateId: prevState.updateId + 1 }; }` 分支——`data` 严格 `!==` 引用比较，确认 stable ref 是正确 dedup key
+- 待人工验证：在 chrome 打开 `http://localhost:5173/dashboard/#overview`，鼠标反复从 chart 外滑入"成本 × 效果"图区域内，观察柱子/点线/坐标轴均不再闪；`#cost CostPie` / `#live JudgeRadar` 同样测试
+
+### 关联
+-> ISS-042
+
+## [2026-07-16-3] fix(web): disable recharts entry animation on all chart series [ISS-041]
+
+### 改动
+- 给所有 Recharts 数据系列统一 `isAnimationActive={false}`——覆盖 `ComboChart`（3 Bar + 3 Line）/ `ParetoChart`（6 Scatter；frontier Line 之前已关）/ `RankingChart`（3 Line）/ `CostStackedBar`（4 Bar）/ `CostPie`（Pie）/ `CostTimeline`（Area）/ `JudgeRadar`（2 Radar）；`ResponsiveContainer` 的 `ResizeObserver` 在页面滚动 / hover 弹 Tooltip / window resize 触发容器尺寸微变化时不再回放入场动画
+- 未新增/删除组件，未改数据源、未改配色、未改布局；纯 prop 补齐
+
+### 涉及文件
+- web/src/components/charts/ComboChart.tsx：3 Bar + 3 Line 加 `isAnimationActive={false}`
+- web/src/components/charts/ParetoChart.tsx：6 Scatter 加 `isAnimationActive={false}`
+- web/src/components/charts/RankingChart.tsx：3 Line 加 `isAnimationActive={false}`
+- web/src/components/charts/CostStackedBar.tsx：4 Bar 加 `isAnimationActive={false}`
+- web/src/components/charts/CostPie.tsx：Pie 加 `isAnimationActive={false}`
+- web/src/components/charts/CostTimeline.tsx：Area 加 `isAnimationActive={false}`
+- web/src/components/charts/JudgeRadar.tsx：2 Radar 加 `isAnimationActive={false}`
+- docs/003ISSUES.md：新增 ISS-041，状态 [已解决]
+
+### 自检
+- `npm run typecheck`：退出码 0，无输出
+- `npm run build`：退出码 0，`tsc -p tsconfig.json` 通过
+- `npm run build:web`：退出码 0，vite build 输出 `dist/assets/index-ClQliM1p.js 839.44 kB │ gzip: 237.16 kB`（相较上一版 +0.38 kB，为新增 `isAnimationActive={false}` prop 的字面量开销，非组件新增）
+- 待人工验证：
+  - 在 chrome 打开 `http://localhost:5173/dashboard/#overview`，上下滚动页面，观察 `ComboChart` / `ParetoChart` 不再从 0 长回来
+  - 鼠标缓慢移入 `#overview` 页 `ComboChart` 图内，观察图表整体不再闪回重播动画（只有 Tooltip 悬浮层随光标出现）
+  - 切到 `#cost`，滚动并 hover，`CostStackedBar` / `CostPie` / `CostTimeline` 三张图均不重播动画
+  - 切到 `#live` 完成一次运行，鼠标移入 `JudgeRadar` / `RankingChart` 亦不重播动画
+
+### 关联
+-> ISS-041
+
+## [2026-07-16-2] fix(web): stop 3-second auto-refresh flicker on chat / live [ISS-040]
+
+### 改动
+- `web/src/hooks/useLiveRun.ts:tick`：把 `setState({ ...s, current: snap })` 改成 updater 版本，先按 `gateway_request_id + updated_at + status` 三元组做 snap 去重——identical 情况下返回 `s.current` 引用不变、`polling` 也按 `isTerminalStatus(snap.status)` 直接推导；当 `current / polling / transportError` 都无变化时直接 `return s`，React 走 `Object.is` 短路跳过整棵 `useLiveJob()` 订阅子树的重渲染
+- `web/src/hooks/useLiveRun.ts:select`：不再在拉数据前抢先 `setState({ current: null, polling: true })`——原写法在点开一条已 `judge_done` 的历史时会让整块 UI 空一次再填回；现在保留旧 snap，`polling` 起始为 `false`，`tick` 拿到新 snap 后按其状态自动翻 `polling` 标志（终态则维持 `false`，非终态才拉起下一轮定时器）
+- `web/src/pages/ChatPage.tsx` / `web/src/pages/LivePage.tsx`：`listComparisons(20)` 的 `useEffect` 依赖数组从 `[live.current?.gateway_request_id, live.current?.status]` 收窄为 `${gw}:${terminal? status : 'active'}` 拼串——中间态 `pending → mom_done → baseline_done` 全部归到 `'active'`，只有"接到首个 snap"和"跨到终态"这两个真正会影响历史列表的时刻才触发 refetch
+
+### 涉及文件
+- web/src/hooks/useLiveRun.ts：`tick` snap 去重 + `select` 保留旧 snap 不抢先翻 `polling`
+- web/src/pages/ChatPage.tsx：`historyKey` 收窄 `listComparisons` 依赖
+- web/src/pages/LivePage.tsx：同上
+- docs/003ISSUES.md：新增 ISS-040，状态 [已解决]
+
+### 自检
+- `npm run typecheck`：退出码 0，无输出
+- `npm run build`：退出码 0，`tsc -p tsconfig.json` 通过
+- `npm run build:web`：退出码 0，vite build 输出 `dist/assets/index-BzQKoHr8.js 839.06 kB │ gzip: 237.10 kB`（与 ISS-039 交付时相当，仅 hook / effect 依赖调整，无组件新增/删除）
+- 增量项：`node -e '(await fetch("/api/comparison/:gw")).updated_at === (await fetch(...)).updated_at' → true`——确认后端在 snap 不变时 `updated_at` 稳定，是 tick 去重的合法 dedup key（curl 见 PR body）
+- 待人工验证：在 chrome 打开 `http://localhost:5173/dashboard/#chat`，发一次 prompt，观察 MoM 主答案/Baseline 主答案/Judge 雷达图/Cost 卡从进入到状态终态之间只在"每次 status 前进一档"时才刷一次，闲置的 3 秒 tick 应看不到任何视觉抖动；然后从"最近调用"下拉里点一条已完成的历史，确认不再看到"整块空一下再回填"
+
+### 关联
+-> ISS-040
+
+## [2026-07-16-1] polish(web): dashboard four-page UI polish — button center / ranking hoist + amber / pipeline advisor float + aggregator card / cost tri-color [ISS-039]
+
+### 改动
+- `web/src/pages/ChatPage.tsx`：ComposerBar 里 textarea + Submit 按钮的容器 `alignItems` 从 `flex-end` 改为 `center`，让发送按钮相对 96px composer 垂直居中（此前贴文本框底部）
+- `web/src/pages/LivePage.tsx`：把 `<Card title={t.live.rankingTitle}>` 从页面最底部提到 `<StatusStrip>` 下方、`<MomColumn/BaselineColumn>` 那一栏上方——观众进 Live 页第一眼就能看到"动态相对排名"这张核心叙事图
+- `web/src/components/charts/RankingChart.tsx`：`flagship` 线的 stroke / dot 从 `color.flagship (#8891A5 冷中灰)` 换成新增的 `color.rankFlagship (#E6923A 琥珀橙)`——原三条线蓝-灰-灰几乎糊在一起，换成蓝-灰-橙后 1080P 展示屏上肉眼可辨；`color.flagship` 常量本体保留，Overview 页 ComboChart/ParetoChart/JudgeRadar 与 Live 页 CostRow baseline 条颜色语义不受影响
+- `web/src/pages/PipelinePage.tsx`：
+  - `AdvisorCard`：给 `<MarkdownBody>` 外套一层白盒（`background: color.bg (#EDF1FC 极浅蓝)` + `border` + `padding` + `maxHeight: 200 / overflow: auto`），MarkdownBody 走 `flush` 模式——advisor 回复文本从卡片 `bgSubtle (#C5D3F0)` 底色里浮出来
+  - 新增 `AggregatorCard` 组件（大卡片形态，结构对齐 AdvisorCard），替代原来的 `FlowNode` 单行元数据；卡片底 `color.momSoft`、边框 `color.mom`，内嵌白盒 Markdown 浮层（`maxHeight: 260`）渲染 aggregator 完整 `response_text`；底部保留 model / latency / tokens / cost 元数据行
+- `web/src/theme.ts`：
+  - 新增 `color.rankFlagship: '#E6923A'`（琥珀橙，仅 RankingChart 用）
+  - `color.advisorA` `#5A6FE0` → `#E6923A` 琥珀橙
+  - `color.advisorB` `#6D7AC0` → `#3EA69E` 青绿
+  - `color.advisorC` `#8A93D1` → `#B85F9E` 紫红
+  - CostPie / CostStackedBar 通过常量间接换色，无需改代码；Cost 饼图/堆叠柱四段变成 橙/青/紫/蓝（蓝为 Aggregator MoM 主色），一眼分辨占比
+
+### 涉及文件
+- web/src/pages/ChatPage.tsx：ComposerBar `alignItems` 居中
+- web/src/pages/LivePage.tsx：RankingChart 上移到 StatusStrip 之下
+- web/src/pages/PipelinePage.tsx：AdvisorCard MarkdownBody 浮层 + 新增 AggregatorCard
+- web/src/components/charts/RankingChart.tsx：flagship 线换 `color.rankFlagship`
+- web/src/theme.ts：新增 rankFlagship / 覆写 advisorA/B/C 三色
+- docs/003ISSUES.md：新增 ISS-039，状态 [进行中] → 交付时改 [已解决]
+
+### 自检
+- `npm run typecheck`：通过（无输出）
+- `npm run build`：通过（tsc 编译成功）
+- `npm run build --workspace=web`：通过（vite build 输出 838.31 kB → gzip 236.92 kB，与改动前一致）
+- `npm test`：`test/orchestrator-cost.test.ts:569` 失败 1 项——**pre-existing**，在我改动前的 clean tree 上 stash 验证同样失败；与本次 web 侧改动完全无关（未触碰 `src/orchestrator/`）
+
+### 关联
+-> ISS-039
+
+---
+
 ## [2026-07-15-5] refactor(web): rewrite chat page to classic chatbot layout [ISS-037]
 
 ### 改动

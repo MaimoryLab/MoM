@@ -68,11 +68,20 @@ export function LiveJobProvider({ children }: { children: ReactNode }) {
     try {
       const snap = await getComparison(gwId);
       if (activeGwRef.current !== gwId) return;
-      setState((s) => ({ ...s, current: snap, transportError: null }));
-      if (isTerminalStatus(snap.status)) {
-        setState((s) => ({ ...s, polling: false }));
-        return;
-      }
+      setState((s) => {
+        const unchanged =
+          s.current != null &&
+          s.current.gateway_request_id === snap.gateway_request_id &&
+          s.current.updated_at === snap.updated_at &&
+          s.current.status === snap.status;
+        const nextCurrent = unchanged ? s.current : snap;
+        const nextPolling = !isTerminalStatus(snap.status);
+        if (nextCurrent === s.current && nextPolling === s.polling && s.transportError === null) {
+          return s;
+        }
+        return { ...s, current: nextCurrent, polling: nextPolling, transportError: null };
+      });
+      if (isTerminalStatus(snap.status)) return;
     } catch (err) {
       if (activeGwRef.current !== gwId) return;
       setState((s) => ({
@@ -105,7 +114,11 @@ export function LiveJobProvider({ children }: { children: ReactNode }) {
   const select = useCallback(async (gwId: string) => {
     stopPolling();
     activeGwRef.current = gwId;
-    setState({ current: null, polling: true, transportError: null });
+    // Keep the previously-displayed snapshot visible while the first fetch is
+    // in flight — clearing to null causes a visible "empty then refill" flash
+    // when the user clicks a completed run in history. `polling` starts false;
+    // `tick` will flip it to true only if the fetched snap is non-terminal.
+    setState((s) => ({ ...s, polling: false, transportError: null }));
     tick(gwId);
   }, [stopPolling, tick]);
 

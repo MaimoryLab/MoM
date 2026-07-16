@@ -16,8 +16,12 @@ const LABELS: Record<string, string> = {
   aggregator: 'Aggregator',
 };
 
+// Rows built once at module load — stable reference so re-renders don't hand
+// Recharts a fresh `data` array (which would bump updateId and reset chart state).
+const STATIC_ROWS = byRole.map((r) => ({ name: LABELS[r.role], value: r.value, role: r.role }));
+
 export function CostPie() {
-  const data = byRole.map((r) => ({ name: LABELS[r.role], value: r.value, role: r.role }));
+  const data = STATIC_ROWS;
   return (
     <div style={{ width: '100%', height: 320 }}>
       <ResponsiveContainer>
@@ -31,6 +35,7 @@ export function CostPie() {
             paddingAngle={2}
             stroke={color.surface}
             strokeWidth={2}
+            isAnimationActive={false}
           >
             {data.map((d) => (
               <Cell key={d.role} fill={COLORS[d.role]} />

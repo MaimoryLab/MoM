@@ -526,12 +526,78 @@ function AdvisorCard({ status, node }: { status: NodeStatus; node: ViewNode }) {
           padding: space.sm, minHeight: 80,
         }}>…</div>
       ) : (
-        <MarkdownBody
-          text={node.preview ?? '—'}
-          minHeight={80}
-          maxHeight={200}
-          cursor={isRunning ? 'mom' : null}
-        />
+        // ISS-039: 用 color.bg (极浅蓝) 外壳把 Markdown 内容从 bgSubtle (浅蓝) 的
+        // AdvisorCard 底色里浮出来;MarkdownBody 走 flush 模式,由外壳控制滚动/高度。
+        <div style={{
+          background: color.bg,
+          border: `1px solid ${color.border}`,
+          borderRadius: 6,
+          padding: space.sm,
+          minHeight: 80,
+          maxHeight: 200,
+          overflow: 'auto',
+        }}>
+          <MarkdownBody
+            text={node.preview ?? '—'}
+            cursor={isRunning ? 'mom' : null}
+            flush
+          />
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 14, fontSize: font.size.xxs, color: color.textSecondary, fontFamily: 'ui-monospace, monospace' }}>
+        <span>⏱ {formatLatency(node.latencyMs ?? 0, lang)}</span>
+        <span>· {node.tokens ?? 0}t</span>
+        <span>· {formatCost(node.costUsd ?? 0, lang)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ISS-039: Aggregator 从 FlowNode 一行元数据升级为大卡片,展示完整 Markdown 回复。
+// 结构 = AdvisorCard 一致 (header + StatusPill + model + 白盒 Markdown 浮层 + 元数据行),
+// 但配色走 "mom"(蓝色调),区分它是聚合角色而非某个 advisor。
+function AggregatorCard({ status, node }: { status: NodeStatus; node: ViewNode }) {
+  const { t, lang } = useI18n();
+  const isPending = status === 'pending';
+  const isRunning = status === 'running';
+  return (
+    <div style={{
+      background: isPending ? color.surface : color.momSoft,
+      border: `1.5px solid ${isPending ? color.border : color.mom}`,
+      borderRadius: radius.md, padding: space.md,
+      opacity: isPending ? 0.5 : 1, transition: 'all 260ms ease',
+      display: 'flex', flexDirection: 'column', gap: space.sm, minHeight: 160,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: font.size.xs, color: color.mom, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: font.weight.semibold }}>
+          {t.pipeline.stage.aggregator}
+        </span>
+        <StatusPill status={status} />
+      </div>
+      <code style={{ fontFamily: 'ui-monospace, monospace', color: color.textMuted, fontSize: font.size.xxs }}>{node.model}</code>
+      {isPending ? (
+        <div style={{
+          fontSize: font.size.sm, color: color.textMuted, lineHeight: 1.55,
+          background: 'transparent',
+          border: `1px solid ${color.border}`, borderRadius: 6,
+          padding: space.sm, minHeight: 80,
+        }}>…</div>
+      ) : (
+        <div style={{
+          background: color.surface,
+          border: `1px solid ${color.border}`,
+          borderRadius: 6,
+          padding: space.sm,
+          minHeight: 80,
+          maxHeight: 260,
+          overflow: 'auto',
+        }}>
+          <MarkdownBody
+            text={node.preview ?? '—'}
+            cursor={isRunning ? 'mom' : null}
+            flush
+          />
+        </div>
       )}
       <div style={{ display: 'flex', gap: 14, fontSize: font.size.xxs, color: color.textSecondary, fontFamily: 'ui-monospace, monospace' }}>
         <span>⏱ {formatLatency(node.latencyMs ?? 0, lang)}</span>
@@ -612,12 +678,7 @@ function FanoutFlow({
       )}
       <FlowArrows />
       {aggregatorNode && (
-        <FlowNode
-          status={statusOf(aggregatorNode.id)}
-          label={t.pipeline.stage.aggregator}
-          sub={<span><code style={{ fontFamily: 'ui-monospace, monospace', color: color.textMuted }}>{aggregatorNode.model}</code> · ⏱ {formatLatency(aggregatorNode.latencyMs ?? 0, lang)} · {aggregatorNode.tokens ?? 0}t · {formatCost(aggregatorNode.costUsd ?? 0, lang)}</span>}
-          tone="mom"
-        />
+        <AggregatorCard status={statusOf(aggregatorNode.id)} node={aggregatorNode} />
       )}
       <FlowArrows />
       {finalNode && (

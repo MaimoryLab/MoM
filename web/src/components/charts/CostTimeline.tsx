@@ -38,7 +38,7 @@ export function CostTimeline() {
             }}
             cursor={{ stroke: color.border }}
           />
-          <Area type="monotone" dataKey="cost" stroke={color.mom} strokeWidth={2} fill="url(#momCostFill)" />
+          <Area type="monotone" dataKey="cost" stroke={color.mom} strokeWidth={2} fill="url(#momCostFill)" isAnimationActive={false} />
         </AreaChart>
       </ResponsiveContainer>
     </div>

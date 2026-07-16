@@ -12,7 +12,7 @@ import { Card } from '../components/primitives/Card';
 import { Button } from '../components/primitives/Button';
 import { RankingChart } from '../components/charts/RankingChart';
 import { useI18n } from '../i18n/context';
-import { space } from '../theme';
+import { color, space } from '../theme';
 import { useLiveJob } from '../hooks/useLiveRun';
 import { navigateTo } from '../App';
 import { listComparisons, type ComparisonListItem } from '../lib/api';
@@ -26,13 +26,19 @@ export function LivePage() {
   const [jobsError, setJobsError] = useState<string | null>(null);
   const live = useLiveJob();
 
+  // Only refetch history when a run *finishes* or the user selects a different
+  // gateway_request_id — intermediate polling ticks don't change list contents
+  // and would just cause the dropdown to redraw every 3 s.
+  const historyKey = live.current
+    ? `${live.current.gateway_request_id}:${live.current.status === 'judge_done' || live.current.status === 'error' ? live.current.status : 'active'}`
+    : null;
   useEffect(() => {
     let cancelled = false;
     listComparisons(20)
       .then((res) => { if (!cancelled) setJobs(res.items); })
       .catch((err) => { if (!cancelled) setJobsError(err instanceof Error ? err.message : String(err)); });
     return () => { cancelled = true; };
-  }, [live.current?.gateway_request_id, live.current?.status]);
+  }, [historyKey]);
 
   const current = live.current;
   const currentGw = current?.gateway_request_id ?? null;
@@ -41,10 +47,14 @@ export function LivePage() {
     <PageShell
       title={t.nav.live}
       subtitle={lang === 'zh'
-        ? 'MoM 输出 vs Baseline 输出 · 展示模式（去"提问"页发送新问题）'
-        : 'MoM output vs Baseline output. Viewer-only — head to Chat to submit a new question.'}
+        ? 'MoM 输出 vs Baseline 输出'
+        : 'MoM output vs Baseline output'}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: space.md }}>
+        <Card title={t.live.rankingTitle} subtitle={t.live.rankingSubtitle}>
+          <RankingChart seed={currentGw ?? 'preview'} />
+        </Card>
+        <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: space.md, flexWrap: 'wrap' }}>
           <RunSelect
             value={currentGw}
@@ -57,7 +67,9 @@ export function LivePage() {
             onNew={{ label: t.chat.newRun, onClick: () => navigateTo('chat') }}
           />
         </div>
+        <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
         <StatusStrip live={current} polling={live.polling} transportError={live.transportError} />
+        <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: space.md }}>
           <MomColumn snap={current} />
           <BaselineColumn snap={current} />
@@ -73,9 +85,6 @@ export function LivePage() {
             </Button>
           </div>
         )}
-        <Card title={t.live.rankingTitle} subtitle={t.live.rankingSubtitle}>
-          <RankingChart seed={currentGw ?? 'preview'} />
-        </Card>
       </div>
     </PageShell>
   );

@@ -1509,6 +1509,165 @@ Overview 页 Cost×效果 图横轴是 `Cost ($ / 1M output token)`——单价�
 -> web/src/i18n/dict.ts（overview.paretoAxisX 中英）
 -> 004CHANGELOG.md [2026-07-15-4]
 
+---
+
+## [ISS-039] Dashboard 四页 UI 打磨：按钮居中 / Ranking 上移换色 / Pipeline Advisor 浮层与 Aggregator 卡 / Cost 三色
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：见 CHANGELOG [2026-07-16-1]。ComposerBar `alignItems: center`；LivePage `<Card title={rankingTitle}>` 位置从末尾提到 StatusStrip 之下；RankingChart flagship 换 `color.rankFlagship #E6923A`（新增常量，`color.flagship` 保留给 Overview / Live baseline 条）；AdvisorCard 里 MarkdownBody 外套白盒(`color.bg` + border)走 flush 模式；新增 AggregatorCard 大卡片渲染 aggregator 完整 Markdown 回复；theme.ts `advisorA/B/C` 覆写为琥珀橙/青绿/紫红 `#E6923A / #3EA69E / #B85F9E`（CostPie/CostStackedBar 通过常量间接换色）。
+
+**现象**：
+1. `#chat` — ComposerBar 里 textarea 与发送按钮用 `alignItems: 'flex-end'`，按钮贴文本框底部而不是垂直居中；96px 的 composer 里视觉配平不对。
+2. `#live` — RankingChart 位于 LivePage 最后一块，观众必须滚到底部才能看到"动态相对排名"这个卖点图；且 flagship 线 `#8891A5`（冷中灰）和 aggregatorOnly `#7D8AB0`（灰蓝）在 1080P 展示屏上几乎糊在一起，只能识别蓝线（MoM）。
+3. `#pipeline` —
+   - AdvisorCard 的卡片底是 `color.bgSubtle #C5D3F0`，卡内 MarkdownBody 没底色透传成同色，advisor 回复文本与卡片底"融"在一起。
+   - Aggregator 在 FanoutFlow 里用的是 FlowNode 一行元数据（model / latency / tokens / cost），完全没渲染 `response_text`；观众只能看到 advisor 的回复，看不到 aggregator 的整合结果——违反"请求流程"的展示初衷。
+4. `#cost` — CostPie / CostStackedBar 里 advisorA/B/C = `#5A6FE0 / #6D7AC0 / #8A93D1`，加上 aggregator 的 `#3E5BDB`，四段全是深浅蓝，饼图糊成一坨；观众无法一眼看出各角色成本占比。
+
+**后果**：
+四点均为展会现场可见的体验缺陷，累计影响"Chat/Live/Pipeline/Cost"四个主页面的第一印象，尤其 Cost 饼图和 Ranking 图直接影响"MoM 更省 / MoM 更强"两条主叙事的可读性。
+
+**初步判断**：
+已确认。用户在展会调试时四条现象均已复现，确认改法：
+1. ComposerBar `alignItems: 'flex-end'` → `'center'`。
+2. RankingChart 位置提到 StatusStrip 下方 / MomColumn+BaselineColumn 上方；flagship 换 `#E6923A` 琥珀橙（新增 `color.rankFlagship`，不动 `color.flagship` 以免污染 Cost 页 baseline 条颜色）。
+3. AdvisorCard 里 MarkdownBody 外层套 `background: color.bg` + 边框 + padding，让文本浮出卡底；Aggregator 由 FlowNode 升级为 AggregatorCard（header + 白盒 MarkdownBody + 元数据行）。
+4. `theme.ts` 覆写三个 advisor 常量：advisorA = 琥珀橙 `#E6923A` / advisorB = 青绿 `#3EA69E` / advisorC = 紫红 `#B85F9E`；Aggregator 保持 MoM 蓝 `#3E5BDB`。CostPie / CostStackedBar 无需改代码。
+
+**关联**：
+-> web/src/pages/ChatPage.tsx（ComposerBar 垂直居中）
+-> web/src/pages/LivePage.tsx（RankingChart 位置）
+-> web/src/pages/PipelinePage.tsx（AdvisorCard 浮层背景 + Aggregator 大卡片）
+-> web/src/components/charts/RankingChart.tsx（第三条线换色）
+-> web/src/components/charts/CostPie.tsx / CostStackedBar.tsx（由 theme 常量间接换色）
+-> web/src/theme.ts（advisorA/B/C 换值 + 新增 rankFlagship）
+
+---
+
+## [ISS-040] Chat / Live 页每 3 秒"自动刷新"一次内容——`useLiveRun` 未按快照内容去重，且 select 已终态历史时仍启动轮询
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：见 CHANGELOG [2026-07-16-2]。`useLiveRun.tick` 在 `setState` 里按 `gateway_request_id + updated_at + status` 三元组做 snap 去重，identical 情况下 `nextCurrent = s.current` 引用不变、`polling` 也按终态推导，触发 React `Object.is` 短路直接跳过重渲染；`select(gwId)` 不再在拉数据前抢先翻 `polling: true / current: null`，而是保留旧 snap，让 `tick` 拿到新 snap 后按其状态自动翻 `polling` 标志；ChatPage / LivePage 的 `listComparisons` 依赖数组由 `[gw, status]` 收窄为 `${gw}:${terminal? status : 'active'}`，中间态 `pending → mom_done → baseline_done` 不再各触发一次列表 refetch。
+
+**现象**：
+在 `#chat` 提交一次 prompt、或在 `#chat` / `#live` 从"最近调用"下拉里点开某条历史记录后，页面每隔约 3 秒会整体"刷新"一次——Recharts 判官雷达图、MoM/Baseline Markdown、成本卡片、历史下拉全部重绘一遍。即便被选中的历史条目状态已经是终态（`judge_done` / `error`），首次点开也会看到"整块 UI 短暂空一次再填回"的抖动。
+
+**后果**：
+展会现场观众会误以为系统"在悄悄重新调用一次"，实际上后端并没有变化。抖动破坏 Live 演示的静态观感；对录制视频 / 截屏也不友好。
+
+**初步判断**：
+已确认。三处联动导致：
+1. `web/src/hooks/useLiveRun.ts:tick()` 每次拉到 `getComparison(gwId)` 都无条件 `setState({ ...s, current: snap })`，即便 `snap.updated_at` 与已有 `state.current.updated_at` 完全相同，React 也会因为 `current` 引用变化而向下重渲染整棵 `useLiveJob()` 订阅子树。
+2. `web/src/hooks/useLiveRun.ts:select(gwId)` 无论目标运行是不是终态，都先把 `polling: true / current: null` 写进 state，再打 `tick(gwId)`；网络往返 ~150 ms 内 UI 空一次；点开一个 `judge_done` 的老会话本不需要进入"轮询态"。
+3. `web/src/pages/ChatPage.tsx:44-50` 与 `web/src/pages/LivePage.tsx:29-35` 的 `useEffect` 依赖数组是 `[live.current?.gateway_request_id, live.current?.status]`；在轮询过程中 `status` 每跨过一档（`pending → mom_done → baseline_done → judge_done`）都会重新 `listComparisons(20)`，历史下拉跟着重画。
+
+**关联**：
+-> web/src/hooks/useLiveRun.ts:65-95（`tick` 加 snap 去重 + `polling` 由终态推导）
+-> web/src/hooks/useLiveRun.ts:114-123（`select` 不再抢先翻 `polling: true / current: null`）
+-> web/src/pages/ChatPage.tsx:44-55（`historyKey` 收窄依赖）
+-> web/src/pages/LivePage.tsx:29-40（同上）
+-> 004CHANGELOG.md [2026-07-16-2]
+
+---
+
+## [ISS-041] Overview / Cost / Live 图表：页面滚动、鼠标 hover、窗口 resize 时 Recharts 重播 entry 动画看起来像"自动刷新"
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：见 CHANGELOG [2026-07-16-3]。给所有 Recharts 数据系列（`Bar` / `Line` / `Area` / `Pie` / `Radar` / `Scatter`）统一加 `isAnimationActive={false}`——覆盖 ComboChart / ParetoChart / RankingChart / CostStackedBar / CostPie / CostTimeline / JudgeRadar 七张图；ParetoChart 之前只对 frontier `Line` 关了动画，Scatter 那 6 个模型点仍在动，这次一并关掉。
+
+**现象**：
+1. `#overview` 页只要往下滚动一下，`ComboChart` / `ParetoChart` 就会重新"从 0 长回来"一次——用户直观感受是"整块图表刷了一遍"。
+2. 鼠标一移入 `#overview` 页"成本 × 效果"（ComboChart）图内，图表整体也会闪一下重播入场动画。
+3. `#cost` 页的堆叠柱、饼图、区域图；`#live` 页的判官雷达图、动态排名图，都存在同一模式：容器尺寸一变（滚动条出现/隐藏、window resize）或 hover 触发 Tooltip 重排时，图表重演一次入场动画。
+
+**后果**：
+展会现场只要观众滚动或移动鼠标，图表就抖一下，观感上像"数据正在被后端悄悄推送刷新"——这与 MoM"静态基准展示"的叙事直接冲突，尤其容易让观众怀疑"是不是在偷偷重跑 benchmark"。
+
+**初步判断**：
+已确认。Recharts 的 `ResponsiveContainer` 通过 `ResizeObserver` 监听自身宽高变化，页面滚动带来的滚动条 toggle、系统 UI resize、hover 触发 tooltip 层引起容器尺寸微变化时，`ResponsiveContainer` 都会重新测量 → 内部 chart 组件重挂载 → 各数据系列走一次入场动画（Recharts 默认 `isAnimationActive={true}`，默认 `animationDuration ≈ 1500 ms`）。当前项目中所有 7 张 Recharts 图里，只有 `ParetoChart` 的 frontier `Line` 一处显式 `isAnimationActive={false}`，其余全部走默认。
+
+**关联**：
+-> web/src/components/charts/ComboChart.tsx:67-72（3 Bar + 3 Line 关动画）
+-> web/src/components/charts/ParetoChart.tsx:113-123（6 Scatter 关动画；frontier Line 之前已关）
+-> web/src/components/charts/RankingChart.tsx:40-42（3 Line 关动画）
+-> web/src/components/charts/CostStackedBar.tsx:37-40（4 Bar 关动画）
+-> web/src/components/charts/CostPie.tsx:25-34（Pie 关动画）
+-> web/src/components/charts/CostTimeline.tsx:41（Area 关动画）
+-> web/src/components/charts/JudgeRadar.tsx:42-43（2 Radar 关动画）
+-> 004CHANGELOG.md [2026-07-16-3]
+
+---
+
+## [ISS-042] Overview 页 ComboChart 鼠标 hover 仍会"整图刷一遍"——`data` 引用不稳定触发 Recharts `updateId` bump + full state reset
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：见 CHANGELOG [2026-07-16-4]。三处 chart 组件在函数体内每次 render 都会 `map()` / `flatMap()` 出一个新数组塞给 Recharts 的 `<Chart data={…}>`，即便原始数据完全没变——Recharts 的 `getDerivedStateFromProps` 用严格引用比较 `data !== prevState.prevData`，一旦命中就走「_defaultState + updateId + 1」的**完全 state reset**分支，并把新的 `animationId` 派给每一条 `Bar/Line/Area/Radar`；虽然我们已经把所有系列的 `isAnimationActive={false}`，state reset 本身还是会重跑轴映射、tooltip 定位、layer 重挂载，视觉上就是"整图闪一下"。修法：（a）`ComboChart` 把 `normalizeBenchmarkRows(benchmarks.per_benchmark)` 提到**模块顶层**的 `STATIC_PER_BENCHMARK`，函数内所有 `scoreDomain / costDomain / costDecimals` 用 `useMemo(() => ..., [])` 一次算完；（b）`CostPie` 把 `byRole.map(...)` 结果同样提到模块顶层 `STATIC_ROWS`；（c）`JudgeRadar` 因为 `data` 依赖 props（`mom`/`baseline`）+ i18n 标签，改用 `useMemo` + 精确依赖数组；（d）`ComboChart` 顺手在 `<Tooltip>` 上加 `isAnimationActive={false}` 关掉 tooltip 淡入淡出的额外动画。
+
+**现象**：
+在 Chrome 里打开 `http://localhost:5173/dashboard/#overview`，鼠标从 chart 外滑到"成本 × 效果"（ComboChart）图区域内的瞬间，整块图会闪一下——柱子、点线、坐标轴 tick 全部瞬时重画一遍，视觉上等同"刷新"。用户在 ISS-041 已经把所有系列的 `isAnimationActive={false}` 补齐之后，抖动仍然存在，说明动画不是唯一根因。同类问题的 `#live JudgeRadar` / `#cost CostPie` 在展会大屏上鼠标一移入也会一起闪。
+
+**后果**：
+展会现场观众鼠标每碰到图表一次都会看到一次抖动，与"静态基准展示"的叙事直接冲突；这也是 ISS-041 用户复测时"依旧刷新"的直接原因，需要单独立条目彻底解决。
+
+**初步判断**：
+已确认。在 `node_modules/recharts/es6/chart/generateCategoricalChart.js` 的 `getDerivedStateFromProps` 里读到 `if (data !== prevState.prevData) { … newState = { ..._defaultState, ..., updateId: prevState.updateId + 1 }; }`——只要 `data` 引用变了就走完整 reset。触发链：`useLiveJob()` 或 `useHashRoute()` 在其他子树上的 `setState` → `LiveJobProvider` / `Router` 重渲染 → cascading 到没有 memo 的 `OverviewPage` / `ChatPage` / `LivePage` → `ComboChart` / `JudgeRadar` / `CostPie` 函数重跑 → `map()` / `flatMap()` 生成新数组 → Recharts state reset。ChatPage/LivePage 里跟 `useLiveJob` 直接联动的组件已在 ISS-040 里通过快照去重 + `historyKey` 收窄降低了触发密度，但 Overview 页 hover 只要触发 tooltip 内部 setState 就能间接把 ComboChart 重新拉起。
+
+**关联**：
+-> web/src/components/charts/ComboChart.tsx（`STATIC_PER_BENCHMARK` 提到模块顶层 + `useMemo` 缓存 domain / decimals + Tooltip `isAnimationActive={false}`）
+-> web/src/components/charts/CostPie.tsx（`STATIC_ROWS` 提到模块顶层）
+-> web/src/components/charts/JudgeRadar.tsx（`data` 改 `useMemo` + 精确依赖数组）
+-> 004CHANGELOG.md [2026-07-16-4]
+
+---
+
+## [ISS-043] Overview 页鼠标 hover 触发 `ParetoTooltip` 抛 `TypeError` → React error recovery → 整棵组件树重挂载看起来像"刷新"——ISS-041/042 都是误诊
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[崩溃]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：见 CHANGELOG [2026-07-16-5]。`web/src/components/charts/ParetoChart.tsx:145` 读的是 `d.costCny.toFixed(3)`，但 `ChartPoint` 类型（同文件 28-36 行）只有 `cost` 字段，`toChartPoint()`（38-59 行）产出的对象里也没有 `costCny` —— ISS-038 那次「Pareto x 轴换成 CNY 每次问答」提交时字段名写错了：类型定义补了 `costCny`，运行时字段名保留 `cost`，TypeScript 因为 Recharts 泛型 payload 不做严格检查所以 build 不报错。修法一行：`d.costCny.toFixed(3)` → `d.cost.toFixed(3)`，props 类型 `costCny: number` 同步改成 `cost: number`。
+
+**现象**：
+在 Chrome 里打开 `http://localhost:5173/dashboard/#overview`，鼠标移到 ParetoChart（「成本 × 效果」旁边的性价比 Pareto 图）或 ComboChart（`ParetoTooltip` 会被 Recharts 内部错误触发到都不需要 hover 到 Pareto 上）时，DevTools Console 立刻抛：
+```
+ParetoChart.tsx:145 Uncaught TypeError: Cannot read properties of undefined (reading 'toFixed')
+    at ParetoTooltip (ParetoChart.tsx:145:97)
+```
+React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App）重挂载整棵组件树 → 用户看到的效果就是 Overview 页整块"闪一下重画"，误认为是"图表刷新"。
+
+**后果**：
+1. 每次 hover 都触发一次全树 unmount + mount，把 `LiveJobProvider` / `useHashRoute` / 所有页面组件的 state 全洗一遍——ISS-040 / ISS-041 / ISS-042 用户复测时"依然刷新"的根本原因是这里。
+2. Overview 页 ParetoChart 的 tooltip 永远显示不出来（每次 render 立刻 throw）。
+3. 展会现场观众鼠标只要碰过图表一次就会看到抖动，与"静态基准展示"的叙事直接冲突。
+
+**初步判断**：
+已确认。用户在 Chrome DevTools Console 里贴出的 stack trace 直接命中 `ParetoTooltip @ ParetoChart.tsx:145` + `Uncaught TypeError: Cannot read properties of undefined (reading 'toFixed')`。`git blame -L 145 web/src/components/charts/ParetoChart.tsx` 归到 `644cae4 refactor(web): switch Pareto x-axis to total CNY per Q&A [ISS-038]`；同 commit 把 `toChartPoint` 的字段名保留为 `cost` 但 tooltip 那行写成 `costCny`，属于 ISS-038 交付时的 dangling reference。
+
+之前 ISS-041（Recharts entry animation 未关）和 ISS-042（`data` 引用不稳定触发 Recharts state reset）都是**防御性改动，本身也有价值**，但都不是「用户 hover ComboChart 就刷新」的直接根因；用户复测时"还是不行"的原因是这条 `costCny` bug 一直挂着，只要 hover 就 throw，React 就重挂树。三条 issue 之间的关系是：ISS-043 是**真正的根因**，ISS-041 / ISS-042 是**同一现象下顺手修掉的两个已知性能坑**——都保留。
+
+**关联**：
+-> web/src/components/charts/ParetoChart.tsx:130,145（`costCny` 全部改回 `cost`）
+-> ISS-038 (`644cae4` 提交时 dangling reference)
+-> 004CHANGELOG.md [2026-07-16-5]
+
 <!--
 新增条目模板：
 
