@@ -1,3 +1,17 @@
+## [2026-07-16-20] fix(web): pipeline history uses listComparisons; live delete becomes an × icon [ISS-059][ISS-060]
+
+### 改动
+- `web/src/pages/PipelinePage.tsx`：dropdown 数据源改回单纯 `listComparisons(20)`，`recent` 类型回到 `ComparisonListItem[]`，`TurnSelect` 文案纯粹 `time · clipped-prompt`，与 Live 页 RunSelect 完全同源同格式；ISS-058 的 aggregator-traces-主源 + hash+model fallback 方案在最近 20 窗口不重叠时会退化成"格式全乱"，用户诉求是"格式一致 > 每条都能画"，本次尊重
+- `web/src/pages/live-shared.tsx`：`StatusStrip` 删除触发按钮从 ghost 变体的"删除"文字改成 28×28 圆形 `×` 图标按钮（`bgSubtle` 底 + `borderStrong` 描边），带 `title` tooltip；后续内联的「取消 / 确认删除」小簇不变，防止一击即删
+
+### 涉及文件
+- web/src/pages/PipelinePage.tsx：dropdown 回归 listComparisons + Live 一致文案
+- web/src/pages/live-shared.tsx：StatusStrip 删除入口改成 × 图标按钮
+
+### 关联
+-> ISS-059
+-> ISS-060
+
 ## [2026-07-16-19] fix(web): pipeline TurnSelect keeps aggregator traces even when comparisons window misses [ISS-058]
 
 ### 改动

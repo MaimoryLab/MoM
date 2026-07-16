@@ -2007,6 +2007,50 @@ Pipeline 页历史完全丢失，展厅无法从下拉找到任何旧 turn；ISS
 -> web/src/pages/PipelinePage.tsx（`recent` 类型改为 `TurnOption`；aggregator traces 全进，`Map<gwId, prompt>` 增补，缺 prompt 时回落 hash8 + model）
 -> 004CHANGELOG.md [2026-07-16-19]
 
+## [ISS-059] Pipeline TurnSelect 需要和 Live 历史 100% 同源同格式，不允许 fallback 到 hash+model
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：ISS-058 的"aggregator traces 为主源 + comparisons 做 prompt 增补 + 缺 prompt fallback hash+model"被用户明确否掉——诉求是"跟 Live 的历史记录一样"，视觉一致优先于覆盖率。改回单纯 `listComparisons(20)`，与 Live RunSelect 同源同格式；一个 comparison 若没对应 aggregator trace，点开时右侧本来就有的 `turn.nodes.length===0` 空态卡兜住，代价可接受。
+
+**现象**：
+ISS-058 落地后 Pipeline dropdown 大部分 option 显示 `time · <hash8> · <model>`，因为最近 20 aggregator traces（老 Phase 3-5 test 数据）和最近 20 comparisons（新数据）几乎不重叠。用户反馈"格式又恢复原状了，等于没改"。
+
+**后果**：
+Pipeline 历史记录心智仍与 Live 割裂，ISS-056 的初衷（两页历史列表格式统一）被抵消。
+
+**初步判断**：
+已确认。ISS-057 → ISS-058 一路上试图守住"每条 option 都能画流程图"这个隐式契约，但用户实际要的是"格式统一 + Live 页删除已经能让脏 comparison 无法再被点到"，两个约束次序颠倒了。
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（dropdown 数据源改回 `listComparisons(20)`；`recent` 类型回到 `ComparisonListItem[]`；`TurnSelect` 文案纯粹 `time · clipped-prompt`）
+-> 004CHANGELOG.md [2026-07-16-20]
+
+## [ISS-060] Live StatusStrip 删除入口是"删除"文字按钮，用户找不到；期望是显眼的叉号图标
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`StatusStrip` 删除触发按钮从 ghost 变体的"删除"文字按钮改成一个 28×28 圆形 `×` 图标按钮（`bgSubtle` 底 + `borderStrong` 描边 + `textSecondary` 灰字），带 `title="删除"` tooltip。点击行为不变——仍展开内联的「取消 / 确认删除」小簇二次确认，防误触。
+
+**现象**：
+用户"我之前加了删除历史记录的功能，说是点开查看历史右边有个叉号可以同步删除…这个功能似乎也没成功修改"——ISS-055 把触发做成了 ghost 风格的"删除"文字按钮，在 StatusStrip 右侧灰调背景下几乎看不出是按钮，用户误以为没做。
+
+**后果**：
+功能可用但用户觉得没做，事实上等价没做。
+
+**初步判断**：
+已确认。ISS-055 时怕"删除历史"太醒目导致误点，选了 ghost 变体；现在用图标 + 二次确认小簇，两头都占：显眼 + 不误删。
+
+**关联**：
+-> web/src/pages/live-shared.tsx（`StatusStrip` 触发从 `<Button variant="ghost">删除</Button>` 换成 `×` 图标按钮；二次确认簇不变）
+-> 004CHANGELOG.md [2026-07-16-20]
+
 <!--
 新增条目模板：
 
