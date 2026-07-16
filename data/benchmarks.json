@@ -7,14 +7,14 @@
   "pareto_data": [
     {
       "id": "mom",
-      "label_key": "MoM",
+      "label_key": "混合模型",
       "score": 52.8593,
       "cost": 85.69444,
       "is_mom": true
     },
     {
       "id": "aggOnly",
-      "label_key": "Aggregator Only",
+      "label_key": "单个模型",
       "score": 45.7723,
       "cost": 38.340002
     },
