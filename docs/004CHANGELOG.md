@@ -1,3 +1,14 @@
+## [2026-07-16-18] fix(web): pipeline TurnSelect only lists gwIds with aggregator trace [ISS-057]
+
+### 改动
+- `web/src/pages/PipelinePage.tsx`：dropdown 初始加载从单请求 `listComparisons(20)` 改成 `Promise.all([listComparisons(20), listTraces({role:'aggregator'})])`，用 traces 侧的 `Set<gateway_request_id>` 过滤 comparisons 侧，交集才进 `recent`；文案继续 `time · clipped-prompt`。与 `useKioskMode.fetchQueueDetailed` 的取交集策略保持一致
+
+### 涉及文件
+- web/src/pages/PipelinePage.tsx：`recent` 只保留 comparisons ∩ aggregator-traces 的 gwId
+
+### 关联
+-> ISS-057
+
 ## [2026-07-16-17] polish(web): pipeline TurnSelect matches Live history format [ISS-056]
 
 ### 改动

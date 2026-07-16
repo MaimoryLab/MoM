@@ -1963,6 +1963,28 @@ Pipeline 是给观众看请求流程的展示页，历史选择需要一眼认�
 -> web/src/pages/PipelinePage.tsx（`recent` 类型 + `listComparisons` 替换 `listTraces`；`TurnSelect` option 文案与 minWidth/maxWidth 与 Live 页对齐）
 -> 004CHANGELOG.md [2026-07-16-17]
 
+## [ISS-057] Pipeline TurnSelect 会列出没有 aggregator trace 的 gwId，点开落到空态
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`PipelinePage` dropdown 数据源改成 `listComparisons(20)` 与 `listTraces({role:'aggregator'})` 的**交集**——option 只列出两侧都在的 gwId，保证每条选中都能画流程图；文案继续走 comparisons 侧的 `time · clipped-prompt`，交集判定走 traces 侧的 `Set<gateway_request_id>`。这与 `useKioskMode.fetchQueueDetailed` 的取交集策略一致，两处不再打架。
+
+**现象**：
+ISS-056 把 Pipeline dropdown 换到 `listComparisons(20)` 后，凡是 `traces` 表里没有 aggregator trace 的 gwId 也会被列出来（MoM early error / passthrough / ISS-035 之前的老数据）。用户点这种 option，右侧渲染出「还没有 aggregator turn 记录」的空态提示。示例：gwId `5052957c` 存在于 `comparisons`，但 `getTracesByGateway` 返回的列表里没有 `role='aggregator'` 那一行。
+
+**后果**：
+展厅历史选择器可能落到"选了不代表能看"的状态，破坏 Pipeline 页作为"点历史 → 看流程"的心智；kiosk 队列长期沿用交集策略从不出现这个问题，Pipeline 手选交互回归后反而更差。
+
+**初步判断**：
+已确认。ISS-056 简化时把"必然有 aggregator trace"的隐式契约丢了；`getTracesByGateway` 无 aggregator 行时 `buildTurnData` 得到 `turn.nodes.length === 0`，走 ISS-052 加的空态卡片分支。
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（初始加载改成 `Promise.all([listComparisons(20), listTraces({role:'aggregator'})])` 后取 gwId 交集）
+-> 004CHANGELOG.md [2026-07-16-18]
+
 <!--
 新增条目模板：
 
