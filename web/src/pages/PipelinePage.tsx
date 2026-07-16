@@ -9,8 +9,8 @@ import { useKiosk } from '../hooks/useKioskMode';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { color, font, radius, shadow, space } from '../theme';
 import { formatCost, formatLatency } from '../i18n/format';
-import { getTracesByGateway, listTraces } from '../lib/api';
-import type { TraceRequestFull, TraceSummary } from '../lib/api';
+import { getTracesByGateway, listComparisons } from '../lib/api';
+import type { ComparisonListItem, TraceRequestFull } from '../lib/api';
 import { compressTimeline, nodeStatusAt, type NodeStatus, TIMELINE_CAP_MS } from '../lib/timing';
 
 interface Props {
@@ -43,7 +43,7 @@ interface TurnData {
 
 export function PipelinePage({ turnFromUrl }: Props) {
   const { t, lang } = useI18n();
-  const [recent, setRecent] = useState<TraceSummary[]>([]);
+  const [recent, setRecent] = useState<ComparisonListItem[]>([]);
   const [recentError, setRecentError] = useState<string | null>(null);
   const [selectedGwId, setSelectedGwId] = useState<string | null>(turnFromUrl);
   const [turn, setTurn] = useState<TurnData | null>(null);
@@ -60,7 +60,7 @@ export function PipelinePage({ turnFromUrl }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    listTraces({ limit: 20, role: 'aggregator' })
+    listComparisons(20)
       .then((res) => {
         if (cancelled) return;
         setRecent(res.items);
@@ -396,11 +396,21 @@ function EmptyState({ title, hint }: { title: string; hint: string }) {
   );
 }
 
+// Option label matches Live page's RunSelect: time + clipped prompt. The
+// prior format (time · hash8 · model) leaked implementation trivia and pushed
+// the useful signal (which prompt this run answered) off the visible width.
+const PROMPT_CLIP = 40;
+
+function clipPrompt(text: string): string {
+  const t = text.trim();
+  return t.length > PROMPT_CLIP ? t.slice(0, PROMPT_CLIP) + '…' : t;
+}
+
 function TurnSelect({
   value, recent, recentError, onChange, placeholder, label,
 }: {
   value: string | null;
-  recent: TraceSummary[];
+  recent: ComparisonListItem[];
   recentError: string | null;
   onChange: (v: string) => void;
   placeholder: string;
@@ -419,13 +429,13 @@ function TurnSelect({
           appearance: 'none', height: 36, padding: `0 ${space.md}`,
           background: color.surface, border: `1px solid ${color.borderStrong}`,
           borderRadius: radius.md, fontSize: font.size.sm, color: color.textPrimary,
-          fontFamily: 'ui-monospace, monospace', cursor: 'pointer', minWidth: 220,
+          cursor: 'pointer', minWidth: 260, maxWidth: 420,
         }}
       >
         <option value="" disabled>{placeholder}</option>
         {recent.map((r) => (
-          <option key={r.request_id} value={r.gateway_request_id}>
-            {new Date(r.started_at).toLocaleTimeString()} · {r.gateway_request_id.slice(0, 8)} · {r.selected_model}
+          <option key={r.gateway_request_id} value={r.gateway_request_id}>
+            {new Date(r.started_at).toLocaleTimeString()} · {clipPrompt(r.prompt)}
           </option>
         ))}
       </select>
