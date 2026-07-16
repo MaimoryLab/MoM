@@ -1793,6 +1793,28 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> web/src/i18n/dict.ts（`t.chat.*`、`t.nav.chat` 删除；`t.live.newRun` / `t.live.presetsHint` / `t.live.presetsEmpty` / `t.live.emptyModel` 新增）
 -> 004CHANGELOG.md [2026-07-16-10]
 
+## [ISS-050] Live 页 MoM / Baseline 回复被截断，超过 2048 token 就断在半截
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`LIVE_MAX_TOKENS = 2048` 硬编码常量删除；`MoMConfig` 新增可选 `live: { max_tokens?: number }` 字段与 `DEFAULT_LIVE_MAX_TOKENS = 8192` 默认常量；`buildAnthropicRequest` 改成接收 `maxTokens` 参数，`runLiveTurn` 里读 `mom.live?.max_tokens ?? DEFAULT_LIVE_MAX_TOKENS` 传入。`data/mom.config.json` 显式写入 `"live": { "max_tokens": 8192 }`，让配置面可见。
+
+**现象**：Live Compare 页 MoM 卡和 Baseline 卡的回答文本经常"到句子中间就断掉了"——特别是让模型写代码 / 设计文档 / 长解释时，只出前一半。DevTools 里看 `/api/live/comparison/{gwId}` 返回，`mom.usage.output_tokens = 2048` 是天花板。
+
+**后果**：所有超过 ~1500 中文字（或 ~6000 字符英文）的对比都不完整；观众看到的两侧只是"开头"，判 judge 打分基于半截答案，Cost 卡的 output_tokens 也系统性偏低。
+
+**初步判断**：已确认，`src/live/live-runtime.ts:44` 硬编码 `LIVE_MAX_TOKENS = 2048`，通过 `buildAnthropicRequest` 塞给 `anthropicReq.max_tokens`；同一个 `anthropicReq` 复用给 MoM aggregator (`orchestrator.nonStreaming`) 和 Baseline (`runBaselineCall`)，两侧同一天花板。
+
+**关联**：
+-> src/live/live-runtime.ts:44（原硬编码位置）
+-> src/live/live-runtime.ts:72-80（`buildAnthropicRequest` 签名变化）
+-> src/types/mom.ts（`LiveSettings` 接口 + `MoMConfig.live?` + `DEFAULT_LIVE_MAX_TOKENS` 新增）
+-> data/mom.config.json（**gitignored 本地文件**）：用户需手动新增 `live.max_tokens: 8192` 才能覆盖默认
+-> 004CHANGELOG.md [2026-07-16-11]
+
 <!--
 新增条目模板：
 

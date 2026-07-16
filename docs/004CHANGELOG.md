@@ -1,3 +1,23 @@
+## [2026-07-16-11] fix(live): raise live max_tokens ceiling from 2048 to 8192, make it configurable [ISS-050]
+
+### 改动
+- `src/types/mom.ts`：`MoMConfig` 新增可选 `live?: LiveSettings` 段，`LiveSettings` 目前只有 `max_tokens?: number`；同文件导出 `DEFAULT_LIVE_MAX_TOKENS = 8192`
+- `src/live/live-runtime.ts`：删除硬编码 `const LIVE_MAX_TOKENS = 2048`；`buildAnthropicRequest(prompt, model, maxTokens)` 签名多带一个 `maxTokens`；`runLiveTurn` 里 `const liveMaxTokens = mom.live?.max_tokens ?? DEFAULT_LIVE_MAX_TOKENS`，MoM aggregator 和 Baseline 共用同一 `anthropicReq`，两侧一起提升上限
+- `data/mom.config.json`（**gitignored，本地示例**）：新增 `"live": { "max_tokens": 8192 }`，与代码默认一致；用户需要在自己的 `data/mom.config.json` 里手动添加此字段才能覆盖默认，未加时走 `DEFAULT_LIVE_MAX_TOKENS`
+
+### 涉及文件
+- src/types/mom.ts：+ LiveSettings / MoMConfig.live? / DEFAULT_LIVE_MAX_TOKENS
+- src/live/live-runtime.ts：- 硬编码常量；buildAnthropicRequest 加 maxTokens 参数；runLiveTurn 从 config 读
+
+### 自检
+- `npm run typecheck`：退出码 0
+- `npm run build`：退出码 0（server tsc build）
+- `cd web && npm run build`：退出码 0，前端无变动 → 产物无体积变化
+- 待人工验证：连真 provider 送一条明显 >2048 token 的 prompt（如 "写一个 500 行的 Rust 项目结构"），确认 MoM/Baseline 两侧回答不再被硬截；`mom.usage.output_tokens` 会突破 2048 天花板；如果需要更大上限，编辑 `data/mom.config.json` 的 `live.max_tokens` 即可
+
+### 关联
+-> ISS-050
+
 ## [2026-07-16-10] feat(web): fold Chat page into Live single-page workflow [ISS-049]
 
 ### 改动

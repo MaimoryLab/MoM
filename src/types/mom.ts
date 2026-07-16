@@ -54,6 +54,16 @@ export interface CostTradeoffSettings {
   enabled: boolean;
 }
 
+export interface LiveSettings {
+  /**
+   * `max_tokens` sent to the provider for the Live-turn aggregator and
+   * baseline calls. Cap here directly determines how long the two answer
+   * cards can be before the model truncates its own output. Defaults to
+   * DEFAULT_LIVE_MAX_TOKENS when the config file omits the `live` section.
+   */
+  max_tokens?: number;
+}
+
 export interface MoMConfig {
   mom_mode: MoMMode;
   fanout_mode: FanoutMode;
@@ -66,7 +76,10 @@ export interface MoMConfig {
   comparison: ComparisonSettings;
   pricing_table: Record<string, ModelPricing>;
   cost_tradeoff: CostTradeoffSettings;
+  live?: LiveSettings;
 }
+
+export const DEFAULT_LIVE_MAX_TOKENS = 8192;
 
 export interface RuntimeConfig {
   provider: ProviderConfig;
