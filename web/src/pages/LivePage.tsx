@@ -12,7 +12,7 @@ import { Card } from '../components/primitives/Card';
 import { Button } from '../components/primitives/Button';
 import { RankingChart } from '../components/charts/RankingChart';
 import { useI18n } from '../i18n/context';
-import { space } from '../theme';
+import { color, space } from '../theme';
 import { useLiveJob } from '../hooks/useLiveRun';
 import { navigateTo } from '../App';
 import { listComparisons, type ComparisonListItem } from '../lib/api';
@@ -45,6 +45,10 @@ export function LivePage() {
         : 'MoM output vs Baseline output'}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: space.md }}>
+        <Card title={t.live.rankingTitle} subtitle={t.live.rankingSubtitle}>
+          <RankingChart seed={currentGw ?? 'preview'} />
+        </Card>
+        <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: space.md, flexWrap: 'wrap' }}>
           <RunSelect
             value={currentGw}
@@ -57,10 +61,9 @@ export function LivePage() {
             onNew={{ label: t.chat.newRun, onClick: () => navigateTo('chat') }}
           />
         </div>
+        <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
         <StatusStrip live={current} polling={live.polling} transportError={live.transportError} />
-        <Card title={t.live.rankingTitle} subtitle={t.live.rankingSubtitle}>
-          <RankingChart seed={currentGw ?? 'preview'} />
-        </Card>
+        <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: space.md }}>
           <MomColumn snap={current} />
           <BaselineColumn snap={current} />
