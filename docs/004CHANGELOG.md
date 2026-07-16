@@ -1,3 +1,32 @@
+## [2026-07-16-10] feat(web): fold Chat page into Live single-page workflow [ISS-049]
+
+### 改动
+- `web/src/pages/LivePage.tsx`：合并 compose surface——组件内 `useState('')` prompt、`getPresets()` 加载 preset 列表、`useLiveJob().submit` 复用；顶部 `RunSelect` 的 `+ 新建` 按钮从 `navigateTo('chat')` 改成 `live.reset()`（清空当前 run 回到 empty state）；页面底部常驻 `ComposerBar`，`isEmpty = current == null && !polling` 时 `PresetsList` 传入 `presetsSlot`，非 empty 状态 `presetsSlot=null`（sticky 输入框仍在，随时可发新对比）
+- `web/src/pages/live-shared.tsx`：删除旧 `Composer`；新增 `PresetsList`（一行一条，`title`（大写小 chip）+ prompt 摘要，`clipPrompt` 复用），新增 `ComposerBar`（sticky 底部，textarea+发送按钮，Enter=送 Shift+Enter=换行，`presetsSlot` 可选插槽渲染在输入框上方）；`MomColumn / BaselineColumn` empty-state 收敛——`snap==null` 时模型名走 `t.live.emptyModel`（"无"），`footer` 传 `null`（`snap ? pendingBaseline : null`）
+- `web/src/components/primitives/MarkdownBody.tsx`：无变化（本次只用现有 `height` prop 保留 380px 固定文本框，empty state 与有 snap 时视觉一致）
+- `web/src/pages/live-shared.tsx`（`OutputCard`）：footer 从"始终渲染带 gap 的 div"改成 `footer && (…)`，empty state 不再残留一段空白 gap
+- `web/src/pages/ChatPage.tsx`：**删除**
+- `web/src/App.tsx`：去掉 `ChatPage` import、`PAGES` 数组去 `chat`、Router 的 `page === 'chat'` 分支去掉
+- `web/src/components/layout/Sidebar.tsx`：`PageKey` union 去 `chat`；`ORDER` 收敛到 `['overview', 'live', 'pipeline']`
+- `web/src/i18n/dict.ts`：`t.chat` 整块删除（`title/subtitle/historyLabel/historyPlaceholder/historyEmpty/newRun/userLabel/momLabel/pending/empty/presetsHint/presetsEmpty` 中英各一份），`t.nav.chat` 中英各删；`t.live` 新增 `newRun`（"新对话"/"New run"）、`presetsHint`（"选择问题快速提问"/"Pick a preset or type below"）、`presetsEmpty`（"未配置预置问题。"/"No presets configured."）、`emptyModel`（"无"/"None"）；顺手把 zh 的 `unknownModel: 'GLM 5.2'`（旧误改）还原为 `未知`
+
+### 涉及文件
+- web/src/pages/LivePage.tsx：合并 compose + view 到单页；`live.reset()` 驱动 empty state
+- web/src/pages/live-shared.tsx：+PresetsList / +ComposerBar；旧 Composer 删；MoM/Baseline empty-state 处理；OutputCard footer 条件渲染
+- web/src/pages/ChatPage.tsx：**删除**
+- web/src/App.tsx：去 chat 路由分支
+- web/src/components/layout/Sidebar.tsx：去 chat PageKey / ORDER 收敛
+- web/src/i18n/dict.ts：去 t.chat 整块 / 去 t.nav.chat / 加 t.live 的 4 个新 key / 修正 zh unknownModel
+
+### 自检
+- `cd web && npx tsc --noEmit`：退出码 0
+- `cd web && npm run build`：退出码 0，vite 产物 833.58 kB（gzip 235.60 kB），比合并前小 ~6 kB（ChatPage 与旧 Composer 删除抵消 PresetsList/ComposerBar 新增）
+- 增量项：本地打开 http://localhost:5173/dashboard/#live —— sidebar 只剩 3 项（Overview / Live Compare / Pipeline），无 Chat 入口；空状态下 preset 一行一条渲染在 sticky composer 上方，MoM / Baseline 卡片 380px 高、`辅助模型: 无 · 主力模型: 无 / 单模型调用 · 无`，两侧对齐；点一条 preset → 发送 → composer 变禁用、preset 列表消失、卡片开始填充；点 `+ 新对话` 回到 empty state
+- 待人工验证：连真 provider 发一条 prompt，确认 MoM/Baseline 异步落地时 sticky composer 不遮挡结果卡片；手机窄屏 sidebar 折叠行为未验证（无手机窄屏 UI 依赖变更，理论上不影响）
+
+### 关联
+-> ISS-049
+
 ## [2026-07-16-9] fix(web): pareto legend uses neutral text + colored swatch [ISS-047]
 
 ### 改动

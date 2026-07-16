@@ -1,10 +1,10 @@
-// Live Compare — viewer-only demo dashboard.
+// Live Compare — single-page workflow.
 //
-// Post-ISS-036 the compose surface moved to ChatPage. This page is now a big
-// side-by-side viewer that shows one comparison at a time (from
-// LiveJobProvider state). The audience sees prompt + MoM answer + baseline
-// answer + judge verdict + cost delta, nothing to interact with except
-// swapping which past run is being viewed.
+// Compose surface (prompt + presets + submit) lives here, so does the
+// side-by-side viewer for MoM vs Baseline plus judge + cost. Post-ISS-049
+// the standalone Chat page was folded in: a sticky composer sits at the
+// bottom of the page and the preset shelf renders in the empty state
+// only. Judge/cost/pipeline-jump still live below the two output columns.
 
 import { useEffect, useState } from 'react';
 import { PageShell } from '../components/layout/PageShell';
@@ -13,16 +13,31 @@ import { useI18n } from '../i18n/context';
 import { color, space } from '../theme';
 import { useLiveJob } from '../hooks/useLiveRun';
 import { navigateTo } from '../App';
-import { listComparisons, type ComparisonListItem } from '../lib/api';
 import {
-  BaselineColumn, CostCard, JudgeCard, MomColumn, RunSelect, StatusStrip,
+  getPresets, listComparisons,
+  type ComparisonListItem, type PresetEntry,
+} from '../lib/api';
+import {
+  BaselineColumn, ComposerBar, CostCard, JudgeCard, MomColumn,
+  PresetsList, RunSelect, StatusStrip,
 } from './live-shared';
 
 export function LivePage() {
   const { t, lang } = useI18n();
+  const [prompt, setPrompt] = useState('');
+  const [presets, setPresets] = useState<PresetEntry[]>([]);
+  const [presetsError, setPresetsError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ComparisonListItem[]>([]);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const live = useLiveJob();
+
+  useEffect(() => {
+    let cancelled = false;
+    getPresets()
+      .then((res) => { if (!cancelled) setPresets(res.presets); })
+      .catch((err) => { if (!cancelled) setPresetsError(err instanceof Error ? err.message : String(err)); });
+    return () => { cancelled = true; };
+  }, []);
 
   // Only refetch history when a run *finishes* or the user selects a different
   // gateway_request_id — intermediate polling ticks don't change list contents
@@ -40,6 +55,22 @@ export function LivePage() {
 
   const current = live.current;
   const currentGw = current?.gateway_request_id ?? null;
+  const busy = live.polling;
+
+  const submit = (text: string) => {
+    const p = text.trim();
+    if (!p || busy) return;
+    live.submit({ prompt: p, baseline_on: true, lang });
+    setPrompt('');
+  };
+  const onPreset = (preset: PresetEntry) => {
+    submit(lang === 'zh' ? preset.zh : preset.en);
+  };
+
+  // Empty state = no run currently displayed and none loading. We show the
+  // status strip, empty MoM/Baseline cards (fixed height, model labels blank),
+  // judge/cost placeholders, and the preset list above the sticky composer.
+  const isEmpty = current == null && !busy;
 
   return (
     <PageShell
@@ -48,7 +79,7 @@ export function LivePage() {
         ? 'MoM 输出 vs Baseline 输出'
         : 'MoM output vs Baseline output'}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: space.md }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: space.md, paddingBottom: 140 }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: space.md, flexWrap: 'wrap' }}>
           <RunSelect
             value={currentGw}
@@ -58,7 +89,7 @@ export function LivePage() {
             label={t.live.recentRunsLabel}
             placeholder={t.live.recentRunsPlaceholder}
             emptyLabel={t.live.recentRunsEmpty}
-            onNew={{ label: t.chat.newRun, onClick: () => navigateTo('chat') }}
+            onNew={{ label: t.live.newRun, onClick: () => live.reset() }}
           />
         </div>
         <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
@@ -80,6 +111,15 @@ export function LivePage() {
           </div>
         )}
       </div>
+      <ComposerBar
+        prompt={prompt}
+        onPromptChange={setPrompt}
+        onSubmit={() => submit(prompt)}
+        busy={busy}
+        presetsSlot={isEmpty ? (
+          <PresetsList presets={presets} presetsError={presetsError} onPreset={onPreset} busy={busy} />
+        ) : null}
+      />
     </PageShell>
   );
 }

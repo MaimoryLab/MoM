@@ -1769,6 +1769,30 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> web/src/components/charts/ParetoChart.tsx（新增 `ParetoLegend` 组件；`<Legend content={<ParetoLegend />} />`）
 -> 004CHANGELOG.md [2026-07-16-9]
 
+## [ISS-049] Live 页与 Chat 页合并成单页工作流
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[信息架构]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：Chat 页整体折进 Live 页——`LivePage.tsx` 新增 `getPresets` + `useLiveJob().submit` 逻辑；`live-shared.tsx` 增 `PresetsList`（一行一条 preset，`presetsHint` 在顶部）+ `ComposerBar`（sticky 底部，textarea+发送按钮）；preset 卡片仅在 empty state（`current == null && !polling`）出现在 composer 上方。新建按钮 `t.live.newRun` 调 `live.reset()` 清空当前 run 回到 empty state。Empty state 下 `MomColumn/BaselineColumn` 模型名走 `t.live.emptyModel`（"无"/"None"），`footer` 传 null（Output 卡片改成 `footer && (…)` 条件渲染），380px 文本框仍保留，两侧对齐不变。`ChatPage.tsx` 删除，`App.tsx` 去掉 chat 路由分支，`Sidebar.tsx` 从 `PageKey` 移除 chat 并把 `ORDER` 收敛到 `['overview', 'live', 'pipeline']`，`t.chat.*` 与 `t.nav.chat` 一并删除。
+
+**现象**：Chat 页只提供"提问"入口，Live 页只提供"查看结果"，用户提问后必须手动跳到 Live 才能看两侧对比，实际使用是频繁的 chat↔live 来回切换。
+
+**后果**：单条对比要跨两张页面，preset 卡片只出现在 Chat 页而不出现在真正呈现对比结果的 Live 页；两个 sidebar 入口做同一件事，用户学不清楚该点哪个。
+
+**初步判断**：已确认，`ChatPage` 和 `LivePage` 已经共用 `LiveJobProvider`（`current` state 由 Context 提供），拆分只是历史遗留（ISS-036 之前的 compose surface 位置调整），没有单独存在的必要。
+
+**关联**：
+-> web/src/pages/LivePage.tsx（重写 — 合并 preset+composer 到 Live 页）
+-> web/src/pages/live-shared.tsx（+PresetsList, +ComposerBar；旧 Composer 删；MoM/Baseline empty-state 收敛）
+-> web/src/components/primitives/MarkdownBody.tsx（footer 条件渲染由 OutputCard 移入）
+-> web/src/pages/ChatPage.tsx（**已删除**）
+-> web/src/App.tsx / web/src/components/layout/Sidebar.tsx（chat 路由/侧栏入口/PageKey 全部去除）
+-> web/src/i18n/dict.ts（`t.chat.*`、`t.nav.chat` 删除；`t.live.newRun` / `t.live.presetsHint` / `t.live.presetsEmpty` / `t.live.emptyModel` 新增）
+-> 004CHANGELOG.md [2026-07-16-10]
+
 <!--
 新增条目模板：
 

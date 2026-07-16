@@ -1,8 +1,7 @@
-// Shared building blocks between LivePage and ChatPage.
-// LivePage = viewer-only demo dashboard (Sidebar → Live Compare).
-// ChatPage  = compose + submit + view (Sidebar → Chat).
-// Both read the same LiveJobProvider Context and render the same MoM /
-// Baseline / Judge / Cost views; only the entry-points and layout differ.
+// Shared building blocks used by LivePage. Post-ISS-049 ChatPage was folded
+// into Live so there's only one consumer, but the split into small pieces
+// (StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard /
+// PresetsList / ComposerBar / RunSelect) keeps LivePage's JSX readable.
 
 import { Card } from '../components/primitives/Card';
 import { Button } from '../components/primitives/Button';
@@ -112,8 +111,8 @@ export function MomColumn({ snap }: { snap: ComparisonResponse | null }) {
   const aggregator = snap?.aggregator_model ?? null;
   const advisorsLabel = advisors.length > 0
     ? advisors.map(humanizeModelName).join(' · ')
-    : t.live.unknownModel;
-  const aggregatorLabel = aggregator ? humanizeModelName(aggregator) : t.live.unknownModel;
+    : t.live.emptyModel;
+  const aggregatorLabel = aggregator ? humanizeModelName(aggregator) : t.live.emptyModel;
   return (
     <OutputCard
       title={t.live.momTitle}
@@ -129,9 +128,9 @@ export function MomColumn({ snap }: { snap: ComparisonResponse | null }) {
           <StatsRow latencyMs={mom.latency_ms} tokens={mom.usage.output_tokens} costUsd={mom.cost_usd ?? 0} lang={lang} />
         ) : snap?.mom_error ? (
           <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {snap.mom_error.message}</span>
-        ) : (
+        ) : snap ? (
           <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.pendingBaseline}</span>
-        )
+        ) : null
       }
     />
   );
@@ -141,7 +140,7 @@ export function BaselineColumn({ snap }: { snap: ComparisonResponse | null }) {
   const { t, lang } = useI18n();
   const baseline = snap?.baseline ?? null;
   const rawModel = baseline?.model ?? snap?.baseline_model_snapshot ?? null;
-  const modelLabel = rawModel ? humanizeModelName(rawModel) : t.live.unknownModel;
+  const modelLabel = rawModel ? humanizeModelName(rawModel) : t.live.emptyModel;
   const errorMsg = snap?.baseline_error?.message ?? null;
   return (
     <OutputCard
@@ -158,11 +157,9 @@ export function BaselineColumn({ snap }: { snap: ComparisonResponse | null }) {
           <StatsRow latencyMs={baseline.latency_ms} tokens={baseline.usage.output_tokens} costUsd={baseline.cost_usd ?? 0} lang={lang} />
         ) : errorMsg ? (
           <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {errorMsg}</span>
-        ) : snap?.baseline_model_snapshot === null ? (
-          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.waitingForRun}</span>
-        ) : (
+        ) : snap ? (
           <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.pendingBaseline}</span>
-        )
+        ) : null
       }
     />
   );
@@ -179,9 +176,11 @@ function OutputCard({
   return (
     <Card title={title} subtitle={subtitle}>
       <MarkdownBody text={body} cursor={null} height={OUTPUT_BOX_HEIGHT} />
-      <div style={{ display: 'flex', gap: space.md, fontSize: font.size.sm, color: color.textSecondary, alignItems: 'center' }}>
-        {footer}
-      </div>
+      {footer && (
+        <div style={{ display: 'flex', gap: space.md, fontSize: font.size.sm, color: color.textSecondary, alignItems: 'center' }}>
+          {footer}
+        </div>
+      )}
     </Card>
   );
 }
@@ -314,80 +313,146 @@ function CostRow({ label, value, bar }: { label: string; value: string; bar: Rea
 }
 
 // ---------------------------------------------------------------------------
-// Composer — presets shelf + textarea + optional baseline toggle + submit.
-// The baseline toggle only renders when `baseline` is provided; ChatPage
-// omits it (baseline+judge still run on the backend regardless).
+// PresetsList — one prompt per row, rendered above the composer in the
+// empty state. Clicking a row fires the preset immediately (matches the old
+// ChatPage grid behavior, minus the multi-column layout).
 // ---------------------------------------------------------------------------
 
-export function Composer({
-  prompt, onPromptChange, onSubmit, baseline,
+export function PresetsList({
   presets, presetsError, onPreset, busy,
 }: {
-  prompt: string;
-  onPromptChange: (v: string) => void;
-  onSubmit: () => void;
-  baseline?: { on: boolean; onToggle: (v: boolean) => void };
   presets: PresetEntry[];
   presetsError: string | null;
   onPreset: (p: PresetEntry) => void;
   busy: boolean;
 }) {
   const { t, lang } = useI18n();
-  const disabled = busy;
+  if (presetsError) {
+    return <span style={{ fontSize: font.size.sm, color: color.negative }}>{t.live.errorTitle}: {presetsError}</span>;
+  }
+  if (presets.length === 0) {
+    return <span style={{ fontSize: font.size.sm, color: color.textMuted }}>{t.live.presetsEmpty}</span>;
+  }
   return (
-    <Card title={t.live.shelfTitle} subtitle={presetsError ? t.live.errorTitle : t.live.shelfHint}>
-      {presets.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: space.sm }}>
-          {presets.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => onPreset(p)}
-              disabled={disabled}
-              style={{
-                appearance: 'none',
-                border: `1px solid ${color.border}`,
-                background: color.surface,
-                color: color.textPrimary,
-                padding: '8px 12px',
-                borderRadius: radius.md,
-                fontSize: font.size.xs,
-                cursor: disabled ? 'not-allowed' : 'pointer',
-                opacity: disabled ? 0.6 : 1,
-              }}
-            >
-              {lang === 'zh' ? p.title_zh : p.title_en}
-            </button>
-          ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: space.sm, width: '100%' }}>
+      <span style={{ fontSize: font.size.xs, color: color.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+        {t.live.presetsHint}
+      </span>
+      {presets.map((p) => (
+        <button
+          key={p.id}
+          onClick={() => onPreset(p)}
+          disabled={busy}
+          style={{
+            appearance: 'none',
+            textAlign: 'left',
+            border: `1px solid ${color.border}`,
+            background: color.surface,
+            color: color.textPrimary,
+            padding: `${space.sm} ${space.md}`,
+            borderRadius: radius.md,
+            fontSize: font.size.sm,
+            lineHeight: 1.5,
+            cursor: busy ? 'not-allowed' : 'pointer',
+            opacity: busy ? 0.6 : 1,
+            transition: 'border-color 120ms ease',
+          }}
+          onMouseEnter={(e) => { if (!busy) e.currentTarget.style.borderColor = color.mom; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = color.border; }}
+        >
+          <span style={{ display: 'inline-block', fontSize: font.size.xxs, color: color.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase', marginRight: space.sm }}>
+            {lang === 'zh' ? p.title_zh : p.title_en}
+          </span>
+          <span style={{ color: color.textPrimary }}>
+            {clipPrompt(lang === 'zh' ? p.zh : p.en)}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ComposerBar — sticky prompt input at the bottom of the page. The optional
+// `presetsSlot` renders above the input (used in the empty state to show
+// preset picks; nothing else consumes it today).
+// ---------------------------------------------------------------------------
+
+const COMPOSER_HEIGHT_MIN = 96;
+const COMPOSER_MAX_WIDTH = 1120;
+
+export function ComposerBar({
+  prompt, onPromptChange, onSubmit, busy, presetsSlot,
+}: {
+  prompt: string;
+  onPromptChange: (v: string) => void;
+  onSubmit: () => void;
+  busy: boolean;
+  presetsSlot?: React.ReactNode;
+}) {
+  const { t } = useI18n();
+  const disabled = busy;
+  const canSend = !disabled && prompt.trim().length > 0;
+  return (
+    <div
+      style={{
+        position: 'sticky',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        padding: `${space.md} 0 ${space.lg} 0`,
+        background: `linear-gradient(180deg, transparent 0%, ${color.bg} 24%, ${color.bg} 100%)`,
+        zIndex: 5,
+      }}
+    >
+      <div style={{ maxWidth: COMPOSER_MAX_WIDTH, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: space.md }}>
+        {presetsSlot}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: space.sm,
+            background: color.surface,
+            border: `1px solid ${color.borderStrong}`,
+            borderRadius: radius.lg,
+            padding: `${space.sm} ${space.sm} ${space.sm} ${space.md}`,
+            minHeight: COMPOSER_HEIGHT_MIN,
+            boxShadow: '0 4px 24px rgba(20, 26, 46, 0.06)',
+          }}
+        >
+          <textarea
+            value={prompt}
+            onChange={(e) => onPromptChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (canSend) onSubmit();
+              }
+            }}
+            placeholder={t.live.inputPlaceholder}
+            disabled={disabled}
+            rows={2}
+            style={{
+              flex: 1,
+              border: 'none',
+              outline: 'none',
+              resize: 'none',
+              background: 'transparent',
+              fontFamily: font.sans,
+              fontSize: font.size.base,
+              lineHeight: 1.5,
+              color: color.textPrimary,
+              padding: `${space.sm} 0`,
+              minHeight: 40,
+              maxHeight: 200,
+            }}
+          />
+          <Button variant="primary" onClick={onSubmit} disabled={!canSend}>
+            {busy ? t.live.submitPending : `${t.live.submit} ▶`}
+          </Button>
         </div>
-      )}
-      <textarea
-        value={prompt}
-        onChange={(e) => onPromptChange(e.target.value)}
-        placeholder={t.live.inputPlaceholder}
-        disabled={disabled}
-        rows={4}
-        style={{
-          width: '100%', border: `1px solid ${color.border}`, borderRadius: radius.md,
-          padding: space.md, fontFamily: font.sans, fontSize: font.size.sm,
-          lineHeight: 1.5, background: color.surface, color: color.textPrimary,
-          resize: 'vertical', outline: 'none',
-        }}
-      />
-      {baseline && (
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, fontSize: font.size.sm, color: color.textSecondary, cursor: 'pointer' }}>
-          <input type="checkbox" checked={baseline.on} onChange={(e) => baseline.onToggle(e.target.checked)} disabled={disabled} />
-          {t.live.baselineToggle}
-          <span style={{ color: color.textMuted, fontSize: font.size.xs }}>· {t.live.baselineHint}</span>
-        </label>
-      )}
-      <Button
-        variant="primary"
-        onClick={onSubmit}
-        disabled={busy || prompt.trim().length === 0}
-      >
-        {busy ? t.live.submitPending : `${t.live.submit} ▶`}
-      </Button>
-    </Card>
+      </div>
+    </div>
   );
 }
 
