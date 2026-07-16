@@ -14,7 +14,7 @@
     },
     {
       "id": "aggOnly",
-      "label_key": "单个模型",
+      "label_key": "GLM 5.2",
       "score": 45.7723,
       "cost": 38.340002
     },

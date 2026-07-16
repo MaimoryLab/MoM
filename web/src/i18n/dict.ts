@@ -34,6 +34,7 @@ export const en = {
     heroTitle: 'Approaching flagship, at a fraction of the cost.',
     heroSubtitle:
       'Three inexpensive advisors, one aggregator — closing the gap with frontier models without the price tag.',
+    desc: '',
     kpi: {
       scoreOfFlagship: 'of Fable 5 avg score',
       costVsFlagship: 'vs Fable 5 cost',
@@ -336,6 +337,7 @@ export const zh: Dict = {
   overview: {
     heroTitle: '混合模型性能报告',
     heroSubtitle: '多个平价模型协同工作，效果媲美顶级模型',
+    desc: '*本测试中「混合模型」使用 GLM 5.6 作为主力模型，另外使用 GLM 5.6, Kimi k2.6, Mimo V2.5 Pro 作为辅助模型',
     kpi: {
       scoreOfFlagship: '达到 Fable 5 性能评分',
       costVsFlagship: '相比 Fable 5 成本',

@@ -4,11 +4,12 @@ import { color, font, layout, space } from '../../theme';
 type Props = {
   title: ReactNode;
   subtitle?: ReactNode;
+  desc?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
 };
 
-export function PageShell({ title, subtitle, actions, children }: Props) {
+export function PageShell({ title, subtitle, desc, actions, children }: Props) {
   return (
     <div
       style={{
@@ -37,6 +38,11 @@ export function PageShell({ title, subtitle, actions, children }: Props) {
           {subtitle && (
             <p style={{ margin: 0, fontSize: font.size.md, color: color.textSecondary, lineHeight: 1.5, maxWidth: 960 }}>
               {subtitle}
+            </p>
+          )}
+          {desc && (
+            <p style={{ margin: 0, fontSize: font.size.xxs, color: color.textMuted, lineHeight: 1.5, maxWidth: 960 }}>
+              {desc}
             </p>
           )}
         </div>

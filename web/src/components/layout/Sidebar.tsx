@@ -2,6 +2,8 @@ import { useI18n } from '../../i18n/context';
 import { useKiosk } from '../../hooks/useKioskMode';
 import { color, font, layout, shadow, space } from '../../theme';
 
+const logo = new URL('../../assets/logo.svg', import.meta.url).href;
+
 export type PageKey = 'overview' | 'live' | 'pipeline' | 'cost' | 'settings';
 
 const ORDER: PageKey[] = ['overview', 'live', 'pipeline'];
@@ -32,7 +34,14 @@ export function Sidebar({ active, onNavigate }: Props) {
       }}
     >
       <BrandBlock name={t.brand.name} tagline={t.brand.tagline} />
-      <nav style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+      <nav
+        className="top-nav"
+        style={{
+          display: 'flex',
+          gap: 2,
+          alignItems: 'center',
+        }}
+      >
         {ORDER.map((key) => (
           <NavItem
             key={key}
@@ -56,19 +65,15 @@ export function Sidebar({ active, onNavigate }: Props) {
 
 function BrandBlock({ name, tagline }: { name: string; tagline: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span
-        aria-hidden
-        style={{
-          width: 18,
-          height: 18,
-          borderRadius: 4,
-          background: color.mom,
-          display: 'inline-block',
-        }}
+    <div className="brand-block" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <img
+        className="brand-logo"
+        src={logo}
+        alt={name}
+        style={{ marginRight: 5 }}
       />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{ fontSize: font.size.lg, fontWeight: font.weight.semibold, color: color.textPrimary, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+        <span className="brand-title" style={{ fontSize: font.size.lg, fontWeight: font.weight.semibold, color: color.textPrimary, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
           {name}
         </span>
         <span style={{ fontSize: font.size.xxs, color: color.textMuted, letterSpacing: '0.02em', lineHeight: 1.1 }}>
@@ -116,7 +121,7 @@ function FooterBlock({
         stopLabel={kioskLabel.stop}
         hint={kioskLabel.startHint}
       />
-      <div
+      {/*<div
         style={{
           display: 'inline-flex',
           background: color.bgSubtle,
@@ -128,7 +133,7 @@ function FooterBlock({
         <button onClick={() => onLang('en')} style={pill(lang === 'en')}>{langEn}</button>
         <button onClick={() => onLang('zh')} style={pill(lang === 'zh')}>{langZh}</button>
       </div>
-      <div style={{ fontSize: font.size.xxs, color: color.textMuted, letterSpacing: '0.03em' }}>{version}</div>
+      <div style={{ fontSize: font.size.xxs, color: color.textMuted, letterSpacing: '0.03em' }}>{version}</div>*/}
     </div>
   );
 }
@@ -144,6 +149,7 @@ function KioskButton({
 }) {
   return (
     <button
+      className="kiosk-button"
       onClick={onToggle}
       data-kiosk-control="true"
       title={hint}
@@ -166,7 +172,7 @@ function KioskButton({
       }}
     >
       <span aria-hidden>{enabled ? '⏸' : '▶'}</span>
-      <span>{enabled ? stopLabel : startLabel}</span>
+      <span className="kiosk-label">{enabled ? stopLabel : startLabel}</span>
     </button>
   );
 }

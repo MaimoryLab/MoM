@@ -17,7 +17,7 @@ export function OverviewPage() {
   const gpt56Score = scoreOf('gpt56Sol');
   const aggScore = scoreOf('aggOnly');
   return (
-    <PageShell title={t.overview.heroTitle} subtitle={t.overview.heroSubtitle}>
+    <PageShell title={t.overview.heroTitle} subtitle={t.overview.heroSubtitle} desc={t.overview.desc}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: space.md }}>
         <KpiCard
           label={t.overview.kpi.scoreFable5}

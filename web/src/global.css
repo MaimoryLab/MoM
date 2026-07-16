@@ -25,6 +25,36 @@ body {
 button { font-family: inherit; }
 input, select, textarea { font-family: inherit; }
 
+.top-nav {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+@media (max-width: 1200px) {
+  .top-nav {
+    position: static;
+    margin-left: auto;
+    transform: none;
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .brand-block { gap: 6px !important; }
+  .brand-logo {
+    width: 120px;
+    height: auto;
+    margin-right: 0 !important;
+  }
+  .brand-title { font-size: 18px !important; }
+  .kiosk-button {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+  .kiosk-label { display: none; }
+}
+
 /* Tabular numerals so cost/latency values in KPIs don't jitter. */
 .mono, code, pre { font-variant-numeric: tabular-nums; }
 

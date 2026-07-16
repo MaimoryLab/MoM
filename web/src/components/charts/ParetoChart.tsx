@@ -10,8 +10,6 @@ import type { ParetoPoint } from '../../lib/api';
 // Recharts ComposedChart with cartesian axes: scatter for models,
 // dashed line for the Pareto frontier.
 
-const MODEL_SHAPES = ['square', 'triangle', 'diamond', 'circle', 'wye'] as const;
-
 // Overview Pareto shows only the four series that also appear in the score /
 // cost bar charts above, using the same color per series so the eye maps
 // bar → dot without a second lookup.
@@ -23,8 +21,6 @@ const COLOR_BY_ID: Readonly<Record<string, string>> = {
   aggOnly: color.aggregatorOnly,
 };
 
-type ModelShape = (typeof MODEL_SHAPES)[number] | 'star';
-
 type ChartPoint = {
   id: string;
   score: number;
@@ -32,13 +28,12 @@ type ChartPoint = {
   label: string;
   size: number;
   fill: string;
-  shape: ModelShape;
+  shape: 'circle';
 };
 
 function toChartPoint(
   point: ParetoPoint,
   translatedLabels: Readonly<Record<string, string>>,
-  index: number,
 ): ChartPoint {
   const isMoM = point.is_mom ?? false;
 
@@ -51,9 +46,7 @@ function toChartPoint(
       point.label_key,
     size: isMoM ? 520 : 260,
     fill: COLOR_BY_ID[point.id] ?? color.aggregatorOnly,
-    shape: isMoM
-      ? 'star'
-      : MODEL_SHAPES[index % MODEL_SHAPES.length],
+    shape: 'circle',
   };
 }
 
@@ -62,7 +55,7 @@ export function ParetoChart() {
   const { pareto_data: paretoData, pareto_frontier: paretoFrontier } = benchmarks;
   const models = paretoData
     .filter((point) => (KEPT_IDS as readonly string[]).includes(point.id))
-    .map((point, index) => toChartPoint(point, t.models, index));
+    .map((point) => toChartPoint(point, t.models));
   const maxCost = Math.max(...models.map((model) => model.cost), 1);
   const scores = models.map((model) => model.score);
   const minScore = scores.length > 0 ? Math.min(...scores) : 0;
@@ -133,7 +126,7 @@ function ParetoLegend({ payload }: { payload?: LegendEntry[] }) {
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, justifyContent: 'center', fontSize: font.size.md }}>
       {modelEntries.map((p, i) => (
         <span key={`p-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, color: color.textSecondary }}>
-          <span style={{ width: 16, height: 16, background: p.color, borderRadius: 3, display: 'inline-block' }} />
+          <span style={{ width: 16, height: 16, background: p.color, borderRadius: '50%', display: 'inline-block' }} />
           {p.value}
         </span>
       ))}
