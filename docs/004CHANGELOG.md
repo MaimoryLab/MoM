@@ -1,4 +1,112 @@
-## [2026-07-15-2] feat(live): async job model + real texts on traces + prompt presets externalized [ISS-035]
+## [2026-07-15-5] refactor(web): rewrite chat page to classic chatbot layout [ISS-037]
+
+### 改动
+- `web/src/pages/ChatPage.tsx` 整体重写为传统 chatbot 布局，替换首轮 [2026-07-15-3] 的 PageShell + Card + iMessage 卡结构：
+  - 去掉 `PageShell`，改用自定义 flex 列（`min-height: 100vh` + `flex-direction: column`），让 composer 能 `position: sticky; bottom: 0`
+  - Header 只保留 title 与右侧 history 下拉，**去掉 subtitle**（用户反馈"无意义"）
+  - 消息区空态：预设卡片 grid 居中显示（auto-fill minmax 260px），顶部一行 hint `选一个预置问题，或直接输入`，去掉首轮那张灰底 `发送一个 prompt 或选中一条已有记录以查看结果` box
+  - 消息区有 comparison：用户气泡在右、MoM 气泡在左；MoM 气泡内 `MarkdownBody` 传 `flush` prop，完全展开无内部 maxHeight/滚动（用户反馈"回复直接完全展开就行，不用折叠"）
+  - Sticky composer 单一 textarea + Submit 按钮，`Enter` 发送 / `Shift+Enter` 换行；上方渐变遮罩让消息滑到下方时视觉自然过渡
+- `web/src/i18n/dict.ts`：`chat.subtitle` / `chat.empty` 置空字符串（保 dict type 不删字段）、`historyLabel` 从 `Recent runs` / `历史记录` 缩短为 `Recent` / `历史`、`historyEmpty` 缩短；新增 `chat.presetsHint` / `chat.presetsEmpty` 中英
+- `docs/002STRUCTURE.md`：`ChatPage.tsx` 那一行的一句话职责重写以反映新布局
+
+### 涉及文件
+- web/src/pages/ChatPage.tsx：整页重写为 flex 列 + sticky composer + 预设居中 + MarkdownBody flush
+- web/src/i18n/dict.ts：chat.* 段调整（subtitle/empty 置空、hint 新增）
+- docs/002STRUCTURE.md：ChatPage 一句话职责
+
+### 关联
+-> ISS-037
+
+---
+
+## [2026-07-15-4] refactor(web): switch Pareto x-axis to total CNY per Q&A [ISS-038]
+
+### 改动
+- `web/src/mock/benchmarks.ts`：`ParetoPoint.cost` (`$/1M output token`) 换成 `costCny` (`¥/次问答`)；paretoData 六个点重算并保 MoM 落在前沿上（mom ¥0.020 < gpt5 ¥0.043 < fable5 ¥0.063；haiku45 ¥0.008 / aggOnly ¥0.011 / sonnet46 ¥0.030）；paretoFrontier 五点同步换字段名 + 排序值
+- `web/src/components/charts/ParetoChart.tsx`：XAxis `dataKey="costCny"`、`domain={[0, 0.08]}`、`ticks=[0, 0.02, 0.04, 0.06, 0.08]`、新增 `tickFormatter=(v) => ¥{v.toFixed(3)}`；ParetoTooltip 类型 payload.cost -> payload.costCny，文案 `cost $x.xx/1M` -> `cost ¥x.xxx/次`
+- `web/src/i18n/dict.ts`：中文 `overview.paretoAxisX` 改为「总成本（¥ / 次问答）」；英文改为 `Total cost (CNY per Q&A)`
+- `docs/002STRUCTURE.md`：`benchmarks.ts` 那一行补注 ISS-038 起字段名换成 costCny
+- **口径说明**：mock 数字按「500 输入 + 500 输出 token · 汇率 1 USD ≈ 7.2 CNY」估算，落一位到¥0.001；等 config 里填真值后可整体替换，图表阈值 domain/ticks 需同步
+
+### 涉及文件
+- web/src/mock/benchmarks.ts：ParetoPoint / paretoData / paretoFrontier 三处 cost -> costCny
+- web/src/components/charts/ParetoChart.tsx：XAxis 配置 + Tooltip 类型 + 文案
+- web/src/i18n/dict.ts：overview.paretoAxisX 中英
+- docs/002STRUCTURE.md：benchmarks.ts 一行补注
+
+### 关联
+-> ISS-038
+
+---
+
+## [2026-07-15-3] refactor(web): trim chat page to prompt + MoM reply bubbles [ISS-037]
+
+### 改动
+- `web/src/pages/ChatPage.tsx` 大改：撤 `<BaselineColumn>` / `<JudgeCard>` / `<CostCard>` / 「查看请求流程」按钮；新增 `ConversationView` + `UserBubble` + `MomBubble` + `ErrorBubble` + `PendingBubble` + `BubbleRow` 构造 iMessage 样式对话卡（用户在右灰蓝底 momSoft，MoM 在左白底带 border，两者气泡下角对称收窄）；MoM 回复气泡内继续用 `<MarkdownBody>` 渲染，气泡下方保留 `⏱ latency · tokens · cost` 元数据小字
+- `live.submit` 硬编码 `baseline_on: true`，backend 依然并发跑 baseline + judge，comparisons 表数据完整；切到 Live 页仍能看到完整对比
+- `web/src/pages/live-shared.tsx` 里 `Composer` 参数 `baselineOn` / `onBaselineToggle` 合并为可选 `baseline?: {on, onToggle}`；不传即隐藏 checkbox；ChatPage 不传即隐藏，若未来再有页复用可再传入
+- `web/src/i18n/dict.ts`：`chat.subtitle` 改述「想看 baseline/judge/cost 请去 Live Compare」（中英两处）；新增 `chat.userLabel` / `chat.momLabel` / `chat.pending` / `chat.empty` 中英
+- `docs/002STRUCTURE.md`：`ChatPage.tsx` 那一行的一句话职责改述
+
+### 涉及文件
+- web/src/pages/ChatPage.tsx：大改成对话式布局
+- web/src/pages/live-shared.tsx：Composer 参数结构调整
+- web/src/i18n/dict.ts：chat.* 段增补 + subtitle 改述
+- docs/002STRUCTURE.md：ChatPage 一句话职责改述
+
+### 关联
+-> ISS-037
+
+---
+
+## [2026-07-15-2] feat(web): pipeline markdown, chat page split, ranking axis padding [ISS-036]
+
+### 改动
+- **Pipeline 页 Advisor + DiffModal 全走 Markdown 渲染**（Q1）
+  - `web/src/components/primitives/MarkdownBody.tsx` 加 `flush` prop：`true` 时不套 border/bgSubtle/padding/max-height/overflow，让父容器主控滚动 —— 避免 DiffModal 内嵌时"外壳滚一次 + 内壳再滚一次"
+  - PipelinePage AdvisorCard 里的 preview box 换成 `<MarkdownBody minHeight={80} maxHeight={200} cursor={isRunning?'mom':null}>`；pending 状态保留原 `…` 占位样式（浅色 border box）；running 时光标由 MarkdownBody 自身渲染
+  - DiffModal 两栏 `<pre>` 换成 `<div style={{padding: space.lg}}><MarkdownBody flush /></div>`；`before` / `after` 拼好的 references 现在渲染 markdown 语法（Advisor 输出的列表 / 代码块 / 加粗全部生效）
+- **DiffModal 点空白关闭**（Q1）
+  - 外层遮罩 div 加 `onClick={onClose}`；内层内容 div 加 `onClick={(e) => e.stopPropagation()}`；Esc 快捷键按用户要求不加
+- **拆 Chat 页 + Live 转 viewer-only**（Q2）
+  - 新增 `web/src/pages/ChatPage.tsx`（提问模式）+ 路由 `#chat`；Sidebar `PageKey / ORDER` 追加 `chat`，位于 `live` 之后
+  - 新增 `web/src/pages/live-shared.tsx` — LivePage + ChatPage 共享组件：`StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard / Composer / RunSelect`；两页读同一份 `LiveJobProvider` Context，切页面不丢 job
+  - **`StatusStrip` 语义调整**：有 `live.prompt` 时首行显示 `USER PROMPT: <clipped prompt>`（截断到 140 字符加 `…`），系统状态标签（"全部完成" / "MoM 完成" 等）降级为右侧灰字副标签 — 展会观众第一眼看到问题本身而非系统术语
+  - `LivePage.tsx` 完全重写：删掉左侧 Composer + JobsCard 栏；顶部右侧 `<RunSelect>` 下拉选历史 + "+ 新对话"按钮跳 Chat；下方是 Status → MoM/Baseline → Judge/Cost → Pipeline 按钮 → Ranking 的单列纵向布局，观感更像展厅大屏
+  - `ChatPage.tsx`：顶部右侧 `<RunSelect>` 选历史（可切回旧问答） → Composer（预设 + textarea + baseline 开关 + Submit） → 提交后展示 Status/MoM/Baseline/Judge/Cost；无 Ranking（那是 Live 页的价值主张）
+  - i18n dict：EN + zh 新增 `nav.chat` / `chat.*` 段（`title/subtitle/historyLabel/historyPlaceholder/historyEmpty/newRun`）、`live.userPromptLabel` / `live.recentRunsLabel` / `live.recentRunsPlaceholder` / `live.recentRunsEmpty`；删 `live.rankingPreviewBadge`（Phase 7 预览徽章过时）
+- **Ranking 图 rank 3 底部留白 + 删预览徽章**（Q3）
+  - `RankingChart.tsx` YAxis `domain={[0.6, 3.4]}`（对称扩，仍只显示 `ticks={[1,2,3]}`）；rank 3 数据点离 X 轴有呼吸空间，rank 1 也不贴顶
+  - 删 `LivePage` 里 Ranking Card 的 `<Badge>{t.live.rankingPreviewBadge}</Badge>`
+
+### 涉及文件
+- `web/src/components/primitives/MarkdownBody.tsx`：加 `flush` prop + `import type { CSSProperties } from 'react'`
+- `web/src/components/charts/RankingChart.tsx`：`YAxis domain` 从 `[1,3]` 改 `[0.6, 3.4]`
+- `web/src/components/layout/Sidebar.tsx`：`PageKey / ORDER` 追加 `chat`
+- `web/src/App.tsx`：`PAGES` 追加 `chat`；`import ChatPage from './pages/ChatPage'`；添加路由分支
+- `web/src/pages/LivePage.tsx`：**重写** — viewer-only；删除 Composer / JobsCard 相关全部私有组件
+- `web/src/pages/ChatPage.tsx`：**新增** — 提问模式，复用 live-shared 组件
+- `web/src/pages/live-shared.tsx`：**新增** — 共享组件模块
+- `web/src/pages/PipelinePage.tsx`：AdvisorCard preview box 换 MarkdownBody；DiffModal 两栏换 flush MarkdownBody；DiffModal 外层遮罩 onClick 关闭
+- `web/src/i18n/dict.ts`：新增 chat 段 + 4 个 live.* 键；删 `live.rankingPreviewBadge`（英中各一处）
+- `docs/002STRUCTURE.md`：pages 段更新为六页；MarkdownBody / RankingChart / ChatPage / live-shared 描述
+- `docs/003ISSUES.md`：ISS-036 状态从 [进行中] 改 [已解决]，补 2026-07-15 解决日期
+- `docs/004CHANGELOG.md`：新增本条 [2026-07-15-2]
+
+### 自检
+- `npm run typecheck`：退出 0（`> mom@0.1.0 typecheck / tsc -p tsconfig.json --noEmit`）
+- `web && npm run build`：退出 0，Vite 打包 1116 modules → `dist/assets/index-CQeZKafN.js  830.88 kB`（bundle 体积与 [2026-07-15-1] 持平，MarkdownBody flush 分支只加了 30 行）
+- 未启动 dev server 手工验证 —— 用户 5173 端口已被本地 Chrome 占用（观察到活跃连接），故 typecheck + build 通过即视为静态验证通过；页面交互（点空白关闭 / Markdown 渲染 / chat 提问 / RunSelect 切历史）由用户在浏览器现场验证
+
+### 关联
+-> ISS-036
+-> [2026-07-14-5]（Phase 7 Live Markdown + Pipeline 真时序）
+-> [2026-07-15-1]（Phase 7 收尾）
+
+---
+
+## [2026-07-15-1] feat(live): async job model + real texts on traces + prompt presets externalized [ISS-035]
 
 ### 改动
 - **Live 页彻底异步化**（Q1）

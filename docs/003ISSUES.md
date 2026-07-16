@@ -1395,6 +1395,120 @@ Phase 6/7 交付 Live 页 SSE 实时流 + Pipeline 页真时序回放后，用�
 -> docs/006API.md（§1.1 增 /api/presets + /api/comparisons；§1.6 详细契约替换 SSE 描述为 202+轮询；§2.10 Live Runtime SDK 更新）
 -> 004CHANGELOG.md [2026-07-15-1]
 
+---
+
+## [ISS-036] Phase 7 打磨：Pipeline Markdown 渲染、Live 拆 Chat 页、Ranking 图去徽章 + 底部留白
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-15
+**解决日期**：2026-07-15
+
+**现象**：
+[2026-07-15-1] / [2026-07-14-5] 交付后现场使用发现 3 组体验问题：
+
+1. **Pipeline 页 Markdown 缺失 + Diff 弹窗只能点关闭按钮**
+   - `PipelinePage.tsx:526` Advisor 卡片里 `{node.preview}` 纯文本渲染；LLM 输出的列表、代码块、加粗全部塌成一行
+   - `PipelinePage.tsx:700-705` DiffModal 用 `<pre>` 硬渲染 `beforeText` / `afterText`，markdown 语法同样不解析
+   - `PipelinePage.tsx:668-671` DiffModal 遮罩层无 `onClick`，点空白区域不关闭；只有右上角 `× 关闭` 按钮能关
+
+2. **Live 页把"提问工具"和"演示大屏"塞在同一页**
+   - `LivePage.tsx:80` `gridTemplateColumns: '360px 1fr'` 左右分栏 —— 左边 Composer + Jobs，右边所有 KPI/对比
+   - 展会现场演讲者需要在提问区专注输入 / 从历史里选题，同时观众想看的是并排大字对比。同一屏兼顾两者，两边都拘束
+   - `StatusStrip` 里 `t.live.statusJudgeDone` = "全部完成"，观众看到大屏只知道"系统跑完了"，看不到"这个人问了什么"
+
+3. **Ranking 图第 3 名压 X 轴 + 预览徽章过时**
+   - `RankingChart.tsx:31` `YAxis domain={[1,3]} reversed` → rank=3 数据点正好落在 X 轴上，观感被 grid line 压掉
+   - `LivePage.tsx:128` `<Badge>{t.live.rankingPreviewBadge}</Badge>` 展示 "预览数据 · Phase 7"，Phase 7 已收尾无意义
+
+**后果**：
+1. Advisor answer / Diff 弹窗看的是原始 markdown 语法，观众直接放弃阅读；DiffModal 需要"精确瞄准关闭按钮"是低质量交互
+2. 展会现场演讲者切页面变多；观众看不到 prompt 全文，只有一个"全部完成"抽象状态
+3. Ranking 图 rank 3 数据点被 X 轴吞了；预览徽章过时
+
+**方案**（已与用户 1 轮对齐）：
+
+**Q1 → 修 Pipeline Markdown + 点空白关闭**
+- Advisor answer / DiffModal 两栏统一走 `MarkdownBody`（web/src/components/primitives/MarkdownBody.tsx，Live 页已复用）
+- Advisor 卡片传 `minHeight={80} maxHeight={200}`，保持 3 栏并排紧凑
+- DiffModal 两栏传 `minHeight={0} maxHeight={undefined}`，由外壳 `85vh` 主控滚动
+- 遮罩层加 `onClick={onClose}`，内层内容 div `onClick={(e) => e.stopPropagation()}`；不加 Esc 快捷键（用户明确表示不必要）
+
+**Q2 → 拆 Chat 页 + Live 页转纯观看**
+- 新增 `web/src/pages/ChatPage.tsx`，路由 `#chat`；Sidebar 顺序 overview → live → **chat** → pipeline → cost → settings（Chat 放在 Live 之后，观看 → 提问 → 时序）
+- Chat 页布局：上方选择历史 comparison（复用 pipeline 的下拉），下方 Composer + 提交后并排显示 MoM/Baseline Markdown + Judge + Cost；无 Ranking（Ranking 是 Live 页的价值主张）
+- Live 页去掉左侧 Composer + Jobs 栏；上方保留"选择历史 comparison"下拉，下方是并排 MoM/Baseline + Judge/Cost + Ranking
+- 两页共享同一份 `LiveJobProvider` state
+- StatusStrip 终态时把系统标签替换为 `用户提问：<prompt>`；prompt 长于 140 字符截断加 `…`
+
+**Q3 → RankingChart 底部留白 + 删徽章**
+- `YAxis domain={[0.6, 3.4]}` 上下对称扩，仍只显示 ticks=[1,2,3]，rank 1 / rank 3 都有呼吸空间
+- 删 `LivePage.tsx:128` 徽章 + i18n `rankingPreviewBadge` en/zh 两处键
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（Advisor + DiffModal 走 MarkdownBody；DiffModal 点空白关闭）
+-> web/src/pages/LivePage.tsx（去 Composer + Jobs，改为上方下拉 + 下方观看栏；StatusStrip 显示用户 prompt）
+-> web/src/pages/ChatPage.tsx（**新增**）
+-> web/src/App.tsx（PAGES 加 chat）
+-> web/src/components/layout/Sidebar.tsx（PageKey / ORDER 加 chat）
+-> web/src/components/charts/RankingChart.tsx（YAxis domain 加 padding）
+-> web/src/i18n/dict.ts（新增 chat.* 键；删 live.rankingPreviewBadge；新增 live.userPromptLabel）
+-> 004CHANGELOG.md [2026-07-15-2]
+
+---
+
+## [ISS-037] Chat 页需要瘦身成"只有提问 + MoM 回答"的对话式界面
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-15
+**解决日期**：2026-07-15
+**解决方案**：两轮迭代——首轮 [2026-07-15-3] 把 ChatPage 撤到"RunSelect + Composer + StatusStrip + iMessage 卡"仍套 PageShell 与 Card 外壳,用户反馈"回答在下面反人类,box 多余,输入框应 sticky,预设应居中,subtitle 无意义,MoM 回复不该折叠"。二轮 [2026-07-15-5] 重写为传统 chatbot 布局:自定义 flex 列取代 PageShell,header 只留 title + 历史下拉(无 subtitle),消息区空态时预设卡片居中展示(hint = "选一个预置问题,或直接输入"),有 comparison 时用户气泡在右、MoM 气泡在左、MarkdownBody `flush` 完全展开无内滚;composer sticky 到底部,Enter 发送 / Shift+Enter 换行。后端仍硬编码 `baseline_on: true`。
+
+**现象**：
+ISS-036 交付的 ChatPage 布局是 RunSelect + Composer(带 baseline 开关) + StatusStrip + `<MomColumn>` / `<BaselineColumn>` 并排 + `<JudgeCard>` / `<CostCard>` 并排 + 「查看请求流程」按钮。等价于把 LivePage 的对比看板压到 Chat 页下面,和"提问"的心智模型不吻合——用户在这里主要是想跟 MoM 对话,不是看对比。首轮 [2026-07-15-3] 撤了 Baseline/Judge/Cost 但仍套 PageShell + Card,导致"回答在输入框下面/subtitle 无意义/'发送 prompt' 空态 box 累赘/输入框不在底部/MoM 回复被 MarkdownBody 默认 maxHeight 折叠",不像传统 chatbot。
+
+**后果**：
+Chat 页与 Live 页信息冗余;首轮改动后仍与 ChatGPT/Claude.ai 这类熟悉的 chatbot 布局差异明显,用户认为"反人类"。
+
+**初步判断**：
+已确认。用户明确要求 Chat 只留 chat 入口(对比留给 Live 页),且必须是传统 chatbot 布局(sticky composer 在底 / 预设居中在空态 / MoM 回复完全展开)。
+
+**关联**：
+-> web/src/pages/ChatPage.tsx（两轮改动:首轮撤对比卡 + iMessage 气泡;二轮 [2026-07-15-5] 重写为 flex 布局 + sticky composer + 预设居中 + MarkdownBody flush）
+-> web/src/pages/live-shared.tsx（首轮:Composer 的 baseline 参数改为可选 `baseline?: {on, onToggle}`;二轮:Composer 不再被 ChatPage 使用,只 LivePage 需要——但 LivePage 是 viewer-only 也不用,实际 Composer 目前无消费方,保留供未来复用）
+-> web/src/components/primitives/MarkdownBody.tsx（无改动;二轮通过传入 `flush` prop 让 MoM 回复不套外壳、无 maxHeight，完全展开）
+-> web/src/i18n/dict.ts（首轮:chat.subtitle 改述 + 新增 4 键;二轮:chat.subtitle / chat.empty 置空(不删字段保 dict type 对齐)、historyLabel 缩短、新增 chat.presetsHint / chat.presetsEmpty 中英）
+-> 004CHANGELOG.md [2026-07-15-3] [2026-07-15-5]
+
+---
+
+## [ISS-038] Overview 的 Pareto 图横轴应展示总成本而非 $/1M token
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-15
+**解决日期**：2026-07-15
+**解决方案**：`ParetoPoint.cost` 换成 `costCny`(¥/次问答);ParetoChart 的 XAxis dataKey / domain / ticks 全换,tickFormatter 输出 `¥0.020` 这类三位小数格式;Tooltip 的 "cost $x.xx/1M" 换成 "cost ¥x.xxx/次"。i18n `paretoAxisX` 中英同步。真值稍后从 config 填,当前 mock 保持 MoM 落在前沿上(高分低价)。
+
+**现象**：
+Overview 页 Cost×效果 图横轴是 `Cost ($ / 1M output token)`——单价维度。展会观众对"单价 $/1M"没直觉,不知道 5.6 vs 17.5 是啥概念;而对"一次问答花多少钱"有直觉。
+
+**后果**：
+展会看图的人得脑补"× 一次问答的 token 量"才能理解落差,叙事效率低。
+
+**初步判断**：
+已确认。用户明确要求把横轴改为「总成本(¥)」,mock 数字以"单次问答"为口径,真数值等 config 填。
+
+**关联**：
+-> web/src/mock/benchmarks.ts（ParetoPoint.cost -> costCny;paretoData / paretoFrontier 数值按 ¥/次问答 重排）
+-> web/src/components/charts/ParetoChart.tsx（XAxis dataKey/domain/ticks/tickFormatter;ParetoTooltip 文案）
+-> web/src/i18n/dict.ts（overview.paretoAxisX 中英）
+-> 004CHANGELOG.md [2026-07-15-4]
+
 <!--
 新增条目模板：
 

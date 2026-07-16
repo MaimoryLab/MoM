@@ -111,7 +111,7 @@ export function ParetoChart() {
   );
 }
 
-function ParetoTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { label?: string; cost: number; score: number } }> }) {
+function ParetoTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { label?: string; costCny: number; score: number } }> }) {
   if (!active || !payload || payload.length === 0) return null;
   const d = payload[0].payload;
   if (d.label == null) return null; // frontier polyline
@@ -126,7 +126,7 @@ function ParetoTooltip({ active, payload }: { active?: boolean; payload?: Array<
       color: color.textPrimary,
     }}>
       <div style={{ fontWeight: font.weight.semibold, marginBottom: 3 }}>{d.label}</div>
-      <div style={{ color: color.textSecondary }}>score {d.score.toFixed(1)} · cost ${d.cost.toFixed(2)}/1M</div>
+      <div style={{ color: color.textSecondary }}>score {d.score.toFixed(1)} · cost ¥{d.costCny.toFixed(3)}/次</div>
     </div>
   );
 }

@@ -3,13 +3,14 @@ import { I18nProvider } from './i18n/context';
 import { Sidebar, type PageKey } from './components/layout/Sidebar';
 import { OverviewPage } from './pages/OverviewPage';
 import { LivePage } from './pages/LivePage';
+import { ChatPage } from './pages/ChatPage';
 import { PipelinePage } from './pages/PipelinePage';
 import { CostPage } from './pages/CostPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LiveJobProvider } from './hooks/useLiveRun';
 import { color } from './theme';
 
-const PAGES: PageKey[] = ['overview', 'live', 'pipeline', 'cost', 'settings'];
+const PAGES: PageKey[] = ['overview', 'live', 'chat', 'pipeline', 'cost', 'settings'];
 
 interface Route {
   page: PageKey;
@@ -55,6 +56,7 @@ function Router() {
       <main style={{ flex: 1, minWidth: 0 }}>
         {page === 'overview' && <OverviewPage />}
         {page === 'live'     && <LivePage />}
+        {page === 'chat'     && <ChatPage />}
         {page === 'pipeline' && <PipelinePage turnFromUrl={turn} />}
         {page === 'cost'     && <CostPage />}
         {page === 'settings' && <SettingsPage />}

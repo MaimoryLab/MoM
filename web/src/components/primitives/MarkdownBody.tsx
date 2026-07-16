@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { color, font, radius, space } from '../../theme';
@@ -7,6 +8,13 @@ interface Props {
   minHeight?: number;
   maxHeight?: number;
   cursor?: 'mom' | 'baseline' | null;
+  /**
+   * When true, drop the outer chrome (border / bgSubtle / padding / max-height /
+   * inner scroll) and render the markdown inline so the parent container
+   * governs layout and scrolling. Used inside DiffModal — a bordered box inside
+   * a scrolling modal would double-scroll.
+   */
+  flush?: boolean;
 }
 
 /**
@@ -14,10 +22,16 @@ interface Props {
  * Streaming-friendly: safe to re-render on every mom_delta.
  * No raw HTML, no syntax highlighter (bundle size).
  */
-export function MarkdownBody({ text, minHeight = 260, maxHeight = 420, cursor }: Props) {
-  return (
-    <div
-      style={{
+export function MarkdownBody({ text, minHeight = 260, maxHeight = 420, cursor, flush = false }: Props) {
+  const wrapperStyle: CSSProperties = flush
+    ? {
+        margin: 0,
+        fontSize: font.size.sm,
+        lineHeight: 1.6,
+        color: color.textPrimary,
+        wordBreak: 'break-word',
+      }
+    : {
         margin: 0,
         background: color.bgSubtle,
         border: `1px solid ${color.border}`,
@@ -30,8 +44,9 @@ export function MarkdownBody({ text, minHeight = 260, maxHeight = 420, cursor }:
         minHeight,
         maxHeight,
         overflow: 'auto',
-      }}
-    >
+      };
+  return (
+    <div style={wrapperStyle}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

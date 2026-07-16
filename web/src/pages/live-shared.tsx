@@ -1,0 +1,450 @@
+// Shared building blocks between LivePage and ChatPage.
+// LivePage = viewer-only demo dashboard (Sidebar → Live Compare).
+// ChatPage  = compose + submit + view (Sidebar → Chat).
+// Both read the same LiveJobProvider Context and render the same MoM /
+// Baseline / Judge / Cost views; only the entry-points and layout differ.
+
+import { Card } from '../components/primitives/Card';
+import { Badge } from '../components/primitives/Badge';
+import { Button } from '../components/primitives/Button';
+import { MarkdownBody } from '../components/primitives/MarkdownBody';
+import { JudgeRadar } from '../components/charts/JudgeRadar';
+import { useI18n } from '../i18n/context';
+import { formatCost, formatLatency, formatTokens } from '../i18n/format';
+import { color, font, radius, space } from '../theme';
+import type {
+  ComparisonBaselineSnapshot,
+  ComparisonListItem,
+  ComparisonMomSnapshot,
+  ComparisonResponse,
+  PresetEntry,
+} from '../lib/api';
+
+export const EMPTY_JUDGE_SCORES = {
+  correctness: 0, completeness: 0, depth: 0, clarity: 0, usefulness: 0,
+};
+
+const USER_PROMPT_CLIP = 140;
+
+function clipPrompt(text: string): string {
+  const t = text.trim();
+  return t.length > USER_PROMPT_CLIP ? t.slice(0, USER_PROMPT_CLIP) + '…' : t;
+}
+
+// ---------------------------------------------------------------------------
+// StatusStrip — top status band. When we have a comparison, prefer showing the
+// user's own prompt to the audience over the internal status label. Fall back
+// to the label only when the prompt isn't loaded yet (pre-first-snapshot).
+// ---------------------------------------------------------------------------
+
+export function StatusStrip({
+  live, polling, transportError,
+}: {
+  live: ComparisonResponse | null;
+  polling: boolean;
+  transportError: string | null;
+}) {
+  const { t } = useI18n();
+  if (!live && !polling && !transportError) {
+    return (
+      <Card>
+        <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.emptyResult}</span>
+      </Card>
+    );
+  }
+  const statusLabel = live
+    ? {
+        pending: t.live.statusPending,
+        mom_done: t.live.statusMomDone,
+        baseline_done: t.live.statusBaselineDone,
+        judge_done: t.live.statusJudgeDone,
+        error: t.live.statusError,
+      }[live.status]
+    : t.live.statusPending;
+  const prompt = live?.prompt ?? null;
+  return (
+    <Card>
+      <div style={{ display: 'flex', gap: space.md, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        {prompt ? (
+          <span style={{ fontSize: font.size.sm, color: color.textPrimary, flex: 1, minWidth: 0 }}>
+            <span style={{ color: color.textSecondary, fontSize: font.size.xs, letterSpacing: '0.04em', textTransform: 'uppercase', marginRight: space.sm }}>
+              {t.live.userPromptLabel}
+            </span>
+            <span style={{ fontWeight: font.weight.medium }}>{clipPrompt(prompt)}</span>
+          </span>
+        ) : (
+          <span style={{ fontSize: font.size.sm, color: color.textPrimary }}>
+            <strong>{statusLabel}</strong>
+          </span>
+        )}
+        <span style={{ fontSize: font.size.xxs, color: color.textMuted, fontFamily: 'ui-monospace, monospace' }}>
+          {statusLabel}{polling ? ' · ' + t.live.submittedHint : ''}
+        </span>
+        {transportError && (
+          <span style={{ fontSize: font.size.xs, color: color.negative }}>
+            {t.live.transportErrorLabel}: {transportError}
+          </span>
+        )}
+        {live?.mom_error && (
+          <span style={{ fontSize: font.size.xs, color: color.negative }}>
+            {t.live.momErrorLabel}: {live.mom_error.message}
+          </span>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Two output columns — MoM + Baseline.
+// ---------------------------------------------------------------------------
+
+export function MomColumn({ snap }: { snap: ComparisonResponse | null }) {
+  const { t, lang } = useI18n();
+  const mom = snap?.mom ?? null;
+  const advisors = snap?.advisors_snapshot ?? [];
+  const aggregator = snap?.aggregator_model ?? null;
+  return (
+    <OutputCard
+      titleBadge={<Badge tone="mom">{advisors.length} {t.live.advisors}</Badge>}
+      title={t.live.momTitle}
+      subtitle={
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span>{t.live.momSubtitle}</span>
+          {snap && (
+            <span style={{ fontSize: font.size.xxs, color: color.textMuted, fontFamily: 'ui-monospace, monospace' }}>
+              {t.live.momModels}: {advisors.length > 0 ? advisors.join(' · ') : t.live.unknownModel}
+              {' — '}
+              {t.live.aggregatorModel}: {aggregator ?? t.live.unknownModel}
+            </span>
+          )}
+        </span>
+      }
+      body={mom?.text ?? ''}
+      footer={
+        mom ? (
+          <StatsRow latencyMs={mom.latency_ms} tokens={mom.usage.output_tokens} costUsd={mom.cost_usd ?? 0} lang={lang} />
+        ) : snap?.mom_error ? (
+          <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {snap.mom_error.message}</span>
+        ) : (
+          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.pendingBaseline}</span>
+        )
+      }
+    />
+  );
+}
+
+export function BaselineColumn({ snap }: { snap: ComparisonResponse | null }) {
+  const { t, lang } = useI18n();
+  const baseline = snap?.baseline ?? null;
+  const modelLabel = baseline?.model ?? snap?.baseline_model_snapshot ?? t.live.unknownModel;
+  const errorMsg = snap?.baseline_error?.message ?? null;
+  return (
+    <OutputCard
+      title={t.live.baselineTitle}
+      subtitle={
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span>{t.live.baselineSubtitle}</span>
+          <span style={{ fontSize: font.size.xxs, color: color.textMuted, fontFamily: 'ui-monospace, monospace' }}>
+            {t.live.baselineModel}: {modelLabel}
+          </span>
+        </span>
+      }
+      body={baseline?.text ?? ''}
+      footer={
+        baseline ? (
+          <StatsRow latencyMs={baseline.latency_ms} tokens={baseline.usage.output_tokens} costUsd={baseline.cost_usd ?? 0} lang={lang} />
+        ) : errorMsg ? (
+          <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {errorMsg}</span>
+        ) : snap?.baseline_model_snapshot === null ? (
+          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.waitingForRun}</span>
+        ) : (
+          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.pendingBaseline}</span>
+        )
+      }
+    />
+  );
+}
+
+function OutputCard({
+  title, titleBadge, subtitle, body, footer,
+}: {
+  title: string;
+  titleBadge?: React.ReactNode;
+  subtitle: React.ReactNode;
+  body: string;
+  footer: React.ReactNode;
+}) {
+  return (
+    <Card
+      title={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm }}>
+          {title}
+          {titleBadge}
+        </span>
+      }
+      subtitle={subtitle}
+    >
+      <MarkdownBody text={body} cursor={null} />
+      <div style={{ display: 'flex', gap: space.md, fontSize: font.size.sm, color: color.textSecondary, alignItems: 'center' }}>
+        {footer}
+      </div>
+    </Card>
+  );
+}
+
+function StatsRow({
+  latencyMs, tokens, costUsd, lang,
+}: {
+  latencyMs: number;
+  tokens: number;
+  costUsd: number;
+  lang: 'zh' | 'en';
+}) {
+  const { t } = useI18n();
+  return (
+    <>
+      <span>⏱ {formatLatency(latencyMs, lang)}</span>
+      <span>· {formatTokens(tokens)} {t.live.stats.tokens}</span>
+      <span>· {formatCost(costUsd, lang)}</span>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Judge radar + cost compare row — shared between viewer and chat.
+// ---------------------------------------------------------------------------
+
+export function JudgeCard({ snap }: { snap: ComparisonResponse | null }) {
+  const { t } = useI18n();
+  return (
+    <Card title={t.live.judgeTitle} subtitle={t.live.judgeSubtitle}>
+      <JudgeRadar
+        mom={snap?.judge?.scores.mom ?? EMPTY_JUDGE_SCORES}
+        baseline={snap?.judge?.scores.baseline ?? EMPTY_JUDGE_SCORES}
+      />
+      <JudgeStatusFooter snap={snap} />
+    </Card>
+  );
+}
+
+function JudgeStatusFooter({ snap }: { snap: ComparisonResponse | null }) {
+  const { t } = useI18n();
+  const err = snap?.judge_error?.message ?? null;
+  if (err) {
+    return <p style={{ margin: 0, color: color.negative, fontSize: font.size.xs }}>{t.live.errorTitle}: {err}</p>;
+  }
+  if (!snap?.judge) {
+    return <p style={{ margin: 0, color: color.textMuted, fontSize: font.size.xs }}>{t.live.pendingJudge}</p>;
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {snap.judge.verdict_summary && (
+        <p style={{ margin: 0, color: color.textSecondary, fontSize: font.size.xs, lineHeight: 1.5 }}>
+          {snap.judge.verdict_summary}
+        </p>
+      )}
+      {snap.judge.fallback && (
+        <p style={{ margin: 0, color: color.textMuted, fontSize: font.size.xxs, fontStyle: 'italic' }}>
+          {t.live.judgeFallbackNote}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function CostCard({ snap }: { snap: ComparisonResponse | null }) {
+  const { t, lang } = useI18n();
+  const mom = snap?.mom ?? null;
+  const baseline = snap?.baseline ?? null;
+  const momCost = mom?.cost_usd ?? 0;
+  const baselineCost = baseline?.cost_usd ?? 0;
+  const savedPct = baselineCost > 0
+    ? Math.round((1 - momCost / baselineCost) * 100)
+    : 0;
+  const dLatency = (mom?.latency_ms ?? 0) - (baseline?.latency_ms ?? 0);
+  const barMax = Math.max(momCost, baselineCost) || 1;
+  const bar = (v: number, c: string) => (
+    <div style={{ height: 10, background: color.gridLine, borderRadius: 4, overflow: 'hidden' }}>
+      <div style={{ width: `${(v / barMax) * 100}%`, height: '100%', background: c, borderRadius: 4, transition: 'width 400ms ease' }} />
+    </div>
+  );
+  return (
+    <Card title={t.live.costTitle}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: space.md }}>
+        <CostRow label={t.live.momTitle}      value={mom ? formatCost(momCost, lang) : '—'}      bar={bar(momCost, color.mom)} />
+        <CostRow label={t.live.baselineTitle} value={baseline ? formatCost(baselineCost, lang) : '—'} bar={bar(baselineCost, color.flagship)} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: space.sm, borderTop: `1px solid ${color.border}` }}>
+          <div>
+            <div style={{ fontSize: font.size.xs, color: color.textSecondary, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{t.live.costSaved}</div>
+            <div style={{ fontSize: font.size.h2, fontWeight: font.weight.semibold, color: color.positive, letterSpacing: '-0.02em' }}>
+              {baseline && mom ? `−${savedPct}%` : '—'}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: font.size.xs, color: color.textSecondary, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{t.live.latencyDelta}</div>
+            <div style={{ fontSize: font.size.md, fontWeight: font.weight.medium, color: dLatency > 0 ? color.negative : color.positive, letterSpacing: '-0.02em' }}>
+              {baseline && mom ? `${dLatency > 0 ? '+' : ''}${(dLatency / 1000).toFixed(1)}s` : '—'}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function CostRow({ label, value, bar }: { label: string; value: string; bar: React.ReactNode }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 100px', alignItems: 'center', gap: space.md, fontSize: font.size.sm }}>
+      <span style={{ color: color.textSecondary }}>{label}</span>
+      {bar}
+      <span style={{ textAlign: 'right', fontFamily: 'ui-monospace, monospace', color: color.textPrimary }}>{value}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Composer — presets shelf + textarea + optional baseline toggle + submit.
+// The baseline toggle only renders when `baseline` is provided; ChatPage
+// omits it (baseline+judge still run on the backend regardless).
+// ---------------------------------------------------------------------------
+
+export function Composer({
+  prompt, onPromptChange, onSubmit, baseline,
+  presets, presetsError, onPreset, busy,
+}: {
+  prompt: string;
+  onPromptChange: (v: string) => void;
+  onSubmit: () => void;
+  baseline?: { on: boolean; onToggle: (v: boolean) => void };
+  presets: PresetEntry[];
+  presetsError: string | null;
+  onPreset: (p: PresetEntry) => void;
+  busy: boolean;
+}) {
+  const { t, lang } = useI18n();
+  const disabled = busy;
+  return (
+    <Card title={t.live.shelfTitle} subtitle={presetsError ? t.live.errorTitle : t.live.shelfHint}>
+      {presets.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: space.sm }}>
+          {presets.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => onPreset(p)}
+              disabled={disabled}
+              style={{
+                appearance: 'none',
+                border: `1px solid ${color.border}`,
+                background: color.surface,
+                color: color.textPrimary,
+                padding: '8px 12px',
+                borderRadius: radius.md,
+                fontSize: font.size.xs,
+                cursor: disabled ? 'not-allowed' : 'pointer',
+                opacity: disabled ? 0.6 : 1,
+              }}
+            >
+              {lang === 'zh' ? p.title_zh : p.title_en}
+            </button>
+          ))}
+        </div>
+      )}
+      <textarea
+        value={prompt}
+        onChange={(e) => onPromptChange(e.target.value)}
+        placeholder={t.live.inputPlaceholder}
+        disabled={disabled}
+        rows={4}
+        style={{
+          width: '100%', border: `1px solid ${color.border}`, borderRadius: radius.md,
+          padding: space.md, fontFamily: font.sans, fontSize: font.size.sm,
+          lineHeight: 1.5, background: color.surface, color: color.textPrimary,
+          resize: 'vertical', outline: 'none',
+        }}
+      />
+      {baseline && (
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, fontSize: font.size.sm, color: color.textSecondary, cursor: 'pointer' }}>
+          <input type="checkbox" checked={baseline.on} onChange={(e) => baseline.onToggle(e.target.checked)} disabled={disabled} />
+          {t.live.baselineToggle}
+          <span style={{ color: color.textMuted, fontSize: font.size.xs }}>· {t.live.baselineHint}</span>
+        </label>
+      )}
+      <Button
+        variant="primary"
+        onClick={onSubmit}
+        disabled={busy || prompt.trim().length === 0}
+      >
+        {busy ? t.live.submitPending : `${t.live.submit} ▶`}
+      </Button>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// RunSelect — the "pick a past run" dropdown shared by Live + Chat + Pipeline
+// (Pipeline still uses its own for now, but shape is identical).
+// ---------------------------------------------------------------------------
+
+export function RunSelect({
+  value, items, error, onChange, placeholder, label, emptyLabel, onNew,
+}: {
+  value: string | null;
+  items: ComparisonListItem[];
+  error: string | null;
+  onChange: (v: string) => void;
+  placeholder: string;
+  label: string;
+  emptyLabel: string;
+  onNew?: { label: string; onClick: () => void };
+}) {
+  if (error) {
+    return <span style={{ fontSize: font.size.xs, color: color.negative }}>{error}</span>;
+  }
+  if (items.length === 0) {
+    return (
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm }}>
+        <span style={{ fontSize: font.size.xs, color: color.textMuted }}>{emptyLabel}</span>
+        {onNew && (
+          <Button variant="ghost" onClick={onNew.onClick}>+ {onNew.label}</Button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm }}>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, fontSize: font.size.sm, color: color.textSecondary }}>
+        <span>{label}</span>
+        <select
+          value={value ?? ''}
+          onChange={(e) => onChange(e.target.value)}
+          style={{
+            appearance: 'none', height: 36, padding: `0 ${space.md}`,
+            background: color.surface, border: `1px solid ${color.borderStrong}`,
+            borderRadius: radius.md, fontSize: font.size.sm, color: color.textPrimary,
+            cursor: 'pointer', minWidth: 260, maxWidth: 420,
+          }}
+        >
+          <option value="" disabled>{placeholder}</option>
+          {items.map((it) => (
+            <option key={it.gateway_request_id} value={it.gateway_request_id}>
+              {new Date(it.started_at).toLocaleTimeString()} · {clipPrompt(it.prompt).slice(0, 40)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {onNew && (
+        <Button variant="ghost" onClick={onNew.onClick}>+ {onNew.label}</Button>
+      )}
+    </div>
+  );
+}
+
+// Type re-exports for consumers.
+export type {
+  ComparisonListItem,
+  ComparisonResponse,
+  ComparisonMomSnapshot,
+  ComparisonBaselineSnapshot,
+  PresetEntry,
+};
