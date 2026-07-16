@@ -329,7 +329,7 @@ export const zh: Dict = {
 
   overview: {
     heroTitle: '混合模型性能报告',
-    heroSubtitle: '',
+    heroSubtitle: '多个平价模型协同工作，效果媲美顶级模型',
     kpi: {
       scoreOfFlagship: '达到 Fable 5 性能评分',
       costVsFlagship: '相比 Fable 5 成本',
@@ -424,12 +424,12 @@ export const zh: Dict = {
     aggregatorModel: '主力模型',
     baselineSingleCall: '单模型调用',
     statusPending: '等待第一个快照…',
-    statusMomDone: '混合模型 完成',
+    statusMomDone: '混合模型完成',
     statusBaselineDone: '混合模型 + Baseline 完成',
     statusJudgeDone: '全部完成',
     statusError: '出错',
     statusRunning: '进行中',
-    momErrorLabel: '混合模型 主链路出错',
+    momErrorLabel: '混合模型主链路出错',
     transportErrorLabel: '网络错误',
     emptyResult: '我是PPIO的混合模型网关，我可以帮你什么吗？',
     unknownModel: '未知',
@@ -441,7 +441,7 @@ export const zh: Dict = {
 
   pipeline: {
     title: '请求流程',
-    subtitle: '一次 混合模型 调用到底做了什么',
+    subtitle: '一次混合模型调用到底做了什么',
     replay: '重播',
     speed: '速度',
     turnLabel: '第几轮',
@@ -472,7 +472,7 @@ export const zh: Dict = {
     loading: '加载中…',
     loadError: '无法加载该 turn',
     compressedNote: '真实耗时',
-    passthroughNote: '此轮走 passthrough，未触发 混合模型 fan-out。',
+    passthroughNote: '此轮走 passthrough，未触发混合模型 fan-out。',
   },
 
   cost: {
@@ -489,11 +489,11 @@ export const zh: Dict = {
     perTurnTitle: '每轮成本',
     perTurnSubtitle: '按角色堆叠——advisor 与 aggregator 分开算。',
     byRoleTitle: '按角色的成本占比',
-    byRoleSubtitle: '一次 混合模型 调用里，钱花在哪。',
+    byRoleSubtitle: '一次混合模型调用里，钱花在哪。',
     cacheByModelTitle: '各模型 Cache 命中率',
-    cacheByModelSubtitle: '越高越好——advisor 命中缓存才能撑起低成本的 fan-out。',
+    cacheByModelSubtitle: '越高越好——辅助模型命中缓存才能撑起低成本的 fan-out。',
     timelineTitle: '成本随时间变化',
-    timelineSubtitle: '本次会话中 混合模型 每轮成本走势。',
+    timelineSubtitle: '本次会话中混合模型每轮成本走势。',
     scopeNote:
       '3 个 advisor + aggregator',
   },
@@ -564,10 +564,10 @@ export const zh: Dict = {
   },
 
   models: {
-    momComposite: '混合模型（我们）',
-    aggregatorOnly: '仅 Aggregator',
-    flagship: 'Fable 5',
-    gpt5: 'GPT-5',
+    momComposite: '混合模型',
+    aggregatorOnly: '仅主力模型',
+    flagship: 'Claude Fable 5',
+    gpt5: 'OpenAI GPT-5.6',
     sonnet46: 'Sonnet 4.6',
     haiku45: 'Haiku 4.5',
   },
