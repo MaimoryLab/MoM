@@ -11,15 +11,13 @@ MoM 是位于 Claude Code 与 provider 之间的独立 HTTP 网关，对标 Open
 | 阶段 | 名称 | 状态 | 一句话说明 |
 |------|------|------|-----------|
 | Phase 1 | 骨架 + 协议透传（含 Streaming） | ✅ 已完成 | Node/TS 单进程服务、Anthropic Messages 端点、SSE 流式透传、node:sqlite、Vite 前端骨架 |
-| Phase 2 | Advisor 视图 + Fan-out + Concat 拼接 | 📋 待开始 | MoM 核心流程，always 触发、无缓存 |
-| Phase 3 | 触发粒度 + Fanout 缓存 + Cache 装饰 + 成本分账 | 📋 待开始 | user_turn / per_iteration 双模式、advisor 缓存、system_and_3 marker、Trace 落盘 |
-| Phase 4 | Dashboard 后端 API | 📋 已规划 | config / traces / metrics / benchmarks / comparison-501 五组 API + orchestrator hot reload |
+| Phase 2 | Advisor 视图 + Fan-out + Concat 拼接 | ✅ 已完成 | MoM 核心流程，always 触发、无缓存 |
+| Phase 3 | 触发粒度 + Fanout 缓存 + Cache 装饰 + 成本分账 | ✅ 已完成 | user_turn / per_iteration 双模式、advisor 缓存、system_and_3 marker、Trace 落盘 |
+| Phase 4 | Dashboard 后端 API | 📝 略写 | traces / metrics / settings / comparison 四组 API |
 | Phase 5 | Dashboard 前端五页 + 预览版 | 🎨 预览版已交付 | Overview / Live / Pipeline / Cost / Settings，双语 i18n，mock 数据可跑通设计审 |
-| Phase 6 | Judge 模式 + Baseline 后端接入 | 🚧 部分完成 | Live judge_compare + baseline 并发 + `POST /api/live/run` SSE 全链路已交付（ISS-033）；`aggregation_mode=judge` 结构化整合与 Ranking 真数据推 PLAN7 |
-| Phase 7 | Live Markdown + Pipeline 真时序 + Live→Pipeline 联动 + Ranking 伪随机占位 | 📋 待开始 | LivePage MoM/Baseline 输出改 markdown 渲染；PipelinePage 接 `/api/traces/by-gateway/:gwId` 真时序回放；Live Run 完带 gwId 跳 Pipeline；Ranking 卡改 seed=gwId 伪随机 + MoM 偏置靠前 |
-| Phase 8 | Cost / Settings 真数据 + Judge integration + Ranking 真 3 家判分 + 判分深化 | 📋 已规划 | PLAN7 中未落入 Phase 7 的所有剩余项汇总；含 aggregation_mode=judge 结构化整合、Cost/Settings 页 mock→真数据、Ranking aggregator-only + Fable5 并发 + 相对排名、Judge 匿名映射 / 降级率 / Pipeline judge 段建模、跨 tab SSE 旁听 |
+| Phase 6 | Judge 模式 + Baseline 后端接入 | 📝 略写 | Judge 5 维雷达打分、baseline 异步对比调用；Dashboard 端已在 Phase 5 预览版实现 UI |
 
-> 依赖链：Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5（真数据接入），Phase 6 可与 4 并行；Phase 7 依赖 Phase 4 的 `/api/traces` 与 Phase 6 的 `/api/live/run`；Phase 8 大部分子项彼此独立，可按展会需要挑取。
+> 依赖链：Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5（真数据接入），Phase 6 可与 4 并行。
 > Phase 5 已先以 mock 数据出预览版，锁定 UI 与 API 契约再回填 Phase 4。
 
 ---
@@ -456,198 +454,21 @@ Advisor 请求侧按 system_and_3 布局装 4 个 `cache_control` marker。每�
 
 ---
 
-## Phase 4: Dashboard 后端 API
+## Phase 4: Dashboard 后端 API（略写）
 
 ### 目标
-把 Dashboard 前端消费所需的 REST API 一次性落地：Config 读写（hot reload orchestrator）、Traces 分页+单条+按 gateway 分组、Metrics 单端点大对象、Benchmarks 静态 JSON、Comparison 占位。前端 `web/src/lib/api.ts` 只出 TS 类型骨架与 typed fetch wrapper，**不改任何 Page 引用**——Page 继续读 `mock/*`，Phase 5.1 单独做替换。10 项设计决策见 `decisions/008-phase4-dashboard-api-shape.md`，追踪 issue `ISS-032`。
+Dashboard 前端所需 REST API 全部就位。
 
-### 与 Phase 4 初稿的关键偏离（含理由）
+### 初步构想
+- `GET /api/settings` / `POST /api/settings` — 直接读写 `settings` 表
+- `GET /api/traces?limit=100&offset=0` — 分页返回 trace summary（不含全量 request/response，避免大 body）
+- `GET /api/traces/:id` — 单条 trace 全量
+- `GET /api/metrics?window=last_24h|last_7d` — 从 traces 聚合，含 total_usage 分层（advisor / aggregator / judge），成本 / 延迟 / cache 命中率
+- `GET /api/comparison/:trace_id` — 见 Phase 6
 
-1. **/api/settings → /api/config**：Phase 1 起 `settings` 表已被移除，配置改为 `data/mom.config.json` + `.env` 双源；端点命名沿用配置对象名 `MoMConfig`，语义准确
-2. **/api/traces 结构升级为三路 API**：分页列表（`/api/traces`）+ 单条 detail（`/api/traces/:request_id`）+ **组合查（`/api/traces/by-gateway/:gateway_request_id`）**。Pipeline 页需要一次拿完一个入口请求的 N+1 条上游 trace，若靠 offset 分页遍历太笨重
-4. **/api/metrics 合并成一个大对象**：Cost 页需要 5 段数据（summary / per_turn / by_role / cache_hit_by_model / timeline）同步 render；拆多端点等于 4 次 round-trip + 前端并发合并 loading。合成一个响应 <100 KiB，MVP 期净收益
-5. **新增 `/api/benchmarks`**：Overview 页 Pareto + combo 数据是评测组维护的静态输入，不是从 traces 聚合。走 `data/benchmarks.json`（仓库提交，缺失时 200 + 全空）
-6. **/api/comparison/:trace_id 显式返 501**：Phase 6 才有真实数据；本期返 501 而非 404，让前端知道"路径存在但暂未实现"
-7. **`POST /api/config` 走 hot reload 而非重启**：orchestrator 是 `createOrchestrator(runtime)` 纯工厂，rebuild <10ms；引入 `OrchestratorHolder` mutable holder 让 `messages-handler` 每次 handle 时读最新
-8. **api_key_masked 固定形状 `前3****后2`**：不泄漏秘钥长度信息
-9. **traces 空态就是空态**：不 fallback demo；违反第一性原理约束
-10. **实时 SQL 聚合 + 不启用 metrics_cache 表**：MVP QPS < 10 req/s，`traces` 表 <10k 行时全表扫足够快
-11. **不开 CORS**：Vite dev proxy（Phase 5.0 已配好）+ 生产同域挂载（`web/dist` → `/dashboard/*`）
-12. **API 命名走 domain 语义**（`selected_model` / `role` / `input_tokens`），mock 层的 i18n labelKey 是前端职责，不影响 API
-
-### 前置条件
-- Phase 3 的 TraceRequest schema、`saveTraceRequest` / `getTraceRequestById` / `getTraceRequestsBySessionId` / `getRecentTraceRequests` 已实现
-- `createOrchestrator(runtime): Orchestrator` 工厂已解耦（Fastify 依赖已消除）
-- `getConfig(momConfigPath)` / `saveMoMConfig(path, config)` / `stampMoMConfigSource(path)` / `assertModeRequirements(mom)` 齐全
-- `snapshotPricing` / `calculateCostFromSnapshot` / `toTraceUsage` 齐全（Phase 3 起）
-
-### 组件改动
-
-**类型契约（前后端共享）**
-
-- **新增** `src/types/dashboard-api.ts`
-  - `ConfigResponse` — `{ mom: MoMConfig, provider: { base_url, auth_style, api_key_masked }, mom_config_source: string }`
-  - `SaveConfigRequest` / `SaveConfigResponse`
-  - `TraceSummary` — 轻结构，取 `TraceRequest` 常用字段（`request_id / session_id / gateway_request_id / role / selected_model / provider / started_at / duration_ms / status / trigger_reason / cache_hit / usage / pricing / error`，**不含 `settings_snapshot` / `request_summary` / `response_summary`**）
-  - `TracesListQuery` — `{ limit?, offset?, role?, status?, gateway_request_id? }`
-  - `TracesListResponse` — `{ items: TraceSummary[], total: number, limit: number, offset: number }`
-  - `TraceByGatewayResponse` — `{ gateway_request_id: string, requests: TraceRequest[] }`
-  - `MetricsWindow = 'last_24h' | 'last_7d' | 'all'`
-  - `MetricsResponse` — `{ window, summary, per_turn, by_role, cache_hit_by_model, timeline }`，每段字段见 decision 008
-  - `BenchmarksResponse` — `{ hero_stats, pareto_data, pareto_frontier, per_benchmark }`（形状对齐 mock/benchmarks.ts）
-  - `ApiErrorResponse` — 与 `/trace/requests` 一致：`{ type: 'error', error: { type, message } }`
-
-**Dashboard API 路由（Fastify）**
-
-- **新增** `src/dashboard-api/config-api.ts`
-  - `registerConfigAPI(app: FastifyInstance, ctx: { runtime: RuntimeConfig, momConfigPath: string, holder: OrchestratorHolder }): void`
-  - `GET /api/config`：读 `ctx.runtime.mom` + `ctx.runtime.provider`（脱敏）+ `ctx.runtime.mom_config_source`；`maskApiKey(key)` 输出 `前3 + '****' + 后2`；短 key（< 5 字符）时补齐到 8 字符全星
-  - `POST /api/config`：
-    - 请求体校验：`typeof body.mom === 'object'`；`assertMoMConfigShape(mom)` 做浅层字段类型校验（不复制 zod，用手写 typeguard，风格延续项目"零第三方依赖"传统）
-    - `assertModeRequirements(mom)` 跑护栏；失败 → 400 `invalid_request_error`
-    - `saveMoMConfig(ctx.momConfigPath, mom)` 原子写盘（rename）
-    - 就地替换 `ctx.runtime.mom = mom` + 重算 `ctx.runtime.mom_config_source = stampMoMConfigSource(ctx.momConfigPath)`
-    - `ctx.holder.rebuild()` 构造新 orchestrator（丢弃老 fanout cache）
-    - 返 `{ mom, mom_config_source }`
-
-- **新增** `src/dashboard-api/traces-api.ts`
-  - `registerTracesAPI(app: FastifyInstance): void`（不需要 runtime，直连 DB）
-  - `GET /api/traces?limit=&offset=&role=&status=&gateway_request_id=`
-    - `limit` 默认 100，上限 500；`offset` 默认 0
-    - 过滤字段全部走 SQL WHERE（`role`、`status` 走列，`gateway_request_id` 走索引）
-    - 返 `items` 走 `TraceSummary` 结构（从 JSON 全量拆出常用字段，`settings_snapshot` 剥离）
-    - `total` = 满足过滤条件的 COUNT(*)
-  - `GET /api/traces/:request_id`
-    - `getTraceRequestById()` 返 `TraceRequest` 全量
-    - 404 `not_found` 当 id 不存在
-  - `GET /api/traces/by-gateway/:gateway_request_id`
-    - 走 `idx_traces_gateway_request_id` 索引
-    - 返 `{ gateway_request_id, requests: [] }`（按 started_at ASC）；空数组不 404
-
-- **新增** `src/dashboard-api/metrics-api.ts`
-  - `registerMetricsAPI(app: FastifyInstance): void`
-  - `GET /api/metrics?window=&limit=`
-    - `window` 默认 `all`；`last_24h` = `started_at > now - 86400*1000`；`last_7d` = `started_at > now - 604800*1000`
-    - `limit` 默认 32（per_turn 与 timeline 段的 cap）
-    - 单个函数 `computeMetrics(window, limit)` 内部封装所有 SQL 查询，返 `MetricsResponse`
-    - 每段查询：
-      - `summary.request_count` — `COUNT(DISTINCT gateway_request_id)`
-      - `summary.mom_trigger_count` — `COUNT(DISTINCT gateway_request_id) WHERE trigger_reason != 'mom_off'`
-      - `summary.avg_latency_ms` — 对每个 gateway_request_id 做 `MAX(finished_at) - MIN(started_at)`，再 AVG
-      - `summary.total_cost_usd` — 遍历所有 trace，SQL 抽 usage + pricing JSON 字段后在 JS 里 `calculateCostFromSnapshot`（因 pricing 是 nullable + 字段深），不用 SQL 聚合
-      - `summary.cache_hit_rate` — advisor 层 `SUM(cache_hit=1) / COUNT(*) WHERE role='advisor'`
-      - `summary.total_usage.{advisor,aggregator,judge}` — `SUM(input_tokens), SUM(output_tokens), ...` GROUP BY role（judge 永为 0）
-      - `per_turn` — `GROUP BY gateway_request_id ORDER BY MIN(started_at) DESC LIMIT ?`；每 turn 算 `total_cost_usd = advisor_cost + aggregator_cost`（pricing 缺失时该字段为 null，参考 decision 008 代价 2）
-      - `by_role` — GROUP BY role
-      - `cache_hit_by_model` — GROUP BY selected_model + role
-      - `timeline` — 与 per_turn 同源，按 started_at ASC，取前 `limit` 个 gateway_request
-
-- **新增** `src/dashboard-api/benchmarks-api.ts`
-  - `registerBenchmarksAPI(app: FastifyInstance, ctx: { benchmarksPath: string }): void`
-  - `GET /api/benchmarks`
-    - `readFileSync(ctx.benchmarksPath, 'utf8')` → `JSON.parse` → 校验 shape → 返
-    - `ENOENT` → 200 + 空态 `{ hero_stats: null, pareto_data: [], pareto_frontier: [], per_benchmark: [] }`
-    - JSON 非法 / shape 校验失败 → 500 `internal_error`（不返空态，让开发者知道文件坏了）
-    - 每次请求都读文件（<10 KiB，OS pagecache 命中；MVP 阶段不做 in-memory cache）
-
-- **占位** `src/dashboard-api/comparison-api.ts`（Phase 6 才有实现）
-  - `registerComparisonAPI(app: FastifyInstance): void`
-  - `GET /api/comparison/:trace_id` → 501 `not_implemented`
-
-**Orchestrator holder（hot reload 支撑）**
-
-- **新增** `src/orchestrator/orchestrator-holder.ts`
-  - `createOrchestratorHolder(runtime: RuntimeConfig): OrchestratorHolder`
-  - `OrchestratorHolder = { get(): Orchestrator; rebuild(): void }`
-  - 内部 `let current = createOrchestrator(runtime);`；`rebuild()` 重赋 `current = createOrchestrator(runtime)`
-  - Holder 与 runtime 引用绑定；`POST /api/config` 就地替换 `runtime.mom` + `runtime.mom_config_source`，`rebuild()` 时 `createOrchestrator` 从最新 runtime 读
-
-**Gateway 整合**
-
-- **修改** `src/gateway/server.ts`
-  - `createServer(runtime, momConfigPath, benchmarksPath)` 签名扩展；`benchmarksPath` 默认 `data/benchmarks.json`
-  - 内部构造 `holder = createOrchestratorHolder(runtime)`
-  - 挂载：`app.post('/v1/messages', createMessagesHandler(runtime, holder))`
-  - `registerTraceAPI(app)`（沿用 ISS-011，不动）
-  - `registerConfigAPI(app, { runtime, momConfigPath, holder })`
-  - `registerTracesAPI(app)`
-  - `registerMetricsAPI(app)`
-  - `registerBenchmarksAPI(app, { benchmarksPath })`
-  - `registerComparisonAPI(app)`
-
-- **修改** `src/gateway/messages-handler.ts`
-  - `createMessagesHandler(runtime, holder)`：从 `holder.get()` 拿最新 orchestrator 而不是闭包持有
-  - 逻辑不变（`handleNonStreaming` / `handleStreaming` 内部改为 `holder.get().nonStreaming(...)`）
-
-- **修改** `src/index.ts`
-  - 读 `MOM_BENCHMARKS_PATH` env（默认 `data/benchmarks.json`）
-  - `startServer(port, runtime, MOM_CONFIG_PATH, MOM_BENCHMARKS_PATH)`
-
-**静态数据**
-
-- **新增** `data/benchmarks.json`（**gitignore 白名单**：`data/` 目录里除 `mom.config.json` 外的文件默认 gitignore 掉，`benchmarks.json` 显式提交）
-  - 内容对齐 `web/src/mock/benchmarks.ts` 的 `paretoData / paretoFrontier / perBenchmark / heroStats`
-  - 字段名走 API domain 命名（snake_case）——`hero_stats.score_of_flagship_pct` 而不是 mock 里的 `scoreOfFlagshipPct`
-
-**前端类型骨架（不改 Page）**
-
-- **新增** `web/src/lib/api.ts`
-  - `import type` 引入 `src/types/dashboard-api.ts` 里所有响应类型
-  - `apiGet<T>(path: string): Promise<T>` / `apiPost<T>(path: string, body: unknown): Promise<T>` — 类型化 fetch + `{ type: 'error', error: { type, message } }` 统一错误映射（抛 `ApiError`）
-  - 五个 wrapper：`getConfig()` / `saveConfig(mom)` / `listTraces(query)` / `getTrace(id)` / `getMetrics(window)` / `getBenchmarks()`
-  - **Phase 5.1 替换 mock 时 Page 用这个文件**，本次交付**不改任何 Page 引用**
-
-- **不改** `web/vite.config.ts`（Phase 5.0 起 `server.proxy['/api']` 已配好）
-
-**测试**
-
-- **新增** `test/dashboard-api-config.test.ts`
-  - `GET /api/config` 200 + provider 脱敏 + `api_key_masked` 形状
-  - `POST /api/config` 200 hot reload：`saveMoMConfig` 写盘、runtime.mom 就地替换、`holder.rebuild()` 调用
-  - `POST /api/config` 400：mom 缺失 / 非对象 / `assertModeRequirements` 失败
-  - `POST /api/config` 拒绝设 provider 字段（悄悄忽略而非 400 —— 就当前端多送了字段）
-
-- **新增** `test/dashboard-api-traces.test.ts`
-  - `GET /api/traces` 分页 limit / offset / role / status 过滤
-  - `TraceSummary` 剔除 `settings_snapshot`
-  - `GET /api/traces/:id` 404 / 200
-  - `GET /api/traces/by-gateway/:gid` 空数组不 404，按 started_at 升序
-
-- **新增** `test/dashboard-api-metrics.test.ts`
-  - 空表 → 全零 summary + 空数组
-  - 3 个 gateway_request（含 passthrough）→ `request_count=3` / `mom_trigger_count=2` / `cache_hit_rate` 计算正确
-  - window 过滤：`last_24h` 只算窗口内 trace
-  - `per_turn` 按 started_at DESC
-
-- **新增** `test/dashboard-api-benchmarks.test.ts`
-  - 文件存在 → 200 + 完整字段
-  - 文件缺失（`ENOENT`）→ 200 + 空态
-  - 文件非法 JSON → 500 `internal_error`
-
-**文档同步**
-
-- **修改** `docs/001ARCHITECTURE.md` §3 补 `src/dashboard-api/*` 分层归属；§5 补链路 G（Dashboard config hot reload）；§6 补 "API 生效方式：POST /api/config 后 rebuild orchestrator"
-- **修改** `docs/002STRUCTURE.md` 追 `src/dashboard-api/` + `src/orchestrator/orchestrator-holder.ts` + `src/types/dashboard-api.ts` + `data/benchmarks.json` + `web/src/lib/api.ts` + `test/dashboard-api-*.test.ts`
-- **修改** `docs/006API.md` §1.5 从"已规划"移到 §1.1 "当前已实现"；补 §2.8 dashboard-api SDK 入口清单
-- **修改** `docs/003ISSUES.md` ISS-032 状态 [讨论中] → [已解决]
-- **修改** `docs/004CHANGELOG.md` 追 `[2026-07-14-*]` 关联 ISS-032 + decisions/008
-
-### 验证方式
-
-1. `npm run typecheck` / `npm run build` / `npm run build:web` 三条命令退出 0
-2. `npm test` 全部通过（含 5 组新测试；沿用之前 tsx --test 的既有配置）
-3. `curl http://localhost:3000/api/config` → 200 + `provider.api_key_masked` 是 `前3****后2` 形状
-4. `curl -X POST http://localhost:3000/api/config -H 'content-type: application/json' -d @new-mom.json` → 200；`cat data/mom.config.json` 已更新；再次 `POST /v1/messages` 后 `sqlite3 mom.db 'SELECT ...'` 看到用新配置的 trace（说明 orchestrator rebuild 生效）
-5. `curl 'http://localhost:3000/api/traces?limit=5&role=advisor'` → 返 `TraceSummary[]`，无 `settings_snapshot`
-6. `curl 'http://localhost:3000/api/metrics?window=last_24h&limit=10'` → 单响应含 5 段字段
-7. `curl http://localhost:3000/api/benchmarks` → 200 + 空文件时全空数组
-8. Vite dev（`cd web && npm run dev`）+ 后端 dev（`npm run dev`）双开 → 浏览器打开 `http://localhost:5173/dashboard/` → DevTools Network 面板确认 `/api/config` 从 5173 转发到 3000 成功
-
-### 单元测试
-- `test/dashboard-api-config.test.ts`
-- `test/dashboard-api-traces.test.ts`
-- `test/dashboard-api-metrics.test.ts`
-- `test/dashboard-api-benchmarks.test.ts`
+### 待讨论的问题
+- Metrics 是否需要预聚合到 `metrics_cache` 表？MVP 数量少可以直接实时算，量大后再引入
+- 是否需要认证？MVP 假定本地运行、无认证；上线远期版本需要加
 
 ---
 
@@ -787,138 +608,3 @@ Scope 只算 MoM 流程内部（3 个 advisor + aggregator），Baseline 与 Jud
 9. **Streaming 不推到后期**：Phase 1 就实现 SSE passthrough；Phase 2 的 aggregator 一并支持 streaming（advisor 侧非流式）
 10. **CLI / NPM 包 / Claude Code 插件形态属远期**：MVP 直接 `npm run dev` 启动
 11. **多 provider 属远期**：MVP 单一 baseURL，靠 provider 侧多 model 名支撑
-
----
-
-## Phase 7：Live Markdown + Pipeline 真时序回放 + Live→Pipeline 联动 + Ranking 伪随机占位
-
-### 目标
-
-在 Phase 6 打通 Live 页 MoM/Baseline/Judge 实时对比的基础上，让"实时对比页 + 请求流程页"两页联动可视化，展会叙事完整：用户在 LivePage 发 Run → 看 markdown 渲染的对比结果 → 一键跳 PipelinePage 看这条 turn 的真实 N+1 上游 trace 时序回放。
-
-### 交付物（5 项范围）
-
-1. **LivePage MoM/Baseline 输出 Markdown 渲染**：`MomColumn` / `BaselineColumn` 从原 `<pre>` 字符串改为 `react-markdown` + `remark-gfm` 渲染（表格 / 任务列表 / 删除线 / 代码块）。流式中间态每次 `mom_delta` 后立即重渲；不引入语法高亮以控制包体积。抽出 `components/primitives/MarkdownBody.tsx`。
-2. **Live → Pipeline 联动按钮**：LivePage 结果卡下方加 "→ 查看请求流程" 按钮，只在 `live.gatewayRequestId` 就绪后可用；点击更新 `window.location.hash` 到 `#pipeline?turn=<gwId>`；App 顶部路由解析 hash query 并透传给 PipelinePage。
-3. **PipelinePage 接真 trace 数据**：页顶挂 "选择 turn" 下拉（默认拉 `GET /api/traces?limit=20&role=aggregator`）+ URL `?turn=<gwId>` 参数双入口。选中或首次进入后拉 `GET /api/traces/by-gateway/:gwId`，得到 N+1 条 upstream trace（N 条 advisor + 1 条 aggregator，或降级到 passthrough 单条）。空态：无 turn 或 gwId 不存在时显示"先在 Live 页跑一次"引导。
-4. **PipelinePage 时序动画真数据回放**：不再用 canned `pipelineTimeline.ms`；从每条 trace 的 `started_at / finished_at` 减去最早 `started_at` 得到相对 ms。总时长 > 10s 时按比例压缩到 5s（保留相对节奏，只压缩绝对时长）。速率切换 0.5x / 1x / 2x 仍工作。节点 label / model / tokens / cost 全部从真 trace 字段读；Diff Modal 从 aggregator trace 的 `request_summary.message_count` 与其他 trace 拼接展示 context before/after。
-5. **Ranking 卡伪随机占位 + MoM 偏置靠前**：`web/src/mock/live-ranking.ts` 改为纯函数 `generateRanking(seed: string)` — seed 来自 `gwId`（无 gwId 时用 `'preview'`），返回最近 10 turn 的 MoM/Baseline/Fable5 三家 rank。伪随机分布约束：MoM 落 rank 1 概率 70% / rank 2 概率 30%；其余两家在剩余位次上均匀分布。RankingChart 在 `useLiveRun.gatewayRequestId` 变化后重新生成，视觉每次 Run 都在动。"Preview · Phase 7" 徽章保留，说明这是占位。
-
-### 关键约定
-
-- **入口边界不变**：Phase 6 的 `POST /api/live/run` / `GET /api/comparison/:gwId` / `GET /api/traces/by-gateway/:gwId` 三个后端 API 都已就位；Phase 7 纯前端接入 + 一个前端组件 `MarkdownBody`。零后端改动。
-- **路由方案**：不引入 React Router，沿用 App.tsx 已有的手工路由（当前根据 hash / tab 状态切页）。Phase 7 补一步 hash query 解析：`#pipeline?turn=<gwId>` 或 `#pipeline`；解析出的 turnId 通过 prop 或 context 传 PipelinePage。
-- **Markdown 安全**：LivePage 输出来自 provider 的 LLM 回复，属于外部内容。react-markdown 默认已 sanitize HTML；不额外引入 `rehype-raw`（会启用原生 HTML 注入，安全风险）。代码块 fenced 保持文本，不高亮。
-- **时序压缩规则**：`compressTimeline(traces, capMs=5000)` — 若 `max(finished_at) - min(started_at) > capMs`，所有节点 startMs / endMs 按 `capMs / totalMs` 比例缩放；否则原样。压缩阈值写常量，便于调试。
-- **Ranking 决定性**：`seed` 相同则输出相同，Run 内多次渲染视觉稳定。用简单 `mulberry32(hash(seed))` 生成 [0,1) 序列，逐维应用 MoM 偏置。
-- **不做的（明确推 Phase 8+）**：Cost / Settings 真数据接入、`aggregation_mode: judge` 结构化整合、Ranking 3 家真实并发调用与判分、跨 tab SSE 旁听、Judge 匿名映射日志留档。见 [`PLAN7.md`](./PLAN7.md) 中 PLAN7-01 / 04 / 05 / 07 / 08 / 09。
-
-### 目录变更预告
-
-**新增**：
-- `web/src/components/primitives/MarkdownBody.tsx` — react-markdown + remark-gfm 封装，Live 输出 / 未来其他页共用
-- `web/src/lib/timing.ts` — `compressTimeline(traces, capMs)` 与 `nodeStatusAt(startMs, endMs, elapsedMs)` 纯函数
-- `web/src/lib/rankSeed.ts` — `generateRanking(seed)` 纯函数（含 mulberry32）
-- `docs/decisions/010-phase7-live-pipeline.md` — Phase 7 拍板与 Markdown/路由/时序压缩三处决策
-
-**修改**：
-- `web/package.json` — 加 `react-markdown` / `remark-gfm` 依赖
-- `web/src/pages/LivePage.tsx` — MomColumn/BaselineColumn 换 MarkdownBody；结果卡下方加 "→ 查看请求流程" 按钮
-- `web/src/pages/PipelinePage.tsx` — 大改：下拉 + URL 解析 + 真 trace 数据源 + 真时序回放；从旧 mock 保留 pipeline 图形结构与 Diff Modal shell
-- `web/src/App.tsx`（或路由入口）— 解析 `#pipeline?turn=<gwId>` hash query，传 PipelinePage
-- `web/src/mock/live-ranking.ts` — 精简到只导出 `generateRanking` 与类型；删旧固定 9 条历史 + preset 联动 mock
-- `web/src/mock/pipeline-trace.ts` — 保留 `PipelineCopy` 类型（结构声明）与 Diff Modal 的 fallback 空态字符串；`pipelineTimeline` 常量与 canned copy 删除
-
-**保留 / 未变**：
-- `web/src/hooks/useLiveRun.ts` — Phase 6 交付，Phase 7 不改
-- 后端 `src/*` 完全零改动
-- 其他四页（Overview / Cost / Settings / Overview 已真数据）保持现状
-
-### 验收清单
-
-- [ ] `npm run typecheck` 通过（后端 + 前端）
-- [ ] `npm run build:web` 通过，vite 产物在 `web/dist/`
-- [ ] 手动跑通：
-  - LivePage 点预置或输入 prompt → Run → MoM 输出流式 markdown 渲染，代码块 / 表格显示正确
-  - Run 完毕后 "→ 查看请求流程" 按钮可点，URL hash 变为 `#pipeline?turn=<uuid>`
-  - PipelinePage 首次进入自动加载 `turn` 参数指向的 trace，节点从 `pending` → `running` → `done` 动画节奏与真 trace 相对时序一致
-  - PipelinePage 顶部下拉可切换到其他最近 turn，切换后动画重放
-  - Ranking 卡随每次新 Run 出不同 rank 序列，MoM 明显靠前
-- [ ] 文档四件套 + decisions/010 同步更新
-- [ ] draft PR 开好，Self-check 段贴 typecheck / build:web 结果
-
----
-
-## Phase 8：剩余项汇总（PLAN7 未落入 Phase 7 的所有条目）
-
-### 目标
-
-Phase 7 收敛到"Live Markdown + Pipeline 真时序 + Live→Pipeline 联动 + Ranking 伪随机占位" 5 项后，PLAN7.md 中其余条目在此章节兜底登记，避免遗失。Phase 8 内各子项彼此独立，按展会需要挑取实现顺序，不必一次完成。
-
-### 交付物（8 项子任务，编号沿用 PLAN7 记号方便回溯）
-
-**8-01 · Aggregation mode `judge`（结构化整合替代 concat）**
-- `src/judge/judge-integration-prompt.ts`（`JUDGE_INTEGRATION_PROMPT_EN` / `JUDGE_INTEGRATION_PROMPT_ZH`）
-- `src/judge/judge-integration-runtime.ts:runJudgeIntegration(results, momConfig, provider)`
-- `src/aggregator/reference-builder.ts` 分支：`aggregation_mode === 'judge'` 时 references 走结构化 5 类 `consensus / disagreements / partial_coverage / unique_insights / blind_spots` 而非 concat
-- Judge 解析失败（safeJsonParse + 正则均失败）降级到 concat，`TraceRequest` 加 `judge_integration_fallback: boolean` flag
-- 落 `role='judge_integration'` 的 TraceRequest（usage / pricing / cost_usd 计入 `total_cost_usd`）
-- 依赖：Phase 6 `src/judge/*` 已就位；可提炼 `callJudge(prompt, messages, settings)` 为通用引擎
-
-**8-02 · Ranking 真数据（Aggregator-only + Fable5 + 相对排名）**
-- `src/live/live-runtime.ts` 在 `baseline_on=true` 且开启 ranking 收集时，额外并发发起 aggregator-only（不带 references）与 fable5-baseline（固定 Fable5 模型）两条调用
-- Judge prompt 扩展为"3 家 5 维，输出各家 rank"
-- `comparisons` 表加 `ranking_json TEXT`；或新表 `rankings`
-- 前端 `RankingChart` 换用 `getComparison(gwId).ranking` 拉真数据；移除 "Preview · Phase 7" 徽章
-- 历史 9 turn 采用真跑积累或另开脚本回放
-- 依赖：本项与 8-01 平行；判分 prompt 是不同 prompt 无耦合
-
-**8-03 · Cost 页真数据接入**
-- `web/src/pages/CostPage.tsx` 内 `useEffect` 拉 `getMetrics('all', 32)`
-- SavedBanner / KPI 四卡 / CostStackedBar / CostPie / CacheHitBars / CostTimeline 全部映射到 `MetricsResponse`
-- 空态：`traces` 为空时显示"跑几个真请求以看到成本分析"文案
-- 删除 `web/src/mock/cost.ts`
-- 依赖：Phase 4 `/api/metrics` 已就位
-
-**8-04 · Settings 页真数据接入**
-- `web/src/pages/SettingsPage.tsx` 内 `useEffect` 拉 `getConfig()`；Save 按钮改调 `saveConfig(mom)`
-- 保留 Language 卡本地 state（前端 UI 语言与后端 config 无关）
-- Provider 卡展示 `getConfig().provider`（`api_key_masked`）
-- 删除 `web/src/mock/config.ts`
-- 依赖：Phase 4 `/api/config` + hot reload 已就位
-
-**8-05 · Cost 页 Judge 段建模**
-- `CostStackedBar` 加第 5 段 `judge`（judge 成本仅 Live 页 Run 有，标注"非 turn 常规成本"）
-- 4 段/5 段切换开关：`total_cost_usd += judge_integration.cost_usd`（仅 8-01 完成后有 integration 成本）；`comparison_cost_usd`（judge_compare + baseline）独立展示，不进 total
-- dashboard-api 层区分 `judge_integration` vs `judge_compare` 两类（基于 `gateway_request_id` 是否 in `comparisons` 表）
-- 依赖：8-01（否则 total_cost_usd 里 judge 段永远为 0）
-
-**8-06 · Judge 匿名映射日志留档**
-- `comparisons` 表加 `judge_ab_mapping TEXT`（`{a: 'mom' | 'baseline'}`），记录本次随机分配
-- 用于后期分析：同一 prompt 多次 Run，统计 judge 打分是否与 A/B 位置相关
-- 依赖：纯字段扩展，兼容改动
-
-**8-07 · Judge 失败降级 flag 上 Dashboard Cost 页**
-- Cost 页新增 KPI 卡"Judge 降级率"
-- `/api/metrics` 补 `summary.judge_fallback_rate`
-- Live 页 `judge_done` 事件已带 `fallback` flag，前端可 tooltip 说明"本轮 judge 解析走了 fallback 分支"
-- 依赖：后端 metrics-api 扩展
-
-**8-08 · Cross-tab / 分享链接 SSE 旁听**
-- 新增 `GET /api/comparison/:gateway_request_id/stream`（SSE）
-- 服务端 `src/live/live-bus.ts`（EventEmitter），comparison 更新时向所有订阅了同一 gwId 的连接推事件
-- 前端从 URL 或 localStorage 恢复 gwId 后，若 comparison 尚未完成走 `/stream` 端点旁听
-- 依赖：新组件不与已交付路径耦合
-
-### Phase 8 内部优先级建议
-
-- **展会前锦上添花**：8-03（Cost 真数据）、8-04（Settings 真数据）——一致性观感提升，工程量小
-- **展会后按需**：8-01（Judge integration）、8-02（Ranking 真数据）——涉及后端与判分深化
-- **视需要**：8-05 / 8-06 / 8-07（判分深化，与 Cost 页联动）；8-08（分享链接场景才需要）
-
-### 不在 Phase 8 范围（永久搁置或推 Phase 9+）
-
-- CLI / NPM 包 / Claude Code 插件形态（PLAN.md 已说远期）
-- 多 provider（PLAN.md 已说远期）
-- `mom_mode: auto`（PLAN.md 已否定，间歇性触发破坏缓存前缀）
-- Manual 触发指令 `/mom on|off`（PLAN.md 已否定，产品定位无感触发）
