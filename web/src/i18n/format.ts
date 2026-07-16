@@ -4,7 +4,7 @@ export function formatCost(v: number, lang: Lang): string {
   // both langs use $, but zh uses no space before number
   const abs = Math.abs(v);
   const digits = abs < 0.01 ? 4 : abs < 1 ? 3 : 2;
-  const s = `$${v.toFixed(digits)}`;
+  const s = `¥${v.toFixed(digits)}`;
   return lang === 'zh' ? s : s;
 }
 
