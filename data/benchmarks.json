@@ -1,15 +1,15 @@
 {
   "hero_stats": {
     "score_of_flagship_pct": 55.1372,
-    "cost_savings_vs_flagship_pct": 84.861,
+    "cost_savings_vs_flagship_pct": 85.117,
     "latency_delta_sec": 0
   },
   "pareto_data": [
     {
       "id": "mom",
-      "label_key": "混合模型",
-      "score": 52.8593,
-      "cost": 85.69444,
+      "label_key": "MoM",
+      "score": 54.5518,
+      "cost": 84.247601,
       "is_mom": true
     },
     {
@@ -53,110 +53,110 @@
   "per_benchmark": [
     {
       "bench": "Academic",
-      "mom_score": 66.7834,
+      "mom_score": 70.3321,
       "agg_score": 60.5195,
       "flagship_score": 65.659,
       "gpt_score": 67.381966,
-      "mom_cost": 9.442039,
+      "mom_cost": 9.657179,
       "agg_cost": 3.867686,
       "flagship_cost": 63.317403,
       "gpt_cost": 24.245198
     },
     {
       "bench": "Personalized Assistant",
-      "mom_score": 53.281,
+      "mom_score": 53.1216,
       "agg_score": 38.5101,
       "flagship_score": 53.5047,
       "gpt_score": 50.552954,
-      "mom_cost": 5.013454,
+      "mom_cost": 5.964554,
       "agg_cost": 2.164362,
       "flagship_cost": 27.859122,
       "gpt_cost": 14.03922
     },
     {
       "bench": "General Knowledge",
-      "mom_score": 52.2703,
+      "mom_score": 54.1007,
       "agg_score": 46.0974,
       "flagship_score": 55.0474,
       "gpt_score": 51.120767,
-      "mom_cost": 8.149643,
+      "mom_cost": 7.102404,
       "agg_cost": 3.078764,
       "flagship_cost": 55.459183,
       "gpt_cost": 18.368567
     },
     {
       "bench": "Law",
-      "mom_score": 80.1608,
+      "mom_score": 79.9222,
       "agg_score": 72.8008,
       "flagship_score": 89.256,
       "gpt_score": 83.883207,
-      "mom_cost": 3.795354,
+      "mom_cost": 4.058685,
       "agg_cost": 1.662394,
       "flagship_cost": 29.650515,
       "gpt_cost": 10.471024
     },
     {
       "bench": "Medicine",
-      "mom_score": 67.6109,
+      "mom_score": 60.9536,
       "agg_score": 51.9882,
       "flagship_score": 60.0255,
       "gpt_score": 68.673822,
-      "mom_cost": 3.524615,
+      "mom_cost": 3.506018,
       "agg_cost": 1.798144,
       "flagship_cost": 28.39775,
       "gpt_cost": 9.248016
     },
     {
       "bench": "Needle in a Haystack",
-      "mom_score": 54.8105,
+      "mom_score": 48.3645,
       "agg_score": 51.687,
       "flagship_score": 57.961,
       "gpt_score": 45.632282,
-      "mom_cost": 3.256933,
+      "mom_cost": 3.018716,
       "agg_cost": 1.567878,
       "flagship_cost": 24.757968,
       "gpt_cost": 7.981965
     },
     {
       "bench": "Finance",
-      "mom_score": 35.3304,
+      "mom_score": 35.16,
       "agg_score": 33.6821,
       "flagship_score": 41.8616,
       "gpt_score": 35.922041,
-      "mom_cost": 20.488608,
+      "mom_cost": 16.242588,
       "agg_cost": 11.760612,
       "flagship_cost": 140.909751,
       "gpt_cost": 42.008419
     },
     {
       "bench": "Shopping/Product Comparison",
-      "mom_score": 44.8711,
+      "mom_score": 53.2584,
       "agg_score": 41.5566,
       "flagship_score": 54.5286,
       "gpt_score": 45.87511,
-      "mom_cost": 14.251325,
+      "mom_cost": 14.073786,
       "agg_cost": 5.891808,
       "flagship_cost": 84.079815,
       "gpt_cost": 31.120641
     },
     {
       "bench": "Technology",
-      "mom_score": 53.3903,
+      "mom_score": 56.3132,
       "agg_score": 41.1353,
       "flagship_score": 52.1424,
       "gpt_score": 49.450877,
-      "mom_cost": 7.923025,
+      "mom_cost": 7.681868,
       "agg_cost": 3.617466,
       "flagship_cost": 55.740775,
       "gpt_cost": 19.965035
     },
     {
       "bench": "UX Design",
-      "mom_score": 55.8822,
+      "mom_score": 54.8308,
       "agg_score": 44.0341,
       "flagship_score": 48.5238,
       "gpt_score": 50.833049,
-      "mom_cost": 7.309118,
+      "mom_cost": 7.004486,
       "agg_cost": 2.930888,
       "flagship_cost": 49.166803,
       "gpt_cost": 16.489757

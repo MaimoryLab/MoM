@@ -15,3 +15,4 @@ data/*
 .env.local
 .vscode/
 .idea/
+.claude
