@@ -10,7 +10,18 @@ import { useTypewriter } from '../hooks/useTypewriter';
 import { color, font, radius, shadow, space } from '../theme';
 import { formatCost, formatLatency } from '../i18n/format';
 import { getTracesByGateway, listComparisons, listTraces } from '../lib/api';
-import type { ComparisonListItem, TraceRequestFull } from '../lib/api';
+import type { TraceRequestFull } from '../lib/api';
+
+// Dropdown row shape. traces(role=aggregator) is the authoritative source
+// (every entry can render a pipeline view); we look up prompt from
+// comparisons when available and fall back to hash+model when this
+// gwId predates the comparisons table.
+interface TurnOption {
+  gateway_request_id: string;
+  started_at: number;
+  prompt: string | null;
+  fallback_model: string;
+}
 import { compressTimeline, nodeStatusAt, type NodeStatus, TIMELINE_CAP_MS } from '../lib/timing';
 
 interface Props {
@@ -43,7 +54,7 @@ interface TurnData {
 
 export function PipelinePage({ turnFromUrl }: Props) {
   const { t, lang } = useI18n();
-  const [recent, setRecent] = useState<ComparisonListItem[]>([]);
+  const [recent, setRecent] = useState<TurnOption[]>([]);
   const [recentError, setRecentError] = useState<string | null>(null);
   const [selectedGwId, setSelectedGwId] = useState<string | null>(turnFromUrl);
   const [turn, setTurn] = useState<TurnData | null>(null);
@@ -59,12 +70,12 @@ export function PipelinePage({ turnFromUrl }: Props) {
   }, [turnFromUrl]);
 
   useEffect(() => {
-    // Pipeline needs an aggregator trace to draw the flow — a comparison row
-    // alone is not enough (MoM-early-error / passthrough / legacy rows have
-    // no aggregator trace and would land on the empty state). Intersect
-    // comparisons ∩ traces(role=aggregator) so every dropdown option is one
-    // the flow view can actually render. Prompt text still comes from the
-    // comparisons side, aggregator presence from the traces side.
+    // aggregator traces are the source of truth for pipeline-visualisable
+    // gwIds — every row here is guaranteed to have an aggregator trace so
+    // the flow view can always render. We look up prompt text from the
+    // comparisons list to display Live-style option labels; rows without a
+    // matching comparison (legacy Phase 3-5 data, passthrough turns) still
+    // appear with hash+model fallback so history isn't hidden entirely.
     let cancelled = false;
     Promise.all([
       listComparisons(20),
@@ -72,11 +83,16 @@ export function PipelinePage({ turnFromUrl }: Props) {
     ])
       .then(([comps, traces]) => {
         if (cancelled) return;
-        const aggregatorGwIds = new Set(traces.items.map((tr) => tr.gateway_request_id));
-        const filtered = comps.items.filter((c) => aggregatorGwIds.has(c.gateway_request_id));
-        setRecent(filtered);
-        if (!selectedGwId && filtered.length > 0) {
-          setSelectedGwId(filtered[0].gateway_request_id);
+        const promptByGw = new Map(comps.items.map((c) => [c.gateway_request_id, c.prompt]));
+        const rows: TurnOption[] = traces.items.map((tr) => ({
+          gateway_request_id: tr.gateway_request_id,
+          started_at: tr.started_at,
+          prompt: promptByGw.get(tr.gateway_request_id) ?? null,
+          fallback_model: tr.selected_model,
+        }));
+        setRecent(rows);
+        if (!selectedGwId && rows.length > 0) {
+          setSelectedGwId(rows[0].gateway_request_id);
         }
       })
       .catch((err) => {
@@ -421,7 +437,7 @@ function TurnSelect({
   value, recent, recentError, onChange, placeholder, label,
 }: {
   value: string | null;
-  recent: ComparisonListItem[];
+  recent: TurnOption[];
   recentError: string | null;
   onChange: (v: string) => void;
   placeholder: string;
@@ -444,11 +460,16 @@ function TurnSelect({
         }}
       >
         <option value="" disabled>{placeholder}</option>
-        {recent.map((r) => (
-          <option key={r.gateway_request_id} value={r.gateway_request_id}>
-            {new Date(r.started_at).toLocaleTimeString()} · {clipPrompt(r.prompt)}
-          </option>
-        ))}
+        {recent.map((r) => {
+          const suffix = r.prompt != null
+            ? clipPrompt(r.prompt)
+            : `${r.gateway_request_id.slice(0, 8)} · ${r.fallback_model}`;
+          return (
+            <option key={r.gateway_request_id} value={r.gateway_request_id}>
+              {new Date(r.started_at).toLocaleTimeString()} · {suffix}
+            </option>
+          );
+        })}
       </select>
     </label>
   );
