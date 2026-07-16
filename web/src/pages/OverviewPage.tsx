@@ -16,11 +16,16 @@ export function OverviewPage() {
   const aggScore = scoreOf('aggOnly');
   return (
     <PageShell title={t.overview.heroTitle} subtitle={t.overview.heroSubtitle}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: space.md }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: space.md }}>
         <KpiCard
           label={t.overview.kpi.scoreFable5}
           value={<span>{fable5Score.toFixed(1)}</span>}
           hint={t.overview.kpi.scoreFable5HintFlagship}
+        />
+        <KpiCard
+          label={t.overview.kpi.scoreGpt56}
+          value={<span>XX.X</span>}
+          hint={t.overview.kpi.scoreGpt56Hint}
         />
         <KpiCard
           label={t.overview.kpi.scoreMoM}
