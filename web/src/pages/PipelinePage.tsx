@@ -60,17 +60,21 @@ export function PipelinePage({ turnFromUrl }: Props) {
 
   useEffect(() => {
     // Same data source as Live's RunSelect so the two pages' history feel
-    // identical: `time · <clipped-prompt>`. A comparison without an
-    // aggregator trace (MoM early error, passthrough, legacy rows) will
-    // land on the existing "no aggregator turn record" empty card when
-    // clicked; format consistency wins over pre-filtering.
+    // identical (`time · <clipped-prompt>`), but only keep comparisons that
+    // reached mom_done or beyond — those are guaranteed to have an
+    // aggregator trace on the traces side. `pending` runs haven't dispatched
+    // aggregator yet; `error` runs failed inside MoM before aggregator ran.
+    // Both would land on the empty-flow card, so we hide them proactively.
     let cancelled = false;
     listComparisons(20)
       .then((res) => {
         if (cancelled) return;
-        setRecent(res.items);
-        if (!selectedGwId && res.items.length > 0) {
-          setSelectedGwId(res.items[0].gateway_request_id);
+        const withAggregator = res.items.filter(
+          (c) => c.status === 'mom_done' || c.status === 'baseline_done' || c.status === 'judge_done',
+        );
+        setRecent(withAggregator);
+        if (!selectedGwId && withAggregator.length > 0) {
+          setSelectedGwId(withAggregator[0].gateway_request_id);
         }
       })
       .catch((err) => {
