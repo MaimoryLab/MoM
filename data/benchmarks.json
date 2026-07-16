@@ -60,7 +60,7 @@
       "mom_cost": 9.657179,
       "agg_cost": 3.867686,
       "flagship_cost": 63.317403,
-      "gpt_cost": 55
+      "gpt_cost": 24.245198
     },
     {
       "bench": "Personalized Assistant",
@@ -71,7 +71,7 @@
       "mom_cost": 5.964554,
       "agg_cost": 2.164362,
       "flagship_cost": 27.859122,
-      "gpt_cost": 0
+      "gpt_cost": 14.03922
     },
     {
       "bench": "General Knowledge",
@@ -82,7 +82,7 @@
       "mom_cost": 7.102404,
       "agg_cost": 3.078764,
       "flagship_cost": 55.459183,
-      "gpt_cost": 55
+      "gpt_cost": 18.368567
     },
     {
       "bench": "Law",
@@ -93,7 +93,7 @@
       "mom_cost": 4.058685,
       "agg_cost": 1.662394,
       "flagship_cost": 29.650515,
-      "gpt_cost": 55
+      "gpt_cost": 10.471024
     },
     {
       "bench": "Medicine",
@@ -104,7 +104,7 @@
       "mom_cost": 3.506018,
       "agg_cost": 1.798144,
       "flagship_cost": 28.39775,
-      "gpt_cost": 0
+      "gpt_cost": 9.248016
     },
     {
       "bench": "Needle in a Haystack",
@@ -115,7 +115,7 @@
       "mom_cost": 3.018716,
       "agg_cost": 1.567878,
       "flagship_cost": 24.757968,
-      "gpt_cost": 0
+      "gpt_cost": 7.981965
     },
     {
       "bench": "Finance",
@@ -126,7 +126,7 @@
       "mom_cost": 16.242588,
       "agg_cost": 11.760612,
       "flagship_cost": 140.909751,
-      "gpt_cost": 55
+      "gpt_cost": 42.008419
     },
     {
       "bench": "Shopping/Product Comparison",
@@ -137,7 +137,7 @@
       "mom_cost": 14.073786,
       "agg_cost": 5.891808,
       "flagship_cost": 84.079815,
-      "gpt_cost": 0
+      "gpt_cost": 31.120641
     },
     {
       "bench": "Technology",
@@ -148,7 +148,7 @@
       "mom_cost": 7.681868,
       "agg_cost": 3.617466,
       "flagship_cost": 55.740775,
-      "gpt_cost": 0
+      "gpt_cost": 19.965035
     },
     {
       "bench": "UX Design",
@@ -159,7 +159,7 @@
       "mom_cost": 7.004486,
       "agg_cost": 2.930888,
       "flagship_cost": 49.166803,
-      "gpt_cost": 0
+      "gpt_cost": 16.489757
     }
   ]
 }
