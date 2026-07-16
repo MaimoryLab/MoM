@@ -7,6 +7,7 @@ import { PipelinePage } from './pages/PipelinePage';
 import { CostPage } from './pages/CostPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LiveJobProvider } from './hooks/useLiveRun';
+import { KioskProvider } from './hooks/useKioskMode';
 import { color } from './theme';
 
 const PAGES: PageKey[] = ['overview', 'live', 'pipeline', 'cost', 'settings'];
@@ -67,7 +68,9 @@ export default function App() {
   return (
     <I18nProvider>
       <LiveJobProvider>
-        <Router />
+        <KioskProvider>
+          <Router />
+        </KioskProvider>
       </LiveJobProvider>
     </I18nProvider>
   );

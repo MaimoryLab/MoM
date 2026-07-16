@@ -1,4 +1,5 @@
 import { useI18n } from '../../i18n/context';
+import { useKiosk } from '../../hooks/useKioskMode';
 import { color, font, layout, shadow, space } from '../../theme';
 
 export type PageKey = 'overview' | 'live' | 'pipeline' | 'cost' | 'settings';
@@ -47,6 +48,7 @@ export function Sidebar({ active, onNavigate }: Props) {
         langEn={t.lang.en}
         langZh={t.lang.zh}
         onLang={setLang}
+        kioskLabel={t.kiosk}
       />
     </header>
   );
@@ -83,13 +85,16 @@ function FooterBlock({
   langEn,
   langZh,
   onLang,
+  kioskLabel,
 }: {
   version: string;
   lang: 'en' | 'zh';
   langEn: string;
   langZh: string;
   onLang: (l: 'en' | 'zh') => void;
+  kioskLabel: { start: string; stop: string; startHint: string; empty: string; liveStartLabel: string };
 }) {
+  const kiosk = useKiosk();
   const pill = (isActive: boolean): React.CSSProperties => ({
     appearance: 'none',
     border: 'none',
@@ -104,6 +109,13 @@ function FooterBlock({
   });
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: space.md }}>
+      <KioskButton
+        enabled={kiosk.enabled}
+        onToggle={kiosk.toggle}
+        startLabel={kioskLabel.start}
+        stopLabel={kioskLabel.stop}
+        hint={kioskLabel.startHint}
+      />
       <div
         style={{
           display: 'inline-flex',
@@ -118,6 +130,44 @@ function FooterBlock({
       </div>
       <div style={{ fontSize: font.size.xxs, color: color.textMuted, letterSpacing: '0.03em' }}>{version}</div>
     </div>
+  );
+}
+
+function KioskButton({
+  enabled, onToggle, startLabel, stopLabel, hint,
+}: {
+  enabled: boolean;
+  onToggle: () => void;
+  startLabel: string;
+  stopLabel: string;
+  hint: string;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      data-kiosk-control="true"
+      title={hint}
+      style={{
+        appearance: 'none',
+        border: `1px solid ${enabled ? color.mom : color.borderStrong}`,
+        background: enabled ? color.mom : color.surface,
+        color: enabled ? '#fff' : color.textPrimary,
+        borderRadius: 999,
+        padding: '6px 14px',
+        fontSize: font.size.xs,
+        fontWeight: font.weight.semibold,
+        cursor: 'pointer',
+        boxShadow: shadow.card,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        letterSpacing: '0.02em',
+        animation: enabled ? 'kioskPulseRing 1.8s ease-out infinite' : 'none',
+      }}
+    >
+      <span aria-hidden>{enabled ? '⏸' : '▶'}</span>
+      <span>{enabled ? stopLabel : startLabel}</span>
+    </button>
   );
 }
 
