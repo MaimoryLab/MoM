@@ -32,13 +32,13 @@ export type KioskLiveStep =
 // Wall-clock timings. Kept in one place so the exhibition operator can tune
 // them without hunting through components.
 export const KIOSK_TIMING = {
-  overviewHoldMs: 12000,
+  overviewHoldMs: 5000,
   livePromptMs: 800,
-  liveAnswersMs: 6500,     // typewriter budget for MoM/Baseline
+  liveAnswersMaxMs: 30000, // upper bound; usually finishes earlier via onDone
   liveAnswersHoldMs: 2500,
   liveJudgeMs: 2500,
   liveCostMs: 2800,
-  pipelinePlayMs: 14000,   // pipeline's own animation is ~10s; give a buffer
+  pipelinePlayMs: 25000,
 } as const;
 
 interface KioskContextValue {
@@ -50,6 +50,9 @@ interface KioskContextValue {
   start: () => void;
   stop: () => void;
   toggle: () => void;
+  // OutputCard calls this when its typewriter finishes. When BOTH MoM and
+  // Baseline have reported done we advance to the next Live sub-step early.
+  notifyLiveAnswerDone: () => void;
 }
 
 const NULL_CTX: KioskContextValue = {
@@ -61,22 +64,67 @@ const NULL_CTX: KioskContextValue = {
   start: () => {},
   stop: () => {},
   toggle: () => {},
+  notifyLiveAnswerDone: () => {},
 };
 
 const KioskContext = createContext<KioskContextValue>(NULL_CTX);
 
-// Helper: fetch the intersection of gwIds that appear in both Live comparison
-// history AND Pipeline aggregator history — those are the runs where both
-// pages have something to show.
-async function fetchQueue(): Promise<string[]> {
+// Helper: build the play queue. Prefer runs present in BOTH Live comparison
+// history and Pipeline aggregator traces (both pages will have something to
+// show); otherwise fall back to Live-only so the exhibition doesn't stall on
+// an empty Pipeline page. Kiosk button no longer silently fails when only
+// one endpoint has data.
+export interface KioskQueueEntry {
+  gwId: string;
+  hasLive: boolean;
+  hasPipeline: boolean;
+}
+
+async function fetchQueueDetailed(): Promise<KioskQueueEntry[]> {
+  // Prefer runs present on BOTH sides so the loop shows a full Live +
+  // Pipeline pair each cycle. If none exist, fall back to whichever singles
+  // ARE available — each phase's run* code skips its side if hasLive/
+  // hasPipeline is false, so an Overview-only loop is a fallback of last
+  // resort (empty queue).
   const [comps, traces] = await Promise.all([
     listComparisons(20).catch(() => ({ items: [] as { gateway_request_id: string }[] })),
     listTraces({ limit: 20, role: 'aggregator' }).catch(() => ({ items: [] as { gateway_request_id: string }[] })),
   ]);
-  const traceSet = new Set(traces.items.map((t) => t.gateway_request_id));
-  return comps.items
-    .map((c) => c.gateway_request_id)
-    .filter((id) => traceSet.has(id));
+  const liveOrder = comps.items.map((c) => c.gateway_request_id);
+  const traceOrder = traces.items.map((t) => t.gateway_request_id);
+  const liveSet = new Set(liveOrder);
+  const traceSet = new Set(traceOrder);
+
+  const both = liveOrder
+    .filter((id) => traceSet.has(id))
+    .map((gwId) => ({ gwId, hasLive: true, hasPipeline: true }));
+
+  let entries: KioskQueueEntry[];
+  if (both.length > 0) {
+    entries = both;
+  } else {
+    // Fallback: any run from either side, tag with actual availability.
+    const seen = new Set<string>();
+    entries = [];
+    for (const id of liveOrder) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        entries.push({ gwId: id, hasLive: true, hasPipeline: traceSet.has(id) });
+      }
+    }
+    for (const id of traceOrder) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        entries.push({ gwId: id, hasLive: liveSet.has(id), hasPipeline: true });
+      }
+    }
+  }
+  // eslint-disable-next-line no-console
+  console.log('[kiosk] fetchQueue', {
+    live: liveOrder.length, pipeline: traceOrder.length,
+    both: both.length, queue: entries.length,
+  });
+  return entries;
 }
 
 export function KioskProvider({ children }: { children: ReactNode }) {
@@ -87,13 +135,27 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   const [queueLength, setQueueLength] = useState(0);
 
   // Refs so timer callbacks always see fresh values.
-  const queueRef = useRef<string[]>([]);
+  const queueRef = useRef<KioskQueueEntry[]>([]);
   const queueIdxRef = useRef(0);
   const enabledRef = useRef(false);
   const timerRef = useRef<number | null>(null);
   // Marks a short window during which the next hashchange is one we caused
   // (via kioskNavigate). Anything else means the user tapped a nav pill.
   const selfNavRef = useRef(false);
+
+  // Answer-typewriter done counter — both MoM and Baseline call
+  // notifyLiveAnswerDone when their typewriter finishes; when we've had 2
+  // and we're still in the `answers` sub-step, jump forward.
+  const answerDoneCountRef = useRef(0);
+  const onAnswersCompleteRef = useRef<(() => void) | null>(null);
+  const notifyLiveAnswerDone = useCallback(() => {
+    answerDoneCountRef.current += 1;
+    if (answerDoneCountRef.current >= 2 && onAnswersCompleteRef.current) {
+      const cb = onAnswersCompleteRef.current;
+      onAnswersCompleteRef.current = null;
+      cb();
+    }
+  }, []);
 
   const clearTimer = () => {
     if (timerRef.current != null) {
@@ -115,74 +177,119 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   };
 
   // Schedule `fn` after `ms`, unless kiosk got stopped in the meantime.
-  const later = (ms: number, fn: () => void) => {
+  const later = (ms: number, fn: () => void, tag?: string) => {
     clearTimer();
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
       if (!enabledRef.current) return;
+      if (tag) {
+        // eslint-disable-next-line no-console
+        console.log('[kiosk]', tag);
+      }
       fn();
     }, ms);
   };
 
   // ---- Phase machine — plain functions, all read via refs ----------------
 
+  const currentEntry = () => {
+    const q = queueRef.current;
+    if (q.length === 0) return null;
+    return q[queueIdxRef.current % q.length];
+  };
+
+  const advanceQueue = () => {
+    if (queueRef.current.length > 0) {
+      queueIdxRef.current = (queueIdxRef.current + 1) % queueRef.current.length;
+    }
+  };
+
   const runPipeline = () => {
-    const gw = queueRef.current[queueIdxRef.current % Math.max(1, queueRef.current.length)] ?? null;
-    setCurrentGwId(gw);
+    const entry = currentEntry();
+    if (!entry || !entry.hasPipeline) {
+      // Nothing to show on Pipeline for this gwId — skip straight to next.
+      advanceQueue();
+      later(500, () => runOverview(), 'pipeline-skip→overview');
+      return;
+    }
+    setCurrentGwId(entry.gwId);
     setPhase('pipeline');
-    kioskNavigate('pipeline', gw);
+    kioskNavigate('pipeline', entry.gwId);
     later(KIOSK_TIMING.pipelinePlayMs, () => {
-      if (queueRef.current.length > 0) {
-        queueIdxRef.current = (queueIdxRef.current + 1) % queueRef.current.length;
-      }
+      advanceQueue();
       runOverview();
-    });
+    }, 'pipeline→overview');
   };
 
   const runLive = () => {
-    const gw = queueRef.current[queueIdxRef.current % Math.max(1, queueRef.current.length)] ?? null;
-    setCurrentGwId(gw);
+    const entry = currentEntry();
+    if (!entry) {
+      // Empty queue — Overview-only loop.
+      later(KIOSK_TIMING.overviewHoldMs, () => runOverview(), 'live-empty→overview');
+      return;
+    }
+    if (!entry.hasLive) {
+      // Skip Live for this gwId, go straight to Pipeline if it has one.
+      runPipeline();
+      return;
+    }
+    setCurrentGwId(entry.gwId);
     setPhase('live');
     setLiveStep('prompt');
     kioskNavigate('live');
+
+    const afterAnswers = () => {
+      setLiveStep('answers-hold');
+      later(KIOSK_TIMING.liveAnswersHoldMs, () => {
+        setLiveStep('judge');
+        later(KIOSK_TIMING.liveJudgeMs, () => {
+          setLiveStep('cost');
+          later(KIOSK_TIMING.liveCostMs, () => {
+            setLiveStep('done');
+            runPipeline();
+          }, 'cost→pipeline');
+        }, 'judge→cost');
+      }, 'answers-hold→judge');
+    };
+
     later(KIOSK_TIMING.livePromptMs, () => {
+      // Reset done counter, wire callback, flip to answers. When both
+      // typewriters finish, notifyLiveAnswerDone fires afterAnswers early;
+      // otherwise the maxMs fallback ticks in.
+      answerDoneCountRef.current = 0;
+      let fired = false;
+      const wrapped = () => {
+        if (fired) return;
+        fired = true;
+        onAnswersCompleteRef.current = null;
+        afterAnswers();
+      };
+      onAnswersCompleteRef.current = wrapped;
       setLiveStep('answers');
-      later(KIOSK_TIMING.liveAnswersMs, () => {
-        setLiveStep('answers-hold');
-        later(KIOSK_TIMING.liveAnswersHoldMs, () => {
-          setLiveStep('judge');
-          later(KIOSK_TIMING.liveJudgeMs, () => {
-            setLiveStep('cost');
-            later(KIOSK_TIMING.liveCostMs, () => {
-              setLiveStep('done');
-              runPipeline();
-            });
-          });
-        });
-      });
-    });
+      later(KIOSK_TIMING.liveAnswersMaxMs, wrapped, 'answers→hold(maxfallback)');
+    }, 'prompt→answers');
   };
 
   const runOverview = () => {
     setPhase('overview');
     kioskNavigate('overview');
-    later(KIOSK_TIMING.overviewHoldMs, () => runLive());
+    later(KIOSK_TIMING.overviewHoldMs, () => runLive(), 'overview→live');
   };
 
   const start = useCallback(async () => {
     if (enabledRef.current) return;
-    const q = await fetchQueue();
-    if (q.length === 0) return;
+    // Optimistically flip enabled ON so the toggle button shows immediate
+    // feedback while we fetch the queue. If fetch fails or returns empty,
+    // we still run — just an Overview-only loop.
+    enabledRef.current = true;
+    setEnabled(true);
+    let q: KioskQueueEntry[] = [];
+    try { q = await fetchQueueDetailed(); } catch { /* keep q = [] */ }
+    if (!enabledRef.current) return; // user hit stop before fetch resolved
     queueRef.current = q;
     queueIdxRef.current = 0;
     setQueueLength(q.length);
-    enabledRef.current = true;
-    setEnabled(true);
-    // start next tick so React commits enabled=true before phase timers fire
-    window.setTimeout(() => {
-      if (!enabledRef.current) return;
-      runOverview();
-    }, 0);
+    runOverview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -237,7 +344,8 @@ export function KioskProvider({ children }: { children: ReactNode }) {
     start,
     stop,
     toggle,
-  }), [enabled, phase, liveStep, currentGwId, queueLength, start, stop, toggle]);
+    notifyLiveAnswerDone,
+  }), [enabled, phase, liveStep, currentGwId, queueLength, start, stop, toggle, notifyLiveAnswerDone]);
 
   return createElement(KioskContext.Provider, { value }, children);
 }

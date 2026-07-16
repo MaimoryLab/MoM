@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { color, font, radius, space } from '../../theme';
@@ -22,6 +22,12 @@ interface Props {
    * a scrolling modal would double-scroll.
    */
   flush?: boolean;
+  /**
+   * When true, keep the box scrolled to the bottom as `text` grows. Used by
+   * kiosk mode's typewriter so the trailing chars stay visible instead of
+   * being clipped past the fixed-height viewport.
+   */
+  autoScroll?: boolean;
 }
 
 /**
@@ -29,9 +35,16 @@ interface Props {
  * Streaming-friendly: safe to re-render on every mom_delta.
  * No raw HTML, no syntax highlighter (bundle size).
  */
-export function MarkdownBody({ text, minHeight = 260, maxHeight = 420, height, cursor, flush = false }: Props) {
+export function MarkdownBody({ text, minHeight = 260, maxHeight = 420, height, cursor, flush = false, autoScroll = false }: Props) {
   const boxMin = height ?? minHeight;
   const boxMax = height ?? maxHeight;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!autoScroll) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [text, autoScroll]);
   const wrapperStyle: CSSProperties = flush
     ? {
         margin: 0,
@@ -55,7 +68,7 @@ export function MarkdownBody({ text, minHeight = 260, maxHeight = 420, height, c
         overflow: 'auto',
       };
   return (
-    <div style={wrapperStyle}>
+    <div ref={scrollRef} style={wrapperStyle}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

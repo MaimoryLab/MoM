@@ -24,6 +24,7 @@ export const en = {
   kiosk: {
     start: 'Auto play',
     stop: 'Stop',
+    running: 'Auto-playing',
     startHint: 'Cycle Overview → Live → Pipeline for each run',
     empty: 'No runs to auto-play yet',
     liveStartLabel: 'Auto play',
@@ -319,6 +320,7 @@ export const zh: Dict = {
   kiosk: {
     start: '轮播模式',
     stop: '停止轮播',
+    running: '轮播中',
     startHint: '性能报告 → 实时对比 → 请求流程 循环展示',
     empty: '暂无可用于轮播的会话记录',
     liveStartLabel: '开启轮播',

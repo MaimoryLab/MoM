@@ -9,6 +9,7 @@ import { MarkdownBody } from '../components/primitives/MarkdownBody';
 import { JudgeRadar } from '../components/charts/JudgeRadar';
 import { useI18n } from '../i18n/context';
 import { useTypewriter } from '../hooks/useTypewriter';
+import { useKiosk } from '../hooks/useKioskMode';
 import { formatCost, formatLatency, formatTokens } from '../i18n/format';
 import { humanizeModelName } from '../lib/model-name';
 import { color, font, radius, space } from '../theme';
@@ -180,12 +181,17 @@ function OutputCard({
   typewriter?: boolean;
   cursor?: 'mom' | 'baseline' | null;
 }) {
-  const visible = useTypewriter(body, { active: !!typewriter, msPerChar: 14 });
+  const kiosk = useKiosk();
+  const visible = useTypewriter(body, {
+    active: !!typewriter,
+    msPerChar: 14,
+    onDone: typewriter ? kiosk.notifyLiveAnswerDone : undefined,
+  });
   const shown = typewriter ? visible : body;
   const cursorProp: 'mom' | 'baseline' | null | undefined = typewriter && shown !== body ? cursor : cursor;
   return (
     <Card title={title} subtitle={subtitle}>
-      <MarkdownBody text={shown} cursor={cursorProp ?? null} height={OUTPUT_BOX_HEIGHT} />
+      <MarkdownBody text={shown} cursor={cursorProp ?? null} height={OUTPUT_BOX_HEIGHT} autoScroll={!!typewriter} />
       {footer && (
         <div style={{ display: 'flex', gap: space.md, fontSize: font.size.sm, color: color.textSecondary, alignItems: 'center' }}>
           {footer}

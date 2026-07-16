@@ -7,8 +7,9 @@ import { PipelinePage } from './pages/PipelinePage';
 import { CostPage } from './pages/CostPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LiveJobProvider } from './hooks/useLiveRun';
-import { KioskProvider } from './hooks/useKioskMode';
-import { color } from './theme';
+import { KioskProvider, useKiosk } from './hooks/useKioskMode';
+import { useI18n } from './i18n/context';
+import { color, font, shadow, space } from './theme';
 
 const PAGES: PageKey[] = ['overview', 'live', 'pipeline', 'cost', 'settings'];
 
@@ -60,6 +61,39 @@ function Router() {
         {page === 'cost'     && <CostPage />}
         {page === 'settings' && <SettingsPage />}
       </main>
+      <KioskOverlay />
+    </div>
+  );
+}
+
+function KioskOverlay() {
+  const kiosk = useKiosk();
+  const { t } = useI18n();
+  if (!kiosk.enabled) return null;
+  const phaseLabel = kiosk.phase === 'overview' ? t.nav.overview
+    : kiosk.phase === 'live' ? t.nav.live
+    : t.nav.pipeline;
+  return (
+    <div
+      style={{
+        position: 'fixed', bottom: space.lg, right: space.lg, zIndex: 100,
+        background: color.surface, border: `1px solid ${color.mom}`,
+        borderRadius: 999, padding: `${space.sm} ${space.md}`,
+        boxShadow: shadow.raised, fontSize: font.size.xs, color: color.textPrimary,
+        display: 'inline-flex', alignItems: 'center', gap: space.sm,
+        fontFamily: font.sans, pointerEvents: 'none',
+      }}
+    >
+      <span aria-hidden style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: color.mom, animation: 'kioskPulseRing 1.8s ease-out infinite' }} />
+      <span style={{ fontWeight: font.weight.semibold }}>{t.kiosk.running}</span>
+      <span style={{ color: color.textSecondary }}>·</span>
+      <span>{phaseLabel}</span>
+      {kiosk.queueLength > 0 && (
+        <>
+          <span style={{ color: color.textSecondary }}>·</span>
+          <span style={{ color: color.textMuted }}>{kiosk.queueLength}</span>
+        </>
+      )}
     </div>
   );
 }
