@@ -41,8 +41,8 @@ export function LivePage() {
     <PageShell
       title={t.nav.live}
       subtitle={lang === 'zh'
-        ? 'MoM 输出 vs Baseline 输出 · 展示模式（去"提问"页发送新问题）'
-        : 'MoM output vs Baseline output. Viewer-only — head to Chat to submit a new question.'}
+        ? 'MoM 输出 vs Baseline 输出'
+        : 'MoM output vs Baseline output'}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: space.md }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: space.md, flexWrap: 'wrap' }}>
@@ -58,6 +58,9 @@ export function LivePage() {
           />
         </div>
         <StatusStrip live={current} polling={live.polling} transportError={live.transportError} />
+        <Card title={t.live.rankingTitle} subtitle={t.live.rankingSubtitle}>
+          <RankingChart seed={currentGw ?? 'preview'} />
+        </Card>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: space.md }}>
           <MomColumn snap={current} />
           <BaselineColumn snap={current} />
@@ -73,9 +76,6 @@ export function LivePage() {
             </Button>
           </div>
         )}
-        <Card title={t.live.rankingTitle} subtitle={t.live.rankingSubtitle}>
-          <RankingChart seed={currentGw ?? 'preview'} />
-        </Card>
       </div>
     </PageShell>
   );

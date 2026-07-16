@@ -433,7 +433,7 @@ function ComposerBar({
       <div
         style={{
           display: 'flex',
-          alignItems: 'flex-end',
+          alignItems: 'center',
           gap: space.sm,
           background: color.surface,
           border: `1px solid ${color.borderStrong}`,

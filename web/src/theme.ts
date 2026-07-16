@@ -23,11 +23,15 @@ export const color = {
 
   // series colors (cool, low-saturation)
   aggregatorOnly: '#7D8AB0', // 灰蓝,内部 aggregator baseline
-  flagship: '#8891A5',       // 冷中灰,Fable 5 / flagship compare
+  flagship: '#8891A5',       // 冷中灰,Fable 5 / flagship compare (Cost 页 baseline 条仍用它)
+  rankFlagship: '#E6923A',   // ISS-039: Ranking 图的 flagship 线专用琥珀橙,和 mom 蓝拉开对比
 
-  advisorA: '#5A6FE0',
-  advisorB: '#6D7AC0',
-  advisorC: '#8A93D1',
+  // ISS-039: advisor A/B/C 从浅蓝阶换成"暖橙 / 青绿 / 紫红"三色,让 Cost 饼图/堆叠柱
+  // 一眼分辨各角色占比;色相环上彼此相距 ≥ 60°,低饱和不刺眼,和 Ranking 的 rankFlagship
+  // 保持同色系(A = rankFlagship)。Aggregator 仍用 mom 蓝(见 CostPie/CostStackedBar)。
+  advisorA: '#E6923A',
+  advisorB: '#3EA69E',
+  advisorC: '#B85F9E',
 
   // semantic
   positive: '#3E9E6E',

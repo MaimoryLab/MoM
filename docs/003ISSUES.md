@@ -1509,6 +1509,43 @@ Overview 页 Cost×效果 图横轴是 `Cost ($ / 1M output token)`——单价�
 -> web/src/i18n/dict.ts（overview.paretoAxisX 中英）
 -> 004CHANGELOG.md [2026-07-15-4]
 
+---
+
+## [ISS-039] Dashboard 四页 UI 打磨：按钮居中 / Ranking 上移换色 / Pipeline Advisor 浮层与 Aggregator 卡 / Cost 三色
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：见 CHANGELOG [2026-07-16-1]。ComposerBar `alignItems: center`；LivePage `<Card title={rankingTitle}>` 位置从末尾提到 StatusStrip 之下；RankingChart flagship 换 `color.rankFlagship #E6923A`（新增常量，`color.flagship` 保留给 Overview / Live baseline 条）；AdvisorCard 里 MarkdownBody 外套白盒(`color.bg` + border)走 flush 模式；新增 AggregatorCard 大卡片渲染 aggregator 完整 Markdown 回复；theme.ts `advisorA/B/C` 覆写为琥珀橙/青绿/紫红 `#E6923A / #3EA69E / #B85F9E`（CostPie/CostStackedBar 通过常量间接换色）。
+
+**现象**：
+1. `#chat` — ComposerBar 里 textarea 与发送按钮用 `alignItems: 'flex-end'`，按钮贴文本框底部而不是垂直居中；96px 的 composer 里视觉配平不对。
+2. `#live` — RankingChart 位于 LivePage 最后一块，观众必须滚到底部才能看到"动态相对排名"这个卖点图；且 flagship 线 `#8891A5`（冷中灰）和 aggregatorOnly `#7D8AB0`（灰蓝）在 1080P 展示屏上几乎糊在一起，只能识别蓝线（MoM）。
+3. `#pipeline` —
+   - AdvisorCard 的卡片底是 `color.bgSubtle #C5D3F0`，卡内 MarkdownBody 没底色透传成同色，advisor 回复文本与卡片底"融"在一起。
+   - Aggregator 在 FanoutFlow 里用的是 FlowNode 一行元数据（model / latency / tokens / cost），完全没渲染 `response_text`；观众只能看到 advisor 的回复，看不到 aggregator 的整合结果——违反"请求流程"的展示初衷。
+4. `#cost` — CostPie / CostStackedBar 里 advisorA/B/C = `#5A6FE0 / #6D7AC0 / #8A93D1`，加上 aggregator 的 `#3E5BDB`，四段全是深浅蓝，饼图糊成一坨；观众无法一眼看出各角色成本占比。
+
+**后果**：
+四点均为展会现场可见的体验缺陷，累计影响"Chat/Live/Pipeline/Cost"四个主页面的第一印象，尤其 Cost 饼图和 Ranking 图直接影响"MoM 更省 / MoM 更强"两条主叙事的可读性。
+
+**初步判断**：
+已确认。用户在展会调试时四条现象均已复现，确认改法：
+1. ComposerBar `alignItems: 'flex-end'` → `'center'`。
+2. RankingChart 位置提到 StatusStrip 下方 / MomColumn+BaselineColumn 上方；flagship 换 `#E6923A` 琥珀橙（新增 `color.rankFlagship`，不动 `color.flagship` 以免污染 Cost 页 baseline 条颜色）。
+3. AdvisorCard 里 MarkdownBody 外层套 `background: color.bg` + 边框 + padding，让文本浮出卡底；Aggregator 由 FlowNode 升级为 AggregatorCard（header + 白盒 MarkdownBody + 元数据行）。
+4. `theme.ts` 覆写三个 advisor 常量：advisorA = 琥珀橙 `#E6923A` / advisorB = 青绿 `#3EA69E` / advisorC = 紫红 `#B85F9E`；Aggregator 保持 MoM 蓝 `#3E5BDB`。CostPie / CostStackedBar 无需改代码。
+
+**关联**：
+-> web/src/pages/ChatPage.tsx（ComposerBar 垂直居中）
+-> web/src/pages/LivePage.tsx（RankingChart 位置）
+-> web/src/pages/PipelinePage.tsx（AdvisorCard 浮层背景 + Aggregator 大卡片）
+-> web/src/components/charts/RankingChart.tsx（第三条线换色）
+-> web/src/components/charts/CostPie.tsx / CostStackedBar.tsx（由 theme 常量间接换色）
+-> web/src/theme.ts（advisorA/B/C 换值 + 新增 rankFlagship）
+
 <!--
 新增条目模板：
 

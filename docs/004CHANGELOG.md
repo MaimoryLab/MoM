@@ -1,3 +1,38 @@
+## [2026-07-16-1] polish(web): dashboard four-page UI polish — button center / ranking hoist + amber / pipeline advisor float + aggregator card / cost tri-color [ISS-039]
+
+### 改动
+- `web/src/pages/ChatPage.tsx`：ComposerBar 里 textarea + Submit 按钮的容器 `alignItems` 从 `flex-end` 改为 `center`，让发送按钮相对 96px composer 垂直居中（此前贴文本框底部）
+- `web/src/pages/LivePage.tsx`：把 `<Card title={t.live.rankingTitle}>` 从页面最底部提到 `<StatusStrip>` 下方、`<MomColumn/BaselineColumn>` 那一栏上方——观众进 Live 页第一眼就能看到"动态相对排名"这张核心叙事图
+- `web/src/components/charts/RankingChart.tsx`：`flagship` 线的 stroke / dot 从 `color.flagship (#8891A5 冷中灰)` 换成新增的 `color.rankFlagship (#E6923A 琥珀橙)`——原三条线蓝-灰-灰几乎糊在一起，换成蓝-灰-橙后 1080P 展示屏上肉眼可辨；`color.flagship` 常量本体保留，Overview 页 ComboChart/ParetoChart/JudgeRadar 与 Live 页 CostRow baseline 条颜色语义不受影响
+- `web/src/pages/PipelinePage.tsx`：
+  - `AdvisorCard`：给 `<MarkdownBody>` 外套一层白盒（`background: color.bg (#EDF1FC 极浅蓝)` + `border` + `padding` + `maxHeight: 200 / overflow: auto`），MarkdownBody 走 `flush` 模式——advisor 回复文本从卡片 `bgSubtle (#C5D3F0)` 底色里浮出来
+  - 新增 `AggregatorCard` 组件（大卡片形态，结构对齐 AdvisorCard），替代原来的 `FlowNode` 单行元数据；卡片底 `color.momSoft`、边框 `color.mom`，内嵌白盒 Markdown 浮层（`maxHeight: 260`）渲染 aggregator 完整 `response_text`；底部保留 model / latency / tokens / cost 元数据行
+- `web/src/theme.ts`：
+  - 新增 `color.rankFlagship: '#E6923A'`（琥珀橙，仅 RankingChart 用）
+  - `color.advisorA` `#5A6FE0` → `#E6923A` 琥珀橙
+  - `color.advisorB` `#6D7AC0` → `#3EA69E` 青绿
+  - `color.advisorC` `#8A93D1` → `#B85F9E` 紫红
+  - CostPie / CostStackedBar 通过常量间接换色，无需改代码；Cost 饼图/堆叠柱四段变成 橙/青/紫/蓝（蓝为 Aggregator MoM 主色），一眼分辨占比
+
+### 涉及文件
+- web/src/pages/ChatPage.tsx：ComposerBar `alignItems` 居中
+- web/src/pages/LivePage.tsx：RankingChart 上移到 StatusStrip 之下
+- web/src/pages/PipelinePage.tsx：AdvisorCard MarkdownBody 浮层 + 新增 AggregatorCard
+- web/src/components/charts/RankingChart.tsx：flagship 线换 `color.rankFlagship`
+- web/src/theme.ts：新增 rankFlagship / 覆写 advisorA/B/C 三色
+- docs/003ISSUES.md：新增 ISS-039，状态 [进行中] → 交付时改 [已解决]
+
+### 自检
+- `npm run typecheck`：通过（无输出）
+- `npm run build`：通过（tsc 编译成功）
+- `npm run build --workspace=web`：通过（vite build 输出 838.31 kB → gzip 236.92 kB，与改动前一致）
+- `npm test`：`test/orchestrator-cost.test.ts:569` 失败 1 项——**pre-existing**，在我改动前的 clean tree 上 stash 验证同样失败；与本次 web 侧改动完全无关（未触碰 `src/orchestrator/`）
+
+### 关联
+-> ISS-039
+
+---
+
 ## [2026-07-15-5] refactor(web): rewrite chat page to classic chatbot layout [ISS-037]
 
 ### 改动
