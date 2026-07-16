@@ -1,3 +1,29 @@
+## [2026-07-16-4] fix(web): stabilize recharts data prop refs to stop hover-triggered chart reset [ISS-042]
+
+### 改动
+- `web/src/components/charts/ComboChart.tsx`：
+  - 把 `normalizeBenchmarkRows(benchmarks.per_benchmark)` 提到模块顶层的 `STATIC_PER_BENCHMARK`——原先每次 `ComboChart()` 函数重跑都会生成一个新的 array reference 塞给 `<ComposedChart data={…}>`，命中 Recharts `getDerivedStateFromProps` 里 `data !== prevState.prevData` 的严格引用比较，触发**完全 state reset + updateId + 1**（`updateId` 又会传给每条 `Bar/Line` 作 `animationId`，即便 `isAnimationActive={false}` state reset 本身仍会重跑轴映射 / tooltip 定位 / layer 重挂载，视觉上就是"整图闪一下"）
+  - `scoreDomain` / `costDomain` / `costDecimals` 用 `useMemo(() => ..., [])` 一次算完，避免每次 render 重跑 `flatMap` + `Math.min/max`
+  - `<Tooltip>` 加 `isAnimationActive={false}`——顺手关掉 tooltip 内容的淡入淡出，消除小面积的 hover 动画
+- `web/src/components/charts/CostPie.tsx`：把 `byRole.map(r => ({ name, value, role }))` 结果提到模块顶层的 `STATIC_ROWS`——同一模式
+- `web/src/components/charts/JudgeRadar.tsx`：`data` 数组依赖 props（`mom`/`baseline`）+ i18n 标签，无法搬到模块顶层，改用 `useMemo` + 精确依赖数组（5 个 `judgeDim` + 10 个分数值）——只有真的换了 preset / 语言时才重建
+
+### 涉及文件
+- web/src/components/charts/ComboChart.tsx：`STATIC_PER_BENCHMARK` + `useMemo` + Tooltip `isAnimationActive={false}`
+- web/src/components/charts/CostPie.tsx：`STATIC_ROWS` 提到模块顶层
+- web/src/components/charts/JudgeRadar.tsx：`data` 改 `useMemo`
+- docs/003ISSUES.md：新增 ISS-042，状态 [已解决]
+
+### 自检
+- `npm run typecheck`：退出码 0，无输出
+- `npm run build`：退出码 0，`tsc -p tsconfig.json` 通过
+- `npm run build:web`：退出码 0，vite build 产物与前一版持平（bundle 层面无新增依赖）
+- 手动验证 Recharts 源码：`node_modules/recharts/es6/chart/generateCategoricalChart.js:getDerivedStateFromProps` 内 `if (data !== prevState.prevData || ...) { newState = { ..._defaultState, ..., updateId: prevState.updateId + 1 }; }` 分支——`data` 严格 `!==` 引用比较，确认 stable ref 是正确 dedup key
+- 待人工验证：在 chrome 打开 `http://localhost:5173/dashboard/#overview`，鼠标反复从 chart 外滑入"成本 × 效果"图区域内，观察柱子/点线/坐标轴均不再闪；`#cost CostPie` / `#live JudgeRadar` 同样测试
+
+### 关联
+-> ISS-042
+
 ## [2026-07-16-3] fix(web): disable recharts entry animation on all chart series [ISS-041]
 
 ### 改动

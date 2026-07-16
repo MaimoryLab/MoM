@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart,
   ResponsiveContainer, Tooltip, Legend,
@@ -20,13 +21,21 @@ type Props = {
 
 export function JudgeRadar({ mom, baseline }: Props) {
   const { t } = useI18n();
-  const data = [
+  // Memoize the rows so hover-triggered re-renders of any ancestor don't hand
+  // Recharts a fresh `data` array each time (which would trigger
+  // getDerivedStateFromProps → updateId bump → full state reset).
+  const data = useMemo(() => [
     { dim: t.live.judgeDim.correctness,  mom: mom.correctness,  baseline: baseline.correctness  },
     { dim: t.live.judgeDim.completeness, mom: mom.completeness, baseline: baseline.completeness },
     { dim: t.live.judgeDim.depth,        mom: mom.depth,        baseline: baseline.depth        },
     { dim: t.live.judgeDim.clarity,      mom: mom.clarity,      baseline: baseline.clarity      },
     { dim: t.live.judgeDim.usefulness,   mom: mom.usefulness,   baseline: baseline.usefulness   },
-  ];
+  ], [
+    t.live.judgeDim.correctness, t.live.judgeDim.completeness,
+    t.live.judgeDim.depth, t.live.judgeDim.clarity, t.live.judgeDim.usefulness,
+    mom.correctness, mom.completeness, mom.depth, mom.clarity, mom.usefulness,
+    baseline.correctness, baseline.completeness, baseline.depth, baseline.clarity, baseline.usefulness,
+  ]);
   return (
     <div style={{ width: '100%', height: 340 }}>
       <ResponsiveContainer>

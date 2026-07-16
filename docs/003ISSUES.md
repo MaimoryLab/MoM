@@ -1608,6 +1608,32 @@ Overview 页 Cost×效果 图横轴是 `Cost ($ / 1M output token)`——单价�
 -> web/src/components/charts/JudgeRadar.tsx:42-43（2 Radar 关动画）
 -> 004CHANGELOG.md [2026-07-16-3]
 
+---
+
+## [ISS-042] Overview 页 ComboChart 鼠标 hover 仍会"整图刷一遍"——`data` 引用不稳定触发 Recharts `updateId` bump + full state reset
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：见 CHANGELOG [2026-07-16-4]。三处 chart 组件在函数体内每次 render 都会 `map()` / `flatMap()` 出一个新数组塞给 Recharts 的 `<Chart data={…}>`，即便原始数据完全没变——Recharts 的 `getDerivedStateFromProps` 用严格引用比较 `data !== prevState.prevData`，一旦命中就走「_defaultState + updateId + 1」的**完全 state reset**分支，并把新的 `animationId` 派给每一条 `Bar/Line/Area/Radar`；虽然我们已经把所有系列的 `isAnimationActive={false}`，state reset 本身还是会重跑轴映射、tooltip 定位、layer 重挂载，视觉上就是"整图闪一下"。修法：（a）`ComboChart` 把 `normalizeBenchmarkRows(benchmarks.per_benchmark)` 提到**模块顶层**的 `STATIC_PER_BENCHMARK`，函数内所有 `scoreDomain / costDomain / costDecimals` 用 `useMemo(() => ..., [])` 一次算完；（b）`CostPie` 把 `byRole.map(...)` 结果同样提到模块顶层 `STATIC_ROWS`；（c）`JudgeRadar` 因为 `data` 依赖 props（`mom`/`baseline`）+ i18n 标签，改用 `useMemo` + 精确依赖数组；（d）`ComboChart` 顺手在 `<Tooltip>` 上加 `isAnimationActive={false}` 关掉 tooltip 淡入淡出的额外动画。
+
+**现象**：
+在 Chrome 里打开 `http://localhost:5173/dashboard/#overview`，鼠标从 chart 外滑到"成本 × 效果"（ComboChart）图区域内的瞬间，整块图会闪一下——柱子、点线、坐标轴 tick 全部瞬时重画一遍，视觉上等同"刷新"。用户在 ISS-041 已经把所有系列的 `isAnimationActive={false}` 补齐之后，抖动仍然存在，说明动画不是唯一根因。同类问题的 `#live JudgeRadar` / `#cost CostPie` 在展会大屏上鼠标一移入也会一起闪。
+
+**后果**：
+展会现场观众鼠标每碰到图表一次都会看到一次抖动，与"静态基准展示"的叙事直接冲突；这也是 ISS-041 用户复测时"依旧刷新"的直接原因，需要单独立条目彻底解决。
+
+**初步判断**：
+已确认。在 `node_modules/recharts/es6/chart/generateCategoricalChart.js` 的 `getDerivedStateFromProps` 里读到 `if (data !== prevState.prevData) { … newState = { ..._defaultState, ..., updateId: prevState.updateId + 1 }; }`——只要 `data` 引用变了就走完整 reset。触发链：`useLiveJob()` 或 `useHashRoute()` 在其他子树上的 `setState` → `LiveJobProvider` / `Router` 重渲染 → cascading 到没有 memo 的 `OverviewPage` / `ChatPage` / `LivePage` → `ComboChart` / `JudgeRadar` / `CostPie` 函数重跑 → `map()` / `flatMap()` 生成新数组 → Recharts state reset。ChatPage/LivePage 里跟 `useLiveJob` 直接联动的组件已在 ISS-040 里通过快照去重 + `historyKey` 收窄降低了触发密度，但 Overview 页 hover 只要触发 tooltip 内部 setState 就能间接把 ComboChart 重新拉起。
+
+**关联**：
+-> web/src/components/charts/ComboChart.tsx（`STATIC_PER_BENCHMARK` 提到模块顶层 + `useMemo` 缓存 domain / decimals + Tooltip `isAnimationActive={false}`）
+-> web/src/components/charts/CostPie.tsx（`STATIC_ROWS` 提到模块顶层）
+-> web/src/components/charts/JudgeRadar.tsx（`data` 改 `useMemo` + 精确依赖数组）
+-> 004CHANGELOG.md [2026-07-16-4]
+
 <!--
 新增条目模板：
 
