@@ -39,6 +39,24 @@ input, select, textarea { font-family: inherit; }
   100% { box-shadow: 0 0 0 0 rgba(62, 91, 219, 0); }
 }
 
+/* Kiosk / auto-play entry animations. Used by Live/Pipeline cards while the
+   kiosk phase machine (useKioskMode) drives their reveal order. */
+@keyframes kioskEnterUp {
+  0%   { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes kioskEnterFade {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes kioskPulseRing {
+  0%   { box-shadow: 0 0 0 0 rgba(62, 91, 219, 0.55); }
+  70%  { box-shadow: 0 0 0 10px rgba(62, 91, 219, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(62, 91, 219, 0); }
+}
+
 /* Custom scrollbar — cool tint to match new palette */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }

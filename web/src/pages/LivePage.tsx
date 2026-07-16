@@ -15,6 +15,7 @@ import { Button } from '../components/primitives/Button';
 import { useI18n } from '../i18n/context';
 import { color, font, space } from '../theme';
 import { useLiveJob } from '../hooks/useLiveRun';
+import { useKiosk } from '../hooks/useKioskMode';
 import { navigateTo } from '../App';
 import {
   getPresets, listComparisons,
@@ -33,6 +34,17 @@ export function LivePage() {
   const [jobs, setJobs] = useState<ComparisonListItem[]>([]);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const live = useLiveJob();
+  const kiosk = useKiosk();
+
+  // Kiosk mode drives which run is displayed — swap the visible snapshot to
+  // match kiosk.currentGwId whenever it changes while auto-playing.
+  useEffect(() => {
+    if (!kiosk.enabled) return;
+    if (!kiosk.currentGwId) return;
+    if (live.current?.gateway_request_id === kiosk.currentGwId) return;
+    live.select(kiosk.currentGwId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kiosk.enabled, kiosk.currentGwId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,20 +93,26 @@ export function LivePage() {
         : 'MoM output vs Baseline output'}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: space.md, minHeight: 640 }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: space.md, flexWrap: 'wrap' }}>
-          <RunSelect
-            value={currentGw}
-            items={jobs}
-            error={jobsError}
-            onChange={(gw) => live.select(gw)}
-            label={t.live.recentRunsLabel}
-            placeholder={t.live.recentRunsPlaceholder}
-            emptyLabel={t.live.recentRunsEmpty}
-            onNew={{ label: t.live.newRun, onClick: () => live.reset(), variant: 'primary' }}
-          />
-        </div>
-        <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
-        {isEmpty ? (
+        {!kiosk.enabled && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: space.md, flexWrap: 'wrap' }}>
+              <RunSelect
+                value={currentGw}
+                items={jobs}
+                error={jobsError}
+                onChange={(gw) => live.select(gw)}
+                label={t.live.recentRunsLabel}
+                placeholder={t.live.recentRunsPlaceholder}
+                emptyLabel={t.live.recentRunsEmpty}
+                onNew={{ label: t.live.newRun, onClick: () => live.reset(), variant: 'primary' }}
+              />
+            </div>
+            <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
+          </>
+        )}
+        {kiosk.enabled && kiosk.phase === 'live' ? (
+          <KioskResultView snap={current} />
+        ) : isEmpty ? (
           <EmptyState
             prompt={prompt}
             onPromptChange={setPrompt}
@@ -183,10 +201,82 @@ function ResultView({
         <CostCard snap={snap} />
       </div>
       {snap && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: space.sm }}>
+          <KioskStartButton />
           <Button variant="secondary" onClick={() => navigateTo('pipeline', snap.gateway_request_id)}>
             {t.live.viewPipeline} →
           </Button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function KioskStartButton() {
+  const { t } = useI18n();
+  const kiosk = useKiosk();
+  if (kiosk.enabled) return null;
+  return (
+    <Button
+      variant="ghost"
+      data-kiosk-control="true"
+      onClick={() => kiosk.start()}
+    >
+      ▶ {t.kiosk.liveStartLabel}
+    </Button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// KioskResultView — the auto-play version of ResultView. Cards fade in one
+// after another driven by kiosk.liveStep; MoM/Baseline text runs a typewriter
+// during the `answers` step and freezes after.
+// ---------------------------------------------------------------------------
+
+function KioskEnter({ delay = 0, children }: { delay?: number; children: React.ReactNode }) {
+  return (
+    <div style={{ animation: `kioskEnterUp 500ms ease-out ${delay}ms both` }}>
+      {children}
+    </div>
+  );
+}
+
+function KioskResultView({ snap }: { snap: ReturnType<typeof useLiveJob>['current'] }) {
+  const kiosk = useKiosk();
+  const step = kiosk.liveStep;
+  const showAnswers = step === 'answers' || step === 'answers-hold' || step === 'judge' || step === 'cost' || step === 'done';
+  const typing = step === 'answers';
+  const showJudge = step === 'judge' || step === 'cost' || step === 'done';
+  const showCost = step === 'cost' || step === 'done';
+
+  return (
+    <>
+      <KioskEnter>
+        <StatusStrip live={snap} polling={false} transportError={null} />
+      </KioskEnter>
+      <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
+      {showAnswers && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: space.md }}>
+          <KioskEnter>
+            <MomColumn snap={snap} typewriter={typing} cursorOn={typing} />
+          </KioskEnter>
+          <KioskEnter delay={120}>
+            <BaselineColumn snap={snap} typewriter={typing} cursorOn={typing} />
+          </KioskEnter>
+        </div>
+      )}
+      {(showJudge || showCost) && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: space.md }}>
+          {showJudge && (
+            <KioskEnter>
+              <JudgeCard snap={snap} />
+            </KioskEnter>
+          )}
+          {showCost && (
+            <KioskEnter delay={120}>
+              <CostCard snap={snap} />
+            </KioskEnter>
+          )}
         </div>
       )}
     </>

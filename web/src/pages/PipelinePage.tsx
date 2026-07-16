@@ -5,6 +5,8 @@ import { Badge } from '../components/primitives/Badge';
 import { Button } from '../components/primitives/Button';
 import { MarkdownBody } from '../components/primitives/MarkdownBody';
 import { useI18n } from '../i18n/context';
+import { useKiosk } from '../hooks/useKioskMode';
+import { useTypewriter } from '../hooks/useTypewriter';
 import { color, font, radius, shadow, space } from '../theme';
 import { formatCost, formatLatency } from '../i18n/format';
 import { getTracesByGateway, listTraces } from '../lib/api';
@@ -498,8 +500,13 @@ function FlowNode({
 
 function AdvisorCard({ status, node }: { status: NodeStatus; node: ViewNode }) {
   const { t, lang } = useI18n();
+  const kiosk = useKiosk();
   const isPending = status === 'pending';
   const isRunning = status === 'running';
+  const previewText = node.preview ?? '—';
+  const typewriter = kiosk.enabled && status === 'done';
+  const visible = useTypewriter(previewText, { active: typewriter, msPerChar: 12 });
+  const shownText = typewriter ? visible : previewText;
   return (
     <div style={{
       background: isPending ? color.surface : color.bgSubtle,
@@ -538,8 +545,8 @@ function AdvisorCard({ status, node }: { status: NodeStatus; node: ViewNode }) {
           overflow: 'auto',
         }}>
           <MarkdownBody
-            text={node.preview ?? '—'}
-            cursor={isRunning ? 'mom' : null}
+            text={shownText}
+            cursor={isRunning || (typewriter && shownText !== previewText) ? 'mom' : null}
             flush
           />
         </div>
@@ -558,8 +565,13 @@ function AdvisorCard({ status, node }: { status: NodeStatus; node: ViewNode }) {
 // 但配色走 "mom"(蓝色调),区分它是聚合角色而非某个 advisor。
 function AggregatorCard({ status, node }: { status: NodeStatus; node: ViewNode }) {
   const { t, lang } = useI18n();
+  const kiosk = useKiosk();
   const isPending = status === 'pending';
   const isRunning = status === 'running';
+  const previewText = node.preview ?? '—';
+  const typewriter = kiosk.enabled && status === 'done';
+  const visible = useTypewriter(previewText, { active: typewriter, msPerChar: 12 });
+  const shownText = typewriter ? visible : previewText;
   return (
     <div style={{
       background: isPending ? color.surface : color.momSoft,
@@ -593,8 +605,8 @@ function AggregatorCard({ status, node }: { status: NodeStatus; node: ViewNode }
           overflow: 'auto',
         }}>
           <MarkdownBody
-            text={node.preview ?? '—'}
-            cursor={isRunning ? 'mom' : null}
+            text={shownText}
+            cursor={isRunning || (typewriter && shownText !== previewText) ? 'mom' : null}
             flush
           />
         </div>
