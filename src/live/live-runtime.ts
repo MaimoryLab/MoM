@@ -284,6 +284,7 @@ export async function runLiveTurn(
       baselineText: baselineOutcome.text as string,
       judge: mom.judge,
       provider,
+      log,
     });
     finalizeJudge({
       judgeResult,
