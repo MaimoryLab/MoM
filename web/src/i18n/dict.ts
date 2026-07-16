@@ -328,7 +328,7 @@ export const zh: Dict = {
       scoreGpt56: 'GPT 5.6 sol 平均分',
       scoreGpt56Hint: '旗舰参照',
       scoreBaseline: 'GLM 5.2平均分',
-      scoreBaselineHint: '不接 advisor，只跑 aggregator',
+      scoreBaselineHint: '国产优秀模型',
     },
     paretoTitle: '成本 × 效果',
     paretoSubtitle: 'MoM 落在前沿上——分数高，成本低。',
@@ -341,7 +341,7 @@ export const zh: Dict = {
     comboAxisScore: '分数',
     comboAxisCost: '成本（¥）',
     legend: {
-      mom: 'MoM（Mimo v2.5 pro + Kimi k2.7 + GLM 5.2(agggregator)）',
+      mom: 'MoM',
       aggregatorOnly: 'GLM 5.2',
       flagship: 'Fable 5',
       gpt56Sol: 'GPT 5.6 sol',

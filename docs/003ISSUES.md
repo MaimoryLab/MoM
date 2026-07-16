@@ -1711,7 +1711,7 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 **类型**：[功能异常]
 **发现日期**：2026-07-16
 **解决日期**：2026-07-16
-**解决方案**：两张柱图的 domain 计算都过滤掉占位 `0`（`gpt_score`/`gpt_cost` 未填时），只用非零值取 min/max，`ScoreBarChart` 得分域从而由 `[0, 90]` 收敛到 `[30, 80]`，柱体填满绘图区；YAxis 加 `allowDecimals={false}` 强制整数 tick。`CostBarChart` Y 轴与 tooltip 货币符号从 `$` 改为 `¥`（数据一直是 CNY per Q&A，跟 Pareto x 轴同口径），`overview.comboAxisCost` i18n 由 `Cost ($ / 1k token)` 改为 `Cost (CNY per Q&A)`。
+**解决方案**：两张柱图的 domain 计算都过滤掉占位 `0`（`gpt_score`/`gpt_cost` 未填时），只用非零值取 min/max，`ScoreBarChart` 得分域从而由 `[0, 90]` 收敛到 `[30, 80]`，柱体填满绘图区；YAxis 加 `allowDecimals={false}` 强制整数 tick。`CostBarChart` 除同样过滤占位 0 外，`axisMax` 改成分段 step（`<0.1/1/10/50/100` 分别用 `0.01/0.1/1/5/10/50`），当前数据 max 140.9 收敛到 150 而不是 200，顶部空白由 29.5% 降到 6.5%；Y 轴与 tooltip 货币符号从 `$` 改为 `¥`（数据一直是 CNY per Q&A，跟 Pareto x 轴同口径），`overview.comboAxisCost` i18n 由 `Cost ($ / 1k token)` 改为 `Cost (CNY per Q&A)`。
 
 **现象**：
 - ScoreBarChart 里 `gpt_score` 全部占位 0，Recharts 把 auto-domain 拉到 `[0, 90]`，真数据 40-60 被压到图表上半段，视觉信息量塌陷；

@@ -8,10 +8,19 @@ import { color, font, shadow } from '../../theme';
 import { useI18n } from '../../i18n/context';
 import { normalizeBenchmarkRows } from '../../lib/benchmark-data';
 
+// Round up to the next "nice" step so the axis hugs the real max without
+// wasting the top of the chart. Step scales with magnitude: 0.01 / 0.1 / 1 /
+// 5 / 10 / 50 depending on how large the values are.
 function axisMax(value: number): number {
   if (value <= 0) return 1;
-  const magnitude = 10 ** Math.floor(Math.log10(value));
-  return Math.ceil(value / magnitude) * magnitude;
+  const step =
+    value < 0.1 ? 0.01 :
+    value < 1   ? 0.1  :
+    value < 10  ? 1    :
+    value < 50  ? 5    :
+    value < 100 ? 10   :
+    50;
+  return Math.ceil(value / step) * step;
 }
 
 const STATIC_PER_BENCHMARK = normalizeBenchmarkRows(benchmarks.per_benchmark);

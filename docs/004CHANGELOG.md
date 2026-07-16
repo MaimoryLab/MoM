@@ -3,7 +3,8 @@
 ### 改动
 - `web/src/components/charts/ScoreBarChart.tsx`：`scoreDomain` 计算过滤掉占位 `0`（`gpt_score` 尚未填数时），只对非零分数取 min/max × 10 向下/向上取整——此前 `gpt_score: 0` 把 auto-domain 拉到 `[0, 90]`，真数据 40-60 被压到图表上半段；过滤后域收敛到 `[floor(min/10)*10, ceil(max/10)*10]`（当前数据 [30, 80]），柱体填满绘图区
 - `web/src/components/charts/ScoreBarChart.tsx`：YAxis 加 `allowDecimals={false}`，Recharts 只在整数位置画 tick，摆脱 22.5 / 67.5 这类非整数网格
-- `web/src/components/charts/CostBarChart.tsx`：`costDomain` 计算同样过滤占位 `0`，避免未填数据的 series 拖低 max、进而错选 axisMax 量级
+- `web/src/components/charts/CostBarChart.tsx`：`costDomain` 计算同样过滤占位 `0`，避免未填数据的 series 拖低 max
+- `web/src/components/charts/CostBarChart.tsx`：`axisMax` 由「取到当前量级 10^n 的整倍」改为分段 step（`< 0.1 / 1 / 10 / 50 / 100` 分别用 `0.01 / 0.1 / 1 / 5 / 10 / 50`），当前 max 140.9 收敛到 150 而不是 200，顶部空白由 29.5% 降到 6.5%
 - `web/src/components/charts/CostBarChart.tsx`：Y 轴 `tickFormatter` 由 `$` 改为 `¥`；tooltip 里 `${p.value.toFixed(4)}` 同步改为 `¥`——数据本身是 CNY per Q&A（与 Pareto 图 x 轴口径一致），只是符号之前误写成 `$`
 - `web/src/i18n/dict.ts`：`overview.comboAxisCost` 英文由 `'Cost ($ / 1k token)'` 改为 `'Cost (CNY per Q&A)'`；中文 `'成本（¥）'` 保持
 
@@ -15,7 +16,7 @@
 ### 自检
 - `npm run typecheck`：退出码 0，无输出
 - `npm run build:web`：退出码 0，vite 产物无体积变化
-- 增量项：本地打开 http://localhost:5173/dashboard/#overview，得分图 Y 轴当前落在 30-80 之间（跟真实 40-60 数据紧贴），成本图 Y 轴 tick 与 tooltip 都是 `¥` 前缀
+- 增量项：本地打开 http://localhost:5173/dashboard/#overview，得分图 Y 轴 30-80 之间（跟真实 40-60 数据紧贴），成本图 Y 轴 0-150（当前 max 140.9，顶部空白 ~6.5%），tick 与 tooltip 都是 `¥` 前缀；本地 `node -e` 校验 `axisMax` 在多个量级都收敛到期望值（140.9→150 / 95→100 / 45→45 / 8.3→9 / 0.42→0.5）
 - 待人工验证：GPT 5.6 sol 的真实 per-benchmark 分数/成本仍待评测组填入 `data/benchmarks.json`——填入后域会自动扩展（含新值）而不再被占位 0 干扰
 
 ### 关联
