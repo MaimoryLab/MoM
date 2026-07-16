@@ -337,7 +337,7 @@ export const zh: Dict = {
       latencyNote: '单次请求可接受',
       scoreMoM: '混合模型 性能评分',
       scoreMoMHint: '',
-      scoreFable5: 'Fable 5 性能评分',
+      scoreFable5: 'Claude Fable 5 性能评分',
       scoreFable5HintFlagship: '',
       scoreGpt56: 'GPT 5.6 sol 性能评分',
       scoreGpt56Hint: '',
@@ -345,8 +345,8 @@ export const zh: Dict = {
       scoreBaselineHint: '',
     },
     paretoTitle: '成本 × 效果',
-    paretoSubtitle: '混合模型 落在前沿上——分数高，成本低。',
-    paretoAxisX: '总成本（¥）',
+    paretoSubtitle: '混合模型媲美顶级模型——分数高，成本低。',
+    paretoAxisX: '单次测试成本（¥）',
     paretoAxisY: '平均 benchmark 分数',
     scoreBarTitle: 'Benchmark 得分拆解',
     scoreBarSubtitle: '基于 Draco 基准测试，涵盖十大领域的能力评分',
@@ -357,7 +357,7 @@ export const zh: Dict = {
     legend: {
       mom: '混合模型',
       aggregatorOnly: 'GLM 5.2',
-      flagship: 'Fable 5',
+      flagship: 'Claude Fable 5',
       gpt56Sol: 'GPT 5.6 sol',
     },
     benchLabels: {
