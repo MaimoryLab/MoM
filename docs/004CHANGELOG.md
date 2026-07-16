@@ -1,3 +1,58 @@
+## [2026-07-16-13] feat(web): kiosk auto-play mode for exhibition dashboard [ISS-052]
+
+### 改动
+- `web/src/hooks/useKioskMode.ts`（新增）：`KioskProvider` context 托管 `enabled / phase / liveStep / currentGwId / queueLength`；phase machine 按 Overview(5s) → Live(prompt 0.8s → answers 打字机驱动 → answers-hold 2.5s → judge 2.5s → cost 2.8s → done) → Pipeline(25s) → next 循环；`fetchQueueDetailed()` 拉取 `listComparisons(20) ∩ listTraces(20, role=aggregator)` 交集（两侧都有内容的 gwId），交集空时 fallback 单侧队列并给每条打 `hasLive / hasPipeline` 标记，缺哪侧就跳哪侧；`notifyLiveAnswerDone()` 由 OutputCard 打字机 onDone 触发，两侧都完成才推进阶段（`liveAnswersMaxMs=30000ms` 兜底）；全局 `pointerdown / keydown / hashchange / visibilitychange hidden` 都调 `stop()`，`selfNavRef` 500ms 窗口排除 kiosk 自己发起的 hashchange；`[data-kiosk-control="true"]` 元素上的 pointerdown 跳过，避免"点停止 → 再启动"死循环
+- `web/src/hooks/useTypewriter.ts`（新增）：`useTypewriter(full, {active, msPerChar, onDone})` 按字符递增 `visible`；`active=false` 时立即 setVisible(full)，`full` 变化时重置
+- `web/src/App.tsx`：包一层 `KioskProvider`；新增 `KioskOverlay` 组件（右下角悬浮 pill，脉冲小点 + `轮播中 · <phase>` + queue 长度，`pointerEvents:'none'`）
+- `web/src/components/layout/Sidebar.tsx`：TopBar 语言 pill 旁加 `KioskButton`（`▶ 轮播模式` / `⏸ 停止轮播`，`data-kiosk-control="true"`；enabled 时用 `color.mom` 底色 + `kioskPulseRing` 脉冲边框）
+- `web/src/pages/LivePage.tsx`：`kiosk.enabled` 时永远走 `KioskResultView`，不再落到 EmptyState（新建对话页）；`KioskResultView` 按 `liveStep` 分阶段揭示 StatusStrip → MoM/Baseline → Judge → Cost；snap 未就位时显示 `t.pipeline.loading` 占位；kiosk 时隐藏顶部 RunSelect 栏；`KioskStartButton` 显示在 ResultView 底部"查看请求流程"旁；useEffect 监听 `kiosk.currentGwId` 触发 `live.select`
+- `web/src/pages/live-shared.tsx`：`MomColumn / BaselineColumn` 加 `typewriter?: boolean` 与 `cursorOn?: boolean`；`OutputCard` 内接入 `useTypewriter`，打字机激活时 `MarkdownBody` 走 `autoScroll={true}`；typewriter 完成走 `kiosk.notifyLiveAnswerDone` 推进阶段
+- `web/src/pages/PipelinePage.tsx`：`AdvisorCard / AggregatorCard` 加 `useKiosk` + `useTypewriter`，`kiosk.enabled && status==='done'` 时 preview 打字机 + `scrollRef` 自动滚到底；`turn.nodes.length === 0`（有 comparison 但缺 aggregator trace）时显示提示卡片而非光秃箭头
+- `web/src/components/primitives/MarkdownBody.tsx`：新增 `autoScroll?: boolean` prop 与内部 `scrollRef`；`text` 变化且 `autoScroll` 时 `scrollTop = scrollHeight`
+- `web/src/global.css`：`@keyframes kioskEnterUp`（`translateY(16px) → 0 + opacity 0 → 1`）/ `kioskEnterFade` / `kioskPulseRing`
+- `web/src/i18n/dict.ts`：`t.kiosk = { start, stop, running, startHint, empty, liveStartLabel }` 中英各 6 key
+
+### 涉及文件
+- web/src/hooks/useKioskMode.ts：**新增** — 轮播 phase machine + 队列 + 全局停止监听
+- web/src/hooks/useTypewriter.ts：**新增** — 通用打字机 hook
+- web/src/App.tsx：+ KioskProvider + KioskOverlay
+- web/src/components/layout/Sidebar.tsx：+ KioskButton
+- web/src/pages/LivePage.tsx：+ KioskResultView + KioskStartButton；kiosk 期间不走 EmptyState
+- web/src/pages/live-shared.tsx：MomColumn/BaselineColumn 加 typewriter/cursorOn；OutputCard 接 useTypewriter
+- web/src/pages/PipelinePage.tsx：Advisor/AggregatorCard preview 打字机 + autoScroll；空 nodes 提示卡
+- web/src/components/primitives/MarkdownBody.tsx：+ autoScroll prop
+- web/src/global.css：+ 3 个 kiosk keyframes
+- web/src/i18n/dict.ts：+ t.kiosk 段（zh + en）
+
+### 自检
+- `cd web && npx tsc -b --force`：退出码 0
+- `cd web && npm run build`：退出码 0，vite 产物 840.01 kB（gzip 237.58 kB），比 ISS-051 后增 ~6 kB
+- 增量项：本地 http://localhost:5174/dashboard/#overview 点顶栏 `▶ 轮播模式` → 右下角悬浮 pill 出现 `轮播中 · 性能报告 · N` → 5s 后自动跳 Live 页依次揭示 prompt/MoM/Baseline/判分/成本卡（MoM/Baseline 文本走打字机、滚动条自动跟随）→ 跳 Pipeline 页 advisor 卡 preview 也走打字机 25s → 回 Overview 下一条；页面任意点击 / 按键 / Esc / 切 Tab 立即停止轮播（悬浮 pill 消失）
+- 待人工验证：真实展会 1080p 屏观感；连续跑 30 min 观察是否有 timer 累积/内存泄漏；`fetchQueue` 输出 `playable: 0` 时的 fallback 队列（缺一侧的 gwId）观感
+
+### 关联
+-> ISS-052
+
+## [2026-07-16-12] refactor(web): move sidebar to top bar for horizontal navigation [ISS-051]
+
+### 改动
+- `web/src/components/layout/Sidebar.tsx`：外层 `<aside width:244>` 改成 sticky `<header height:72>`；主轴由竖排改横排；`BrandBlock` 折成"图标 + 品牌名/tagline 两行"放左；`nav` pill 居中；`FooterBlock`（语言切换 + 版本号）放右
+- `web/src/App.tsx`：Router 根容器 `flex-direction: row` → `column`
+- `web/src/theme.ts`：新增 `layout.topBarHeight = 72`（保留 `sidebarWidth: 244` 常量避免其他文件误引用）
+
+### 涉及文件
+- web/src/components/layout/Sidebar.tsx：`<aside>` → `<header>`，横向布局
+- web/src/App.tsx：Router 根 flex-direction 改 column
+- web/src/theme.ts：+ layout.topBarHeight
+
+### 自检
+- `cd web && npm run build`：退出码 0，vite 产物 834.01 kB（gzip 235.64 kB），比合并前小 ~6 kB（新入口不影响）
+- 增量项：本地打开 dashboard，顶栏一行显示 品牌·nav pill·语言切换/版本；滚长页面时 sticky top-bar 常驻；主内容区宽度从 ~1676px 拉宽到全屏（1520 内容盒 + 两侧留白）
+- 待人工验证：真实展会 1080p 屏对齐；lang 切换到 zh 后 tagline 长度对齐观感
+
+### 关联
+-> ISS-051
+
 ## [2026-07-16-11] fix(live): raise live max_tokens ceiling from 2048 to 8192, make it configurable [ISS-050]
 
 ### 改动

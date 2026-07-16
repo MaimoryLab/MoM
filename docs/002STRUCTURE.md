@@ -96,26 +96,28 @@ MoM/
 │   ├── index.html
 │   └── src/
 │       ├── main.tsx               # React 挂载入口 + I18nProvider 包裹 App
-│       ├── App.tsx                # Phase 7 起：hash-based Router，parseHash / formatHash / navigateTo(page, turn?) / useHashRoute；#pipeline?turn=<gwId> 双入口；PipelinePage 收 turnFromUrl prop
+│       ├── App.tsx                # 更新 — ISS-052；hash-based Router + parseHash / formatHash / navigateTo(page, turn?) / useHashRoute；#pipeline?turn=<gwId> 双入口；PipelinePage 收 turnFromUrl prop；根容器 flex-direction: column（配合 ISS-051 top bar）；顶层挂 KioskProvider 与 KioskOverlay（右下角悬浮 pill 展示轮播状态）
 │       ├── theme.ts               # 色板 / 字号阶梯 / 圆角 / 阴影常量集中定义（ISS-030 改：royal-blue 冷主色 + 冷灰 advisor 色带 + 冷白底 + font.size 十档语义常量 base 18px）
-│       ├── global.css             # 全局冷白底、base font 18px、blink / pulse-mom keyframe、字体栈
+│       ├── global.css             # 更新 — ISS-052；全局冷白底、base font 18px、blink / pulse-mom keyframe、字体栈；kiosk 入场动画 kioskEnterUp / kioskEnterFade / kioskPulseRing 三个 keyframes
 │       ├── i18n/                  # 新增 — ISS-028；自研 i18n（不引入 i18next）
 │       │   ├── dict.ts            # 中英双语字典（术语保留英文，叙述性文字本地化）
 │       │   ├── context.tsx        # I18nProvider + useI18n；语言持久化 localStorage
 │       │   └── format.ts          # 成本 / 延迟 / token 数按 locale 格式化
 │       ├── hooks/                 # 新增 — ISS-028
-│       │   ├── useLiveRun.ts      # 更新 — ISS-035；重写为 LiveJobProvider + useLiveJob(Context)：submitLiveRun 触发后 3s 轮询 getComparison(gwId)；state 提到 App 层，切页面不丢；useTypewriter 已删（不再需要打字机）
+│       │   ├── useLiveRun.ts      # 更新 — ISS-035；LiveJobProvider + useLiveJob(Context)：submitLiveRun 触发后 3s 轮询 getComparison(gwId)；state 提到 App 层，切页面不丢
+│       │   ├── useKioskMode.ts    # 新增 — ISS-052；KioskProvider phase machine（overview → live 分阶段 → pipeline → next）+ fetchQueueDetailed(listComparisons ∩ listTraces role=aggregator) + 全局 pointerdown/keydown/hashchange/visibility hidden 停止；notifyLiveAnswerDone 由两侧打字机 onDone 计数推进阶段
+│       │   ├── useTypewriter.ts   # 新增 — ISS-052；按字符递增的通用打字机 hook（active/msPerChar/onDone）；kiosk 期间 Live MoM/Baseline 与 Pipeline advisor/aggregator preview 都消费它
 │       │   └── useEventSource.ts  # 空壳，签名与未来 SSE 一致；未消费
 │       ├── pages/                 # 新增 — ISS-028；五页（ISS-049 起：Chat 页合并进 Live）
 │       │   ├── OverviewPage.tsx   # Pareto 主图 + benchmark combo 副图 + 3 KPI（效果层）
-│       │   ├── LivePage.tsx       # 更新 — ISS-049；两态单页：顶部 RunSelect（历史 + `+ 新对话` primary 按钮，`live.reset()`）常驻；empty state 屏幕中央 Composer + PresetsList（一行一条），不渲染对比卡片；有 run 时 StatusStrip / MoM / Baseline / Judge / Cost / 跳 Pipeline，隐藏 Composer
-│       │   ├── live-shared.tsx    # 更新 — ISS-049；LivePage 拆件（StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard / PresetsList / Composer / RunSelect）；MoM/Baseline empty state 模型名走 t.live.emptyModel、footer 不渲染，380px 固定文本框保留；RunSelect 的 onNew 支持 variant 传参
-│       │   ├── PipelinePage.tsx   # 更新 — ISS-036；Advisor answer 走 MarkdownBody（渲染 LLM 输出的列表 / 代码块 / 加粗）；DiffModal 两栏走 MarkdownBody（flush 模式，外壳滚动）；DiffModal 点空白关闭
+│       │   ├── LivePage.tsx       # 更新 — ISS-052；两态单页 + kiosk 分支：kiosk.enabled 时永远走 KioskResultView（按 kiosk.liveStep 分阶段揭示 StatusStrip / MoM+Baseline / Judge / Cost，snap 未就位时显示 loading 占位），不再落到 EmptyState；kiosk 期间隐藏顶部 RunSelect；KioskStartButton 在 ResultView 底部"查看请求流程"旁；useEffect 监听 kiosk.currentGwId 触发 live.select
+│       │   ├── live-shared.tsx    # 更新 — ISS-052；MomColumn / BaselineColumn 加 typewriter / cursorOn；OutputCard 内接入 useTypewriter，autoScroll 跟随文本增长；typewriter 完成走 kiosk.notifyLiveAnswerDone 推进阶段
+│       │   ├── PipelinePage.tsx   # 更新 — ISS-052；AdvisorCard / AggregatorCard 接入 useTypewriter，kiosk.enabled && status==='done' 时 preview 打字机 + scrollRef 自动滚到底；turn.nodes.length===0 时显示提示卡片而非光秃箭头
 │       │   ├── CostPage.tsx       # 节省 banner + 4 KPI + 每轮堆叠柱 + 饼图 + cache 命中矩阵 + 累计时间线
 │       │   └── SettingsPage.tsx   # 语言 / Provider 只读 / Aggregator / Advisor slots / Judge / Comparison / Pricing
 │       ├── components/            # 新增 — ISS-028
-│       │   ├── layout/            # Sidebar / PageShell
-│       │   ├── primitives/        # Card / KpiCard / Badge / Button / MarkdownBody (Phase 7 起，react-markdown + remark-gfm 封装；ISS-036 加 flush prop 用于嵌入已有容器不双滚动)
+│       │   ├── layout/            # Sidebar (ISS-051 起改为顶部横排 sticky top bar，layout.topBarHeight=72；ISS-052 加 KioskButton pill) / PageShell
+│       │   ├── primitives/        # Card / KpiCard / Badge / Button / MarkdownBody (Phase 7 起，react-markdown + remark-gfm 封装；ISS-036 加 flush prop 用于嵌入已有容器不双滚动；ISS-052 加 autoScroll prop：text 变化时 scrollTop = scrollHeight，配合打字机)
 │       │   └── charts/            # Pareto / ScoreBarChart / CostBarChart / JudgeRadar / CostStackedBar / CostPie / CacheHitBars / CostTimeline / RankingChart (ISS-029; Phase 7 起 prop 从 preset 改为 seed；ISS-036 起 YAxis domain 加对称 padding [0.6, 3.4] 避免 rank 3 贴 X 轴；ISS-044 起 ComboChart 拆成 ScoreBarChart + CostBarChart，Pareto 仅保留 fable5/gpt56Sol/mom/aggOnly 四家)
 │       ├── mock/                  # 新增 — ISS-028；Phase 5.0 伪数据（Phase 5.1 逐步替换为 lib/api.ts）
 │       │   ├── benchmarks.ts      # Pareto 6 点（MoM + 4 flagship + Aggregator-only）+ per-benchmark combo；ISS-038 起 ParetoPoint.cost 换成 costCny (¥/次问答)

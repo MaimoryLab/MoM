@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PageShell } from '../components/layout/PageShell';
 import { Card } from '../components/primitives/Card';
 import { Badge } from '../components/primitives/Badge';
@@ -162,7 +162,14 @@ export function PipelinePage({ turnFromUrl }: Props) {
         />
       )}
       {loadError && <Card><span style={{ color: color.negative }}>{t.pipeline.loadError}: {loadError}</span></Card>}
-      {turn && (
+      {turn && turn.nodes.length === 0 && (
+        <Card>
+          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>
+            {t.pipeline.noTurns} — {turn.gwId.slice(0, 8)}
+          </span>
+        </Card>
+      )}
+      {turn && turn.nodes.length > 0 && (
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: space.sm }}>
             <div style={{ fontSize: font.size.sm, color: color.textSecondary }}>
@@ -507,6 +514,12 @@ function AdvisorCard({ status, node }: { status: NodeStatus; node: ViewNode }) {
   const typewriter = kiosk.enabled && status === 'done';
   const visible = useTypewriter(previewText, { active: typewriter, msPerChar: 12 });
   const shownText = typewriter ? visible : previewText;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!typewriter) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [shownText, typewriter]);
   return (
     <div style={{
       background: isPending ? color.surface : color.bgSubtle,
@@ -535,7 +548,7 @@ function AdvisorCard({ status, node }: { status: NodeStatus; node: ViewNode }) {
       ) : (
         // ISS-039: 用 color.bg (极浅蓝) 外壳把 Markdown 内容从 bgSubtle (浅蓝) 的
         // AdvisorCard 底色里浮出来;MarkdownBody 走 flush 模式,由外壳控制滚动/高度。
-        <div style={{
+        <div ref={scrollRef} style={{
           background: color.bg,
           border: `1px solid ${color.border}`,
           borderRadius: 6,
@@ -572,6 +585,12 @@ function AggregatorCard({ status, node }: { status: NodeStatus; node: ViewNode }
   const typewriter = kiosk.enabled && status === 'done';
   const visible = useTypewriter(previewText, { active: typewriter, msPerChar: 12 });
   const shownText = typewriter ? visible : previewText;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!typewriter) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [shownText, typewriter]);
   return (
     <div style={{
       background: isPending ? color.surface : color.momSoft,
@@ -595,7 +614,7 @@ function AggregatorCard({ status, node }: { status: NodeStatus; node: ViewNode }
           padding: space.sm, minHeight: 80,
         }}>…</div>
       ) : (
-        <div style={{
+        <div ref={scrollRef} style={{
           background: color.surface,
           border: `1px solid ${color.border}`,
           borderRadius: 6,

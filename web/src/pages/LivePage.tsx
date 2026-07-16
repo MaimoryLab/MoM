@@ -110,7 +110,7 @@ export function LivePage() {
             <hr style={{ border: 0, borderTop: `1px solid ${color.border}`, margin: 0 }} />
           </>
         )}
-        {kiosk.enabled && kiosk.phase === 'live' ? (
+        {kiosk.enabled ? (
           <KioskResultView snap={current} />
         ) : isEmpty ? (
           <EmptyState
@@ -243,11 +243,27 @@ function KioskEnter({ delay = 0, children }: { delay?: number; children: React.R
 
 function KioskResultView({ snap }: { snap: ReturnType<typeof useLiveJob>['current'] }) {
   const kiosk = useKiosk();
+  const { t } = useI18n();
   const step = kiosk.liveStep;
   const showAnswers = step === 'answers' || step === 'answers-hold' || step === 'judge' || step === 'cost' || step === 'done';
   const typing = step === 'answers';
   const showJudge = step === 'judge' || step === 'cost' || step === 'done';
   const showCost = step === 'cost' || step === 'done';
+
+  // Snap not yet fetched for the current gwId — the live.select() call is
+  // still in flight. Show a plain "loading" strip instead of falling through
+  // to the compose/preset empty state (which reads as a "new chat" screen
+  // and confuses booth visitors).
+  if (!snap) {
+    return (
+      <div style={{
+        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: 400, color: color.textMuted, fontSize: font.size.sm,
+      }}>
+        {t.pipeline.loading}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -260,7 +276,7 @@ function KioskResultView({ snap }: { snap: ReturnType<typeof useLiveJob>['curren
           <KioskEnter>
             <MomColumn snap={snap} typewriter={typing} cursorOn={typing} />
           </KioskEnter>
-          <KioskEnter delay={120}>
+          <KioskEnter>
             <BaselineColumn snap={snap} typewriter={typing} cursorOn={typing} />
           </KioskEnter>
         </div>
@@ -273,7 +289,7 @@ function KioskResultView({ snap }: { snap: ReturnType<typeof useLiveJob>['curren
             </KioskEnter>
           )}
           {showCost && (
-            <KioskEnter delay={120}>
+            <KioskEnter>
               <CostCard snap={snap} />
             </KioskEnter>
           )}
