@@ -3,7 +3,7 @@ import { color, font, layout, shadow, space } from '../../theme';
 
 export type PageKey = 'overview' | 'live' | 'chat' | 'pipeline' | 'cost' | 'settings';
 
-const ORDER: PageKey[] = ['overview', 'live', 'chat', 'pipeline', 'cost', 'settings'];
+const ORDER: PageKey[] = ['overview', 'live', 'chat', 'pipeline', 'settings'];
 
 type Props = {
   active: PageKey;

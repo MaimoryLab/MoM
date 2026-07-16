@@ -314,8 +314,8 @@ export const en = {
 
 export const zh: Dict = {
   brand: {
-    name: 'MoM',
-    tagline: '多模型协同网关',
+    name: '混合模型网关',
+    tagline: 'Mixture of Models Gateway',
     version: 'v0.1 · 预览版',
   },
   nav: {
@@ -329,21 +329,21 @@ export const zh: Dict = {
   lang: { en: 'EN', zh: '中' },
 
   overview: {
-    heroTitle: 'PPIO智能网关',
+    heroTitle: '混合模型性能报告',
     heroSubtitle: '',
     kpi: {
-      scoreOfFlagship: '达到 Fable 5 平均分',
+      scoreOfFlagship: '达到 Fable 5 性能评分',
       costVsFlagship: '相比 Fable 5 成本',
       latency: '额外延迟',
       latencyNote: '单次请求可接受',
-      scoreMoM: 'MoM 平均分',
-      scoreMoMHint: '3个国产辅助模型 + 1个国产主力模型',
-      scoreFable5: 'Fable 5 平均分',
-      scoreFable5HintFlagship: '国产旗舰参照',
-      scoreGpt56: 'GPT 5.6 sol 平均分',
-      scoreGpt56Hint: '国产旗舰参照',
-      scoreBaseline: 'GLM 5.2平均分',
-      scoreBaselineHint: '国产优秀模型',
+      scoreMoM: 'MoM 性能评分',
+      scoreMoMHint: '',
+      scoreFable5: 'Fable 5 性能评分',
+      scoreFable5HintFlagship: '',
+      scoreGpt56: 'GPT 5.6 sol 性能评分',
+      scoreGpt56Hint: '',
+      scoreBaseline: 'GLM 5.2 性能评分',
+      scoreBaselineHint: '',
     },
     paretoTitle: '成本 × 效果',
     paretoSubtitle: 'MoM 落在前沿上——分数高，成本低。',
