@@ -1,7 +1,7 @@
 {
   "hero_stats": {
     "score_of_flagship_pct": 55.1372,
-    "cost_savings_vs_flagship_pct": 86.102,
+    "cost_savings_vs_flagship_pct": 85.117,
     "latency_delta_sec": 0
   },
   "pareto_data": [
@@ -22,25 +22,25 @@
       "id": "fable5",
       "label_key": "Claude Fable 5",
       "score": 55.1372,
-      "cost": 606.183408
+      "cost": 566.049885
     },
     {
       "id": "gpt56Sol",
       "label_key": "GPT 5.6 Sol",
       "score": 51.6557,
-      "cost": 207.688234
+      "cost": 193.937841
     },
     {
       "id": "opus47",
       "label_key": "Claude Opus 4.7",
       "score": 49.3451,
-      "cost": 189.748051
+      "cost": 177.185422
     },
     {
       "id": "deepseekV4Pro",
       "label_key": "DeepSeek V4 Pro",
       "score": 48.3935,
-      "cost": 10.200413
+      "cost": 9.619219
     },
     {
       "id": "kimiK26",
@@ -58,7 +58,7 @@
       "flagship_score": 65.659,
       "mom_cost": 9.657179,
       "agg_cost": 3.867686,
-      "flagship_cost": 67.806673
+      "flagship_cost": 63.317403
     },
     {
       "bench": "Finance",
@@ -67,7 +67,7 @@
       "flagship_score": 41.8616,
       "mom_cost": 16.242588,
       "agg_cost": 11.760612,
-      "flagship_cost": 150.9004
+      "flagship_cost": 140.909751
     },
     {
       "bench": "General Knowledge",
@@ -76,7 +76,7 @@
       "flagship_score": 55.0474,
       "mom_cost": 7.102404,
       "agg_cost": 3.078764,
-      "flagship_cost": 59.391299
+      "flagship_cost": 55.459183
     },
     {
       "bench": "Law",
@@ -85,7 +85,7 @@
       "flagship_score": 89.256,
       "mom_cost": 4.058685,
       "agg_cost": 1.662394,
-      "flagship_cost": 31.752767
+      "flagship_cost": 29.650515
     },
     {
       "bench": "Medicine",
@@ -94,7 +94,7 @@
       "flagship_score": 60.0255,
       "mom_cost": 3.506018,
       "agg_cost": 1.798144,
-      "flagship_cost": 30.41118
+      "flagship_cost": 28.39775
     },
     {
       "bench": "Needle in a Haystack",
@@ -103,7 +103,7 @@
       "flagship_score": 57.961,
       "mom_cost": 3.018716,
       "agg_cost": 1.567878,
-      "flagship_cost": 26.513334
+      "flagship_cost": 24.757968
     },
     {
       "bench": "Personalized Assistant",
@@ -112,7 +112,7 @@
       "flagship_score": 53.5047,
       "mom_cost": 5.964554,
       "agg_cost": 2.164362,
-      "flagship_cost": 29.834363
+      "flagship_cost": 27.859122
     },
     {
       "bench": "Shopping/Product Comparison",
@@ -121,7 +121,7 @@
       "flagship_score": 54.5286,
       "mom_cost": 14.073786,
       "agg_cost": 5.891808,
-      "flagship_cost": 90.041161
+      "flagship_cost": 84.079815
     },
     {
       "bench": "Technology",
@@ -130,7 +130,7 @@
       "flagship_score": 52.1424,
       "mom_cost": 7.681868,
       "agg_cost": 3.617466,
-      "flagship_cost": 59.692854
+      "flagship_cost": 55.740775
     },
     {
       "bench": "UX Design",
@@ -139,7 +139,7 @@
       "flagship_score": 48.5238,
       "mom_cost": 7.004486,
       "agg_cost": 2.930888,
-      "flagship_cost": 52.652781
+      "flagship_cost": 49.166803
     }
   ]
 }
