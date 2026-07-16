@@ -50,7 +50,7 @@ function Router() {
   const route = useHashRoute();
   const { page, turn } = route;
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: color.bg }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: color.bg }}>
       <Sidebar active={page} onNavigate={(p) => navigateTo(p)} />
       <main style={{ flex: 1, minWidth: 0 }}>
         {page === 'overview' && <OverviewPage />}
