@@ -3,12 +3,15 @@ import type {
   ComparisonListItem,
   ComparisonListResponse,
   ComparisonResponse,
+  DeleteComparisonResponse,
   LiveRunRequest,
   LiveRunSubmitResponse,
 } from '../types/dashboard-api.js';
 import type { OrchestratorHolder } from '../orchestrator/orchestrator-holder.js';
-import { getComparisonById, listRecentComparisons } from '../live/live-store.js';
+import { deleteComparison, getComparisonById, listRecentComparisons } from '../live/live-store.js';
 import { submitLiveTurn } from '../live/live-runtime.js';
+import { getDB } from '../storage/db.js';
+import { deleteTracesByGatewayRequestId } from '../storage/traces.js';
 
 const MAX_PROMPT_LENGTH = 32_000;
 const COMPARISONS_DEFAULT_LIMIT = 20;
@@ -173,6 +176,58 @@ export function registerLiveAPI(
       judge_error: record.judge_error
         ? { message: record.judge_error.message }
         : null,
+    };
+    reply.send(response);
+  });
+
+  // DELETE /api/comparison/:gateway_request_id — atomically removes the
+  // comparison row and every trace row sharing this gateway_request_id.
+  // metrics_cache is left alone; it self-heals from traces on next rebuild.
+  app.delete('/api/comparison/:gateway_request_id', async (
+    req: FastifyRequest,
+    reply: FastifyReply,
+  ) => {
+    const params = req.params as { gateway_request_id?: string };
+    const gwId = params.gateway_request_id;
+    if (!gwId) {
+      reply.code(400).send({
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message: 'gateway_request_id is required',
+        },
+      });
+      return;
+    }
+
+    const database = getDB();
+    let tracesRemoved = 0;
+    let comparisonRemoved = 0;
+    database.exec('BEGIN');
+    try {
+      tracesRemoved = deleteTracesByGatewayRequestId(gwId);
+      comparisonRemoved = deleteComparison(gwId);
+      database.exec('COMMIT');
+    } catch (err) {
+      database.exec('ROLLBACK');
+      throw err;
+    }
+
+    if (comparisonRemoved === 0 && tracesRemoved === 0) {
+      reply.code(404).send({
+        type: 'error',
+        error: {
+          type: 'not_found',
+          message: `no comparison record for gateway_request_id=${gwId}`,
+        },
+      });
+      return;
+    }
+
+    const response: DeleteComparisonResponse = {
+      deleted: true,
+      gateway_request_id: gwId,
+      traces_removed: tracesRemoved,
     };
     reply.send(response);
   });

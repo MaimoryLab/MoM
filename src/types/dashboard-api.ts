@@ -287,6 +287,14 @@ export interface ComparisonListResponse {
   limit: number;
 }
 
+/** DELETE /api/comparison/:gateway_request_id — atomically removes the
+ *  comparison row and every trace row sharing the gateway_request_id. */
+export interface DeleteComparisonResponse {
+  deleted: true;
+  gateway_request_id: string;
+  traces_removed: number;
+}
+
 // GET /api/presets — Live prompt shelf entries loaded from data/presets.json
 export interface PresetEntry {
   id: string;

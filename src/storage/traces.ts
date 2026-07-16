@@ -58,3 +58,10 @@ export function getRecentTraceRequests(limit: number): TraceRequest[] {
     .all(limit) as unknown as TraceRow[];
   return rows.map(deserialize);
 }
+
+export function deleteTracesByGatewayRequestId(gatewayRequestId: string): number {
+  const info = db()
+    .prepare('DELETE FROM traces WHERE gateway_request_id = ?')
+    .run(gatewayRequestId);
+  return Number(info.changes ?? 0);
+}

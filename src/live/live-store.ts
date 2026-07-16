@@ -304,3 +304,10 @@ export function listRecentComparisons(
     .get() as unknown as { c: number };
   return { items: rows.map(deserialize), total: totalRow.c };
 }
+
+export function deleteComparison(gwId: string): number {
+  const info = db()
+    .prepare('DELETE FROM comparisons WHERE gateway_request_id = ?')
+    .run(gwId);
+  return Number(info.changes ?? 0);
+}

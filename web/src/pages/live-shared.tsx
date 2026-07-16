@@ -3,6 +3,7 @@
 // (StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard /
 // PresetsList / ComposerBar / RunSelect) keeps LivePage's JSX readable.
 
+import { useEffect, useState } from 'react';
 import { Card } from '../components/primitives/Card';
 import { Button } from '../components/primitives/Button';
 import { MarkdownBody } from '../components/primitives/MarkdownBody';
@@ -45,13 +46,23 @@ function clipPrompt(text: string): string {
 // ---------------------------------------------------------------------------
 
 export function StatusStrip({
-  live, polling, transportError,
+  live, polling, transportError, onDelete, deleting, deleteError,
 }: {
   live: ComparisonResponse | null;
   polling: boolean;
   transportError: string | null;
+  onDelete?: () => void | Promise<void>;
+  deleting?: boolean;
+  deleteError?: string | null;
 }) {
   const { t } = useI18n();
+  const [confirming, setConfirming] = useState(false);
+
+  // Reset the local confirm state whenever the user switches to a different
+  // run — dropdown pick, "+ New run", etc.
+  const gwId = live?.gateway_request_id ?? null;
+  useEffect(() => { setConfirming(false); }, [gwId]);
+
   if (!live && !polling && !transportError) {
     return (
       <Card>
@@ -69,6 +80,9 @@ export function StatusStrip({
       }[live.status]
     : t.live.statusPending;
   const prompt = live?.prompt ?? null;
+  // Delete affordance is only offered on a completed / already-persisted run;
+  // showing it mid-flight would race with the polling cycle and is scary UX.
+  const canDelete = onDelete != null && live != null && !polling;
   return (
     <Card>
       <div style={{ display: 'flex', gap: space.md, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -87,6 +101,44 @@ export function StatusStrip({
         <span style={{ fontSize: font.size.xxs, color: color.textMuted, fontFamily: 'ui-monospace, monospace' }}>
           {statusLabel}{polling ? ' · ' + t.live.submittedHint : ''}
         </span>
+        {canDelete && !confirming && (
+          <Button
+            variant="ghost"
+            onClick={() => setConfirming(true)}
+            style={{ height: 32, padding: `0 ${space.sm}`, fontSize: font.size.xs, color: color.textMuted }}
+          >
+            {t.live.deleteRun}
+          </Button>
+        )}
+        {canDelete && confirming && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: font.size.xs, color: color.textSecondary }}>
+              {deleting ? t.live.deleteRunPending : t.live.deleteRunConfirm}
+            </span>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirming(false)}
+              disabled={deleting}
+              style={{ height: 32, padding: `0 ${space.sm}`, fontSize: font.size.xs }}
+            >
+              {t.live.deleteRunConfirmNo}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => { void onDelete?.(); }}
+              disabled={deleting}
+              style={{
+                height: 32, padding: `0 ${space.sm}`, fontSize: font.size.xs,
+                color: '#FFF', background: color.negative, borderColor: color.negative,
+              }}
+            >
+              {t.live.deleteRunConfirmYes}
+            </Button>
+            {deleteError && (
+              <span style={{ fontSize: font.size.xs, color: color.negative }}>{deleteError}</span>
+            )}
+          </span>
+        )}
         {transportError && (
           <span style={{ fontSize: font.size.xs, color: color.negative }}>
             {t.live.transportErrorLabel}: {transportError}
