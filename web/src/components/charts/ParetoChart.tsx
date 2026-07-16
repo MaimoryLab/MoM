@@ -95,7 +95,7 @@ export function ParetoChart() {
           />
           <ZAxis type="number" dataKey="size" range={[220, 700]} />
           <Tooltip content={<ParetoTooltip />} cursor={{ stroke: color.border }} />
-          <Legend wrapperStyle={{ fontSize: font.size.md, paddingTop: 10 }} />
+          <Legend content={<ParetoLegend />} wrapperStyle={{ fontSize: font.size.md, paddingTop: 10 }} />
           <Line
             data={paretoFrontier}
             dataKey="score"
@@ -120,6 +120,21 @@ export function ParetoChart() {
           ))}
         </ComposedChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+type LegendEntry = { dataKey?: string; value?: string; color?: string; type?: string };
+function ParetoLegend({ payload }: { payload?: LegendEntry[] }) {
+  if (!payload || payload.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, justifyContent: 'center', fontSize: font.size.md }}>
+      {payload.map((p, i) => (
+        <span key={`p-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, color: color.textSecondary }}>
+          <span style={{ width: 16, height: 16, background: p.color, borderRadius: 3, display: 'inline-block' }} />
+          {p.value}
+        </span>
+      ))}
     </div>
   );
 }

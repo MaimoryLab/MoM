@@ -1,3 +1,20 @@
+## [2026-07-16-9] fix(web): pareto legend uses neutral text + colored swatch [ISS-047]
+
+### 改动
+- `web/src/components/charts/ParetoChart.tsx`：`<Legend />` 默认渲染把 legend 文本染成 series 颜色，视觉上和 ScoreBarChart / CostBarChart 的「灰字 + 彩色小方块」样式割裂；替换成 `content={<ParetoLegend />}` 自定义组件，样式与两张柱图的 `SingleRowLegend` 完全一致（`color.textSecondary` 文字 + 16×16 彩色 swatch + `font.size.md` + gap 24）
+
+### 涉及文件
+- web/src/components/charts/ParetoChart.tsx：Legend 换成自定义 `ParetoLegend`，与柱图 legend 统一
+
+### 自检
+- `npm run typecheck`：退出码 0
+- `npm run build:web`：退出码 0，vite 产物体积无显著变化
+- 增量项：本地打开 http://localhost:5173/dashboard/#overview，三张图的 legend 现在文本都是灰字、颜色只出现在方块上；rankFlagship / coralRed / mom / aggregatorOnly 四家 swatch 颜色与两张柱图一致
+- 待人工验证：无
+
+### 关联
+-> ISS-047
+
 ## [2026-07-16-8] feat(web): overview bar x-axis labels through i18n dict [ISS-046]
 
 ### 改动

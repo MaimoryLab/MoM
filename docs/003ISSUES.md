@@ -1750,6 +1750,25 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> web/src/components/charts/CostBarChart.tsx（同上）
 -> 004CHANGELOG.md [2026-07-16-8]
 
+## [ISS-047] Pareto 图 legend 文本彩色，与两张柱图 legend 样式不一致
+
+**状态**：[已解决]
+**优先级**：[P3 轻微]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`ParetoChart.tsx` 里的 `<Legend />` 换成 `content={<ParetoLegend />}`，字面 clone `SingleRowLegend`——`color.textSecondary` 文字 + 16×16 彩色 swatch + `font.size.md` + gap 24，颜色只出现在方块上，文字统一灰。
+
+**现象**：Pareto 图 legend 沿用 Recharts 默认渲染，text 被染成 series 颜色；ScoreBarChart / CostBarChart 上面已经是「灰字 + 彩色方块」——三张图对比明显割裂。
+
+**后果**：展厅纵览三张图时视觉不一致，观众第一眼容易误以为 Pareto 图和柱图讲的不是同一批模型。
+
+**初步判断**：已确认，Recharts `<Legend />` 默认 `payload.color` 直接进文本 color。
+
+**关联**：
+-> web/src/components/charts/ParetoChart.tsx（新增 `ParetoLegend` 组件；`<Legend content={<ParetoLegend />} />`）
+-> 004CHANGELOG.md [2026-07-16-9]
+
 <!--
 新增条目模板：
 
