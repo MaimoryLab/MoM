@@ -2073,6 +2073,32 @@ Pipeline 页历史列表"能显示 ≠ 能画"，观众/用户点历史仍有概
 -> web/src/pages/PipelinePage.tsx（`listComparisons(20)` 后按 status 过滤 mom_done / baseline_done / judge_done）
 -> 004CHANGELOG.md [2026-07-16-21]
 
+## [ISS-062] 根因：submitLiveTurn 与 orchestrator 各自 randomUUID，comparisons 与 traces 的 gateway_request_id 从不重合
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`Orchestrator.nonStreaming` / `streaming` 加可选 `gatewayRequestIdOverride?: string` 参数；`orchestrateNonStreaming` / `orchestrateStreaming` 内部 `randomUUID()` 改成 `gatewayRequestIdOverride ?? randomUUID()`；`src/live/live-runtime.ts:215` 把 `submitLiveTurn` 创建的 `gatewayRequestId` 传下去。`src/gateway/messages-handler.ts` 两处 Claude Code → gateway 的调用不传，保持原语义（gateway 自己是最上游）。baseline / judge 分支使用的 `writeTrace()` 早已直接接受 `gatewayRequestId` 入参，无需改动。
+
+**现象**：
+Pipeline 页任何一次尝试对齐 Live 历史（ISS-056 → ISS-057 → ISS-058 → ISS-059 → ISS-061）都会陷入"格式对了没图 / 有图格式不对"的死循环。深挖后确认：`submitLiveTurn` 用 `randomUUID()` 创建 gwId A 写入 `comparisons` 表；紧接着 `orchestrator.nonStreaming(anthropicReq, sessionId, log)` 内部又 `randomUUID()` 创建独立 gwId B，`orchestrator` 内部 advisor / assembly / aggregator 的所有 `saveTraceRequest` 都用 gwId B。`comparisons.gateway_request_id = A`，`traces.gateway_request_id = B`，两张表在 Live 上下文里**从来没有一个 gwId 是共享的**。Live 页只查 comparisons 所以看不到问题；Pipeline 页 `getTracesByGateway(A)` 永远返回空。
+
+**后果**：
+Pipeline 页历史与 Live 页历史在同一次调用上根本不指向同一份 trace 数据，"点历史看流程"这个心智完全建立在一个隐性错位上。之前展示能出图纯靠 Pipeline dropdown 走 `listTraces(role='aggregator')`（返回 gwId B）与 `getTracesByGateway(B)` 自洽——两页历史列表从来是两套语义。ISS-056 想把两页对齐时踩到了这个雷。
+
+**初步判断**：
+已确认。`grep -n "randomUUID" src/orchestrator/orchestrator.ts` 显示 line 99 与 line 208 各自 mint，`grep "orchestrator\\.nonStreaming" src/live/live-runtime.ts:215` 显示 caller 没传 gwId。fix 前后差异用现有 mom.db 复现：新提 turn 后 `sqlite3 mom.db "SELECT gateway_request_id, role FROM traces ORDER BY started_at DESC LIMIT 20"` 与 `SELECT gateway_request_id FROM comparisons ORDER BY started_at DESC LIMIT 5` 求交集，fix 前空、fix 后包含新 turn 的 gwId。
+
+**已知遗留**：
+现有 comparisons 行的 traces 仍在旧 gwId 下，历史数据的 Pipeline 图仍是空。fresh submit 后即修复。用户可用 `DELETE /api/comparison/:gwId`（ISS-055）清掉旧脏记录。
+
+**关联**：
+-> src/orchestrator/orchestrator.ts（`Orchestrator` interface + 两个 `orchestrateXxx` 加 `gatewayRequestIdOverride` 参数）
+-> src/live/live-runtime.ts（`orchestrator.nonStreaming(..., gatewayRequestId)`）
+-> 004CHANGELOG.md [2026-07-16-22]
+
 <!--
 新增条目模板：
 

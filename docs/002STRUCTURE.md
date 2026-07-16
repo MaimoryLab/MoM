@@ -30,7 +30,7 @@ MoM/
 │   │   ├── validator.ts           # 请求体最小校验（model / messages / max_tokens）
 │   │   └── sse.ts                 # parseSSELine / formatSSEEvent + createSSEParser（Phase 3 起）增量分帧器
 │   ├── orchestrator/              # Phase 2 / Phase 3 / Phase 4
-│   │   ├── orchestrator.ts        # createOrchestrator(runtime) → { nonStreaming(body, sessionId, log), streaming(body, sessionId, output, log) }；主链路 trigger → cache → fanout → cost；每次上游调用后落一条 TraceRequest（advisor N 条 + aggregator 1 条；aggregator 抛错时也补落 error trace）；透传路径落 role='passthrough' TraceRequest
+│   │   ├── orchestrator.ts        # createOrchestrator(runtime) → { nonStreaming(body, sessionId, log, gatewayRequestIdOverride?), streaming(body, sessionId, output, log, gatewayRequestIdOverride?) }；主链路 trigger → cache → fanout → cost；每次上游调用后落一条 TraceRequest（advisor N 条 + aggregator 1 条；aggregator 抛错时也补落 error trace）；透传路径落 role='passthrough' TraceRequest；ISS-062 起接受 caller 覆盖 gwId，让 Live 场景的 comparisons 与 traces 共享同一 gateway_request_id
 │   │   ├── orchestrator-holder.ts # 新增 — Phase 4；createOrchestratorHolder(runtime) → { get(), getRuntime()（Phase 6 起，供 live-api 拿最新 runtime）, rebuild() } — mutable holder 支撑 POST /api/config 后 hot reload orchestrator（丢弃旧 fanout cache）
 │   │   ├── trigger.ts             # 新增 — Phase 3；isNewUserTurn / computeTriggerReason（七种 TriggerReason 标签）
 │   │   └── fanout.ts              # promisePool + fanoutAdvisors + fanoutAdvisorsWithCache（off 时绕过 cache；命中即复用，未命中真跑再 set）
@@ -60,7 +60,7 @@ MoM/
 │   │   ├── live-types.ts            # ComparisonRecord / ComparisonMomRow / ComparisonBaselineRow / ComparisonJudgeRow / ComparisonStatus；ISS-035 加 ComparisonMomErrorRow + 3 快照字段
 │   │   ├── live-store.ts            # comparisons 表 CRUD；ISS-035 起 createComparison 收 3 快照参数 + updateComparisonMomError + listRecentComparisons；deserialize 把 JSON blob 反塞回 ComparisonRecord；ISS-055 追加 deleteComparison(gwId)
 │   │   ├── baseline.ts              # runBaselineCall(original, baselineModel, provider) → BaselineResult；单模型 non-streaming，不抛，error 归 result.error
-│   │   └── live-runtime.ts          # ISS-035 重写：submitLiveTurn 同步 createComparison + 立即返回 gwId；runLiveTurn 后台并发跑 orchestrator.nonStreaming + baseline + judge，落 comparisons + 3 类 TraceRequest（含 response_text / last_user_text 文本字段）
+│   │   └── live-runtime.ts          # ISS-035 重写：submitLiveTurn 同步 createComparison + 立即返回 gwId；runLiveTurn 后台并发跑 orchestrator.nonStreaming + baseline + judge，落 comparisons + 3 类 TraceRequest（含 response_text / last_user_text 文本字段）；ISS-062 起把 submitLiveTurn 的 gwId 传给 orchestrator，两张表首次真正共享 gwId
 │   ├── provider/
 │   │   ├── anthropic-normalize.ts # 过滤不可安全回传的 unsigned thinking blocks；SSE content block index 连续重映射
 │   │   ├── provider-client.ts     # undici POST，非流式；ProviderError；buildAuthHeaders(provider)；响应 normalization

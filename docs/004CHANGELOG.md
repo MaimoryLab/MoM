@@ -1,3 +1,17 @@
+## [2026-07-16-22] fix(live): thread submitLiveTurn's gateway_request_id into orchestrator so comparisons + traces join [ISS-062]
+
+### 改动
+- `src/orchestrator/orchestrator.ts`：`Orchestrator.nonStreaming` / `streaming` 签名加可选 `gatewayRequestIdOverride?: string`；`orchestrateNonStreaming` / `orchestrateStreaming` 里的 `randomUUID()` 改成 `gatewayRequestIdOverride ?? randomUUID()`。上游能给就用，否则维持"最上游"语义
+- `src/live/live-runtime.ts`：`orchestrator.nonStreaming(anthropicReq, sessionId, log)` 传入 `submitLiveTurn` 的 `gatewayRequestId`。修复此前 `comparisons.gateway_request_id` 与 `traces.gateway_request_id` 永远错位的根因
+- `src/gateway/messages-handler.ts`：不传（Claude Code → gateway 是最上游，orchestrator 自己 mint 保持原语义）
+
+### 涉及文件
+- src/orchestrator/orchestrator.ts：nonStreaming / streaming 接受可选 gwId override
+- src/live/live-runtime.ts：把 submitLiveTurn 的 gwId 传给 orchestrator
+
+### 关联
+-> ISS-062
+
 ## [2026-07-16-21] fix(web): pipeline dropdown filters comparisons by status so every option can render [ISS-061]
 
 ### 改动
