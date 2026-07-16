@@ -1776,7 +1776,7 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 **类型**：[信息架构]
 **发现日期**：2026-07-16
 **解决日期**：2026-07-16
-**解决方案**：Chat 页整体折进 Live 页——`LivePage.tsx` 新增 `getPresets` + `useLiveJob().submit` 逻辑；`live-shared.tsx` 增 `PresetsList`（一行一条 preset，`presetsHint` 在顶部）+ `ComposerBar`（sticky 底部，textarea+发送按钮）；preset 卡片仅在 empty state（`current == null && !polling`）出现在 composer 上方。新建按钮 `t.live.newRun` 调 `live.reset()` 清空当前 run 回到 empty state。Empty state 下 `MomColumn/BaselineColumn` 模型名走 `t.live.emptyModel`（"无"/"None"），`footer` 传 null（Output 卡片改成 `footer && (…)` 条件渲染），380px 文本框仍保留，两侧对齐不变。`ChatPage.tsx` 删除，`App.tsx` 去掉 chat 路由分支，`Sidebar.tsx` 从 `PageKey` 移除 chat 并把 `ORDER` 收敛到 `['overview', 'live', 'pipeline']`，`t.chat.*` 与 `t.nav.chat` 一并删除。
+**解决方案**：Chat 页整体折进 Live 页，改成两态单页：empty state 时主内容区居中显示 `Composer`（textarea+发送）+ 其下的 `PresetsList`（一行一条 preset），不渲染任何对比卡片；有 run 时（`current != null` 或 `polling`）隐藏 composer / presets，只渲染 `StatusStrip / MoM / Baseline / Judge / Cost / 跳 Pipeline`。顶部 `RunSelect`（历史下拉 + `+ 新对话` 按钮）在两态都常驻；`+ 新对话` 用 `Button variant="primary"` 强调，点它 `live.reset()` 回到 empty state。`ChatPage.tsx` 删除，`App.tsx` 去掉 chat 路由分支，`Sidebar.tsx` 从 `PageKey` 移除 chat 并把 `ORDER` 收敛到 `['overview', 'live', 'pipeline']`，`t.chat.*` 与 `t.nav.chat` 一并删除。
 
 **现象**：Chat 页只提供"提问"入口，Live 页只提供"查看结果"，用户提问后必须手动跳到 Live 才能看两侧对比，实际使用是频繁的 chat↔live 来回切换。
 

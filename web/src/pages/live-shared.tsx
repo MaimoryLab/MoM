@@ -373,22 +373,19 @@ export function PresetsList({
 }
 
 // ---------------------------------------------------------------------------
-// ComposerBar — sticky prompt input at the bottom of the page. The optional
-// `presetsSlot` renders above the input (used in the empty state to show
-// preset picks; nothing else consumes it today).
+// Composer — a plain input row (textarea + send button). Rendered inline by
+// the caller; the empty state centers it on screen. No sticky positioning.
 // ---------------------------------------------------------------------------
 
-const COMPOSER_HEIGHT_MIN = 96;
-const COMPOSER_MAX_WIDTH = 1120;
+const COMPOSER_MIN_HEIGHT = 96;
 
-export function ComposerBar({
-  prompt, onPromptChange, onSubmit, busy, presetsSlot,
+export function Composer({
+  prompt, onPromptChange, onSubmit, busy,
 }: {
   prompt: string;
   onPromptChange: (v: string) => void;
   onSubmit: () => void;
   busy: boolean;
-  presetsSlot?: React.ReactNode;
 }) {
   const { t } = useI18n();
   const disabled = busy;
@@ -396,62 +393,47 @@ export function ComposerBar({
   return (
     <div
       style={{
-        position: 'sticky',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        padding: `${space.md} 0 ${space.lg} 0`,
-        background: `linear-gradient(180deg, transparent 0%, ${color.bg} 24%, ${color.bg} 100%)`,
-        zIndex: 5,
+        display: 'flex',
+        alignItems: 'center',
+        gap: space.sm,
+        background: color.surface,
+        border: `1px solid ${color.borderStrong}`,
+        borderRadius: radius.lg,
+        padding: `${space.sm} ${space.sm} ${space.sm} ${space.md}`,
+        minHeight: COMPOSER_MIN_HEIGHT,
+        boxShadow: '0 4px 24px rgba(20, 26, 46, 0.06)',
       }}
     >
-      <div style={{ maxWidth: COMPOSER_MAX_WIDTH, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: space.md }}>
-        {presetsSlot}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: space.sm,
-            background: color.surface,
-            border: `1px solid ${color.borderStrong}`,
-            borderRadius: radius.lg,
-            padding: `${space.sm} ${space.sm} ${space.sm} ${space.md}`,
-            minHeight: COMPOSER_HEIGHT_MIN,
-            boxShadow: '0 4px 24px rgba(20, 26, 46, 0.06)',
-          }}
-        >
-          <textarea
-            value={prompt}
-            onChange={(e) => onPromptChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (canSend) onSubmit();
-              }
-            }}
-            placeholder={t.live.inputPlaceholder}
-            disabled={disabled}
-            rows={2}
-            style={{
-              flex: 1,
-              border: 'none',
-              outline: 'none',
-              resize: 'none',
-              background: 'transparent',
-              fontFamily: font.sans,
-              fontSize: font.size.base,
-              lineHeight: 1.5,
-              color: color.textPrimary,
-              padding: `${space.sm} 0`,
-              minHeight: 40,
-              maxHeight: 200,
-            }}
-          />
-          <Button variant="primary" onClick={onSubmit} disabled={!canSend}>
-            {busy ? t.live.submitPending : `${t.live.submit} ▶`}
-          </Button>
-        </div>
-      </div>
+      <textarea
+        value={prompt}
+        onChange={(e) => onPromptChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (canSend) onSubmit();
+          }
+        }}
+        placeholder={t.live.inputPlaceholder}
+        disabled={disabled}
+        rows={2}
+        style={{
+          flex: 1,
+          border: 'none',
+          outline: 'none',
+          resize: 'none',
+          background: 'transparent',
+          fontFamily: font.sans,
+          fontSize: font.size.base,
+          lineHeight: 1.5,
+          color: color.textPrimary,
+          padding: `${space.sm} 0`,
+          minHeight: 40,
+          maxHeight: 200,
+        }}
+      />
+      <Button variant="primary" onClick={onSubmit} disabled={!canSend}>
+        {busy ? t.live.submitPending : `${t.live.submit} ▶`}
+      </Button>
     </div>
   );
 }
@@ -471,8 +453,9 @@ export function RunSelect({
   placeholder: string;
   label: string;
   emptyLabel: string;
-  onNew?: { label: string; onClick: () => void };
+  onNew?: { label: string; onClick: () => void; variant?: 'primary' | 'secondary' | 'ghost' };
 }) {
+  const newVariant = onNew?.variant ?? 'primary';
   if (error) {
     return <span style={{ fontSize: font.size.xs, color: color.negative }}>{error}</span>;
   }
@@ -481,7 +464,7 @@ export function RunSelect({
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: space.sm }}>
         <span style={{ fontSize: font.size.xs, color: color.textMuted }}>{emptyLabel}</span>
         {onNew && (
-          <Button variant="ghost" onClick={onNew.onClick}>+ {onNew.label}</Button>
+          <Button variant={newVariant} onClick={onNew.onClick}>+ {onNew.label}</Button>
         )}
       </div>
     );
@@ -509,7 +492,7 @@ export function RunSelect({
         </select>
       </label>
       {onNew && (
-        <Button variant="ghost" onClick={onNew.onClick}>+ {onNew.label}</Button>
+        <Button variant={newVariant} onClick={onNew.onClick}>+ {onNew.label}</Button>
       )}
     </div>
   );

@@ -108,8 +108,8 @@ MoM/
 │       │   └── useEventSource.ts  # 空壳，签名与未来 SSE 一致；未消费
 │       ├── pages/                 # 新增 — ISS-028；五页（ISS-049 起：Chat 页合并进 Live）
 │       │   ├── OverviewPage.tsx   # Pareto 主图 + benchmark combo 副图 + 3 KPI（效果层）
-│       │   ├── LivePage.tsx       # 更新 — ISS-049；单页工作流：顶部 RunSelect 选历史 comparison 或点 `+ 新对话` 清空（live.reset()）→ StatusStrip / MoM / Baseline / Judge / Cost / 跳 Pipeline → 底部 sticky ComposerBar（textarea + 发送）；empty state 时 PresetsList 一行一条渲染在 composer 上方，非 empty 只留输入框
-│       │   ├── live-shared.tsx    # 更新 — ISS-049；LivePage 拆件（StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard / PresetsList / ComposerBar / RunSelect）；MoM/Baseline empty state 模型名走 t.live.emptyModel、footer 不渲染，仅保留 380px 固定文本框
+│       │   ├── LivePage.tsx       # 更新 — ISS-049；两态单页：顶部 RunSelect（历史 + `+ 新对话` primary 按钮，`live.reset()`）常驻；empty state 屏幕中央 Composer + PresetsList（一行一条），不渲染对比卡片；有 run 时 StatusStrip / MoM / Baseline / Judge / Cost / 跳 Pipeline，隐藏 Composer
+│       │   ├── live-shared.tsx    # 更新 — ISS-049；LivePage 拆件（StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard / PresetsList / Composer / RunSelect）；MoM/Baseline empty state 模型名走 t.live.emptyModel、footer 不渲染，380px 固定文本框保留；RunSelect 的 onNew 支持 variant 传参
 │       │   ├── PipelinePage.tsx   # 更新 — ISS-036；Advisor answer 走 MarkdownBody（渲染 LLM 输出的列表 / 代码块 / 加粗）；DiffModal 两栏走 MarkdownBody（flush 模式，外壳滚动）；DiffModal 点空白关闭
 │       │   ├── CostPage.tsx       # 节省 banner + 4 KPI + 每轮堆叠柱 + 饼图 + cache 命中矩阵 + 累计时间线
 │       │   └── SettingsPage.tsx   # 语言 / Provider 只读 / Aggregator / Advisor slots / Judge / Comparison / Pricing
