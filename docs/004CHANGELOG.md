@@ -1,3 +1,23 @@
+## [2026-07-16-8] feat(web): overview bar x-axis labels through i18n dict [ISS-046]
+
+### 改动
+- `web/src/i18n/dict.ts`：`overview.benchLabels` 新增，键沿用 `data/benchmarks.json` 里的 10 个 `bench` 原字符串（`Academic / Finance / General Knowledge / Law / Medicine / Needle in a Haystack / Personalized Assistant / Shopping/Product Comparison / Technology / UX Design`），英文原样，中文改译成 `学术 / 金融 / 通识 / 法律 / 医学 / 长上下文检索 / 个人助手 / 购物 / 商品对比 / 科技 / 交互设计`
+- `web/src/components/charts/ScoreBarChart.tsx` & `CostBarChart.tsx`：`XAxis` 加 `tickFormatter={(v) => t.overview.benchLabels[v] ?? v}`——JSON 里 `bench` 仍是 en 原字符串（保持数据层不变），只在渲染时替换成本地化标签；`Tooltip content={<Xxx benchLabels={t.overview.benchLabels} />}`，让 tooltip 顶栏的 category header 也走翻译，同时保留「dict 里未登记的新 bench → 直接展示原字符串」的兜底
+
+### 涉及文件
+- web/src/i18n/dict.ts：新增 `overview.benchLabels`（中英两份）
+- web/src/components/charts/ScoreBarChart.tsx：XAxis tickFormatter + Tooltip 注入 benchLabels
+- web/src/components/charts/CostBarChart.tsx：同上
+
+### 自检
+- `npm run typecheck`：退出码 0
+- `npm run build:web`：退出码 0，vite 产物 843.05 kB（gzip 237.87 kB），dict 新增字段带来的体积变化 ~1 kB
+- 增量项：本地切换 EN / ZH，两张柱图 x 轴都跟着切换标签，长标签「Shopping / Product Comparison」在 zh 下变成「购物 / 商品对比」不再溢出
+- 待人工验证：新增 benchmark 时记得在 dict.ts 补 key，缺失时前端会 fallback 到 en 原字符串（不会显示成空）
+
+### 关联
+-> ISS-046
+
 ## [2026-07-16-7] fix(web): score/cost axes hug real data, cost unit to CNY [ISS-045]
 
 ### 改动

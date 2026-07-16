@@ -38,6 +38,7 @@ export function ScoreBarChart() {
             dataKey="bench"
             stroke={color.axisLabel}
             interval={0}
+            tickFormatter={(v: string) => t.overview.benchLabels[v] ?? v}
             tick={{ fontSize: 11, fill: color.axisLabel }}
             tickLine={false}
           />
@@ -48,7 +49,7 @@ export function ScoreBarChart() {
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
             label={{ value: t.overview.comboAxisScore, angle: -90, position: 'left', fill: color.textSecondary, fontSize: font.size.xs, offset: 8 }}
           />
-          <Tooltip content={<ScoreTooltip />} cursor={{ fill: color.gridLine, fillOpacity: 0.4 }} isAnimationActive={false} />
+          <Tooltip content={<ScoreTooltip benchLabels={t.overview.benchLabels} />} cursor={{ fill: color.gridLine, fillOpacity: 0.4 }} isAnimationActive={false} />
           <Legend content={<SingleRowLegend />} wrapperStyle={{ fontSize: font.size.md, paddingTop: 10 }} />
           <Bar dataKey="flagshipScore" name={t.overview.legend.flagship}        fill={color.rankFlagship}   radius={[3,3,0,0]} barSize={10} isAnimationActive={false} />
           <Bar dataKey="gptScore"      name={t.overview.legend.gpt56Sol}        fill={color.coralRed}       radius={[3,3,0,0]} barSize={10} isAnimationActive={false} />
@@ -79,12 +80,15 @@ function ScoreTooltip({
   active,
   payload,
   label,
+  benchLabels,
 }: {
   active?: boolean;
   payload?: Array<{ dataKey: string; value: number; color: string; name: string }>;
   label?: string;
+  benchLabels?: Record<string, string>;
 }) {
   if (!active || !payload || payload.length === 0) return null;
+  const displayLabel = (label && benchLabels?.[label]) || label;
   return (
     <div style={{
       background: color.surface,
@@ -96,7 +100,7 @@ function ScoreTooltip({
       color: color.textPrimary,
       minWidth: 200,
     }}>
-      <div style={{ fontWeight: font.weight.semibold, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontWeight: font.weight.semibold, marginBottom: 6 }}>{displayLabel}</div>
       {payload.map((p) => (
         <div key={p.dataKey} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, color: color.textSecondary, fontSize: font.size.xxs }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

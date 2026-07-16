@@ -1727,6 +1727,29 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> web/src/i18n/dict.ts（`overview.comboAxisCost` 英文改为 CNY per Q&A；中文原本已是 `¥`）
 -> 004CHANGELOG.md [2026-07-16-7]
 
+## [ISS-046] Overview 柱图 X 轴 benchmark 名走 i18n dict，不再直接读 JSON 原字符串
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`data/benchmarks.json` 里 `per_benchmark[i].bench` 保持 en 原字符串（数据源单一），`web/src/i18n/dict.ts` 里 `overview.benchLabels` 新增中英两份映射；两张柱图 `XAxis` 用 `tickFormatter` 在渲染时把原字符串替换成本地化标签，`Tooltip` header 也走同一份 dict。dict 里未登记的新 bench → fallback 显示 en 原字符串（不会空）。
+
+**现象**：
+- 两张柱图 X 轴直接把 `benchmarks.json` 里的 `bench` 字符串（en）画到轴上，中文语言态下英文标签夹在其它翻译好的 UI 之间不协调；
+- 长标签 `Shopping/Product Comparison` 挤在 X 轴上视觉溢出。
+
+**后果**：展厅 zh 语言下 X 轴单独说英语，落地体验割裂。
+
+**初步判断**：已确认，i18n 层缺 benchmark label 词条，UI 层直读 JSON。
+
+**关联**：
+-> web/src/i18n/dict.ts（`overview.benchLabels` 中英两份）
+-> web/src/components/charts/ScoreBarChart.tsx（XAxis `tickFormatter` + Tooltip 注入 benchLabels）
+-> web/src/components/charts/CostBarChart.tsx（同上）
+-> 004CHANGELOG.md [2026-07-16-8]
+
 <!--
 新增条目模板：
 

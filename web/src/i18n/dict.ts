@@ -56,6 +56,21 @@ export const en = {
       flagship: 'Fable 5',
       gpt56Sol: 'GPT 5.6 sol',
     },
+    // X-axis category labels for the per-benchmark bar charts. Keys mirror the
+    // `bench` strings in data/benchmarks.json; chart code translates on read
+    // and falls back to the raw string if a new benchmark shows up here first.
+    benchLabels: {
+      'Academic': 'Academic',
+      'Finance': 'Finance',
+      'General Knowledge': 'General Knowledge',
+      'Law': 'Law',
+      'Medicine': 'Medicine',
+      'Needle in a Haystack': 'Needle in a Haystack',
+      'Personalized Assistant': 'Personalized Assistant',
+      'Shopping/Product Comparison': 'Shopping / Product Comparison',
+      'Technology': 'Technology',
+      'UX Design': 'UX Design',
+    } as Record<string, string>,
   },
 
   live: {
@@ -345,6 +360,18 @@ export const zh: Dict = {
       aggregatorOnly: 'GLM 5.2',
       flagship: 'Fable 5',
       gpt56Sol: 'GPT 5.6 sol',
+    },
+    benchLabels: {
+      'Academic': '学术',
+      'Finance': '金融',
+      'General Knowledge': '通识',
+      'Law': '法律',
+      'Medicine': '医学',
+      'Needle in a Haystack': '长上下文检索',
+      'Personalized Assistant': '个人助手',
+      'Shopping/Product Comparison': '购物 / 商品对比',
+      'Technology': '科技',
+      'UX Design': '交互设计',
     },
   },
 
