@@ -3,6 +3,7 @@ import {
   Scatter, Tooltip, XAxis, YAxis, ZAxis,
 } from 'recharts';
 import benchmarks from '../../../../data/benchmarks.json';
+import { Anthropic, OpenAI, ZAI, type IconType } from '@lobehub/icons';
 import { color, font, shadow } from '../../theme';
 import { useI18n } from '../../i18n/context';
 import type { ParetoPoint } from '../../lib/api';
@@ -14,6 +15,21 @@ import type { ParetoPoint } from '../../lib/api';
 // cost bar charts above, using the same color per series so the eye maps
 // bar → dot without a second lookup.
 const KEPT_IDS = ['fable5', 'gpt56Sol', 'mom', 'aggOnly'] as const;
+const POINT_SIZE = 160;
+const ICON_SIZE = 36;
+const LEGEND_ICON_SIZE = 16;
+const ANTHROPIC_COLOR = '#141413';
+const MOM_LOGO = new URL('../../assets/logo_s.svg', import.meta.url).href;
+const MODEL_ICONS: Readonly<Record<string, IconType>> = {
+  fable5: Anthropic,
+  gpt56Sol: OpenAI,
+  aggOnly: ZAI,
+};
+const MODEL_ICON_COLORS: Readonly<Record<string, string>> = {
+  fable5: ANTHROPIC_COLOR,
+  gpt56Sol: OpenAI.colorPrimary,
+  aggOnly: ZAI.colorPrimary,
+};
 const COLOR_BY_ID: Readonly<Record<string, string>> = {
   fable5: color.rankFlagship,
   gpt56Sol: color.coralRed,
@@ -31,12 +47,12 @@ type ChartPoint = {
   shape: 'circle';
 };
 
+type ModelIconShapeProps = { cx?: number; cy?: number };
+
 function toChartPoint(
   point: ParetoPoint,
   translatedLabels: Readonly<Record<string, string>>,
 ): ChartPoint {
-  const isMoM = point.is_mom ?? false;
-
   return {
     id: point.id,
     score: point.score,
@@ -44,7 +60,7 @@ function toChartPoint(
     label:
       translatedLabels[point.label_key] ??
       point.label_key,
-    size: isMoM ? 520 : 260,
+    size: POINT_SIZE,
     fill: COLOR_BY_ID[point.id] ?? color.aggregatorOnly,
     shape: 'circle',
   };
@@ -86,7 +102,7 @@ export function ParetoChart() {
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
             label={{ value: t.overview.paretoAxisY, angle: -90, position: 'left', fill: color.textSecondary, fontSize: font.size.xs, offset: 10 }}
           />
-          <ZAxis type="number" dataKey="size" range={[220, 700]} />
+          <ZAxis type="number" dataKey="size" range={[POINT_SIZE, POINT_SIZE]} />
           <Tooltip content={<ParetoTooltip />} cursor={{ stroke: color.border }} />
           <Legend content={<ParetoLegend />} wrapperStyle={{ fontSize: font.size.md, paddingTop: 10, transform: 'translateY(10px)' }} />
           <Line
@@ -101,15 +117,24 @@ export function ParetoChart() {
             connectNulls
           />
           {models.map((model) => (
-            <Scatter
-              key={model.id}
-              name={model.label}
-              data={[model]}
-              fill={model.fill}
-              shape={model.shape}
-              legendType={model.shape}
-              isAnimationActive={false}
-            />
+            (() => {
+              const Icon = MODEL_ICONS[model.id];
+              return (
+                <Scatter
+                  key={model.id}
+                  name={model.label}
+                  data={[model]}
+                  fill={model.fill}
+                  shape={model.id === 'mom'
+                    ? (props: ModelIconShapeProps) => <MomLogoShape {...props} />
+                    : Icon
+                      ? (props: ModelIconShapeProps) => <ModelIconShape {...props} Icon={Icon} iconId={model.id} />
+                      : model.shape}
+                  legendType={model.shape}
+                  isAnimationActive={false}
+                />
+              );
+            })()
           ))}
         </ComposedChart>
       </ResponsiveContainer>
@@ -117,7 +142,47 @@ export function ParetoChart() {
   );
 }
 
-type LegendEntry = { dataKey?: string; value?: string; color?: string; type?: string };
+function ModelIconShape({
+  cx = 0,
+  cy = 0,
+  Icon,
+  iconId,
+}: ModelIconShapeProps & {
+  Icon: IconType;
+  iconId: string;
+}) {
+  return (
+    <Icon
+      aria-hidden
+      color={MODEL_ICON_COLORS[iconId]}
+      size={ICON_SIZE}
+      x={cx - ICON_SIZE / 2}
+      y={cy - ICON_SIZE / 2}
+    />
+  );
+}
+
+function MomLogoShape({ cx = 0, cy = 0 }: ModelIconShapeProps) {
+  return (
+    <image
+      href={MOM_LOGO}
+      x={cx - ICON_SIZE / 2}
+      y={cy - ICON_SIZE / 2}
+      width={ICON_SIZE}
+      height={ICON_SIZE}
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    />
+  );
+}
+
+type LegendEntry = {
+  dataKey?: string;
+  value?: string;
+  color?: string;
+  type?: string;
+  payload?: { data?: Array<{ id?: string }> };
+};
 function ParetoLegend({ payload }: { payload?: LegendEntry[] }) {
   if (!payload || payload.length === 0) return null;
   const modelEntries = payload.filter((entry) => entry.dataKey !== 'score');
@@ -126,7 +191,18 @@ function ParetoLegend({ payload }: { payload?: LegendEntry[] }) {
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, justifyContent: 'center', fontSize: font.size.md }}>
       {modelEntries.map((p, i) => (
         <span key={`p-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, color: color.textSecondary }}>
-          <span style={{ width: 16, height: 16, background: p.color, borderRadius: '50%', display: 'inline-block' }} />
+          {(() => {
+            const iconId = p.payload?.data?.[0]?.id;
+            const Icon = iconId ? MODEL_ICONS[iconId] : undefined;
+            const iconColor = iconId ? MODEL_ICON_COLORS[iconId] : undefined;
+            return iconId === 'mom' ? (
+              <img src={MOM_LOGO} width={LEGEND_ICON_SIZE} height={LEGEND_ICON_SIZE} alt="" />
+            ) : Icon ? (
+              <Icon aria-hidden size={LEGEND_ICON_SIZE} color={iconColor} />
+            ) : (
+              <span style={{ width: 16, height: 16, background: p.color, borderRadius: '50%', display: 'inline-block' }} />
+            );
+          })()}
           {p.value}
         </span>
       ))}

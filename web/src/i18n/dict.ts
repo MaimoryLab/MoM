@@ -388,10 +388,10 @@ export const zh: Dict = {
     inputPlaceholder: '想问点什么……',
     run: '发送',
     running: '运行中……',
-    baselineToggle: '同步跑 Baseline 输出',
+    baselineToggle: '同步跑单模型输出',
     baselineHint: '效果对比。',
     momTitle: '混合模型',
-    baselineTitle: 'Baseline',
+    baselineTitle: '单模型',
     stats: {
       latency: '耗时',
       output: '输出',
@@ -412,8 +412,8 @@ export const zh: Dict = {
     latencyDelta: '延迟差',
     waitingForRun: '点"发送"开始一次演示。',
     cancel: '取消',
-    pendingMom: '混合模型 正在生成…',
-    pendingBaseline: 'Baseline 正在生成…',
+    pendingMom: '混合模型正在生成…',
+    pendingBaseline: '单模型正在生成…',
     pendingJudge: 'Judge 正在打分…',
     judgeFallbackNote: 'Judge 输出走了 fallback 解析路径。',
     errorTitle: '出错了',
@@ -439,7 +439,7 @@ export const zh: Dict = {
     baselineSingleCall: '单模型调用',
     statusPending: '等待第一个快照…',
     statusMomDone: '混合模型完成',
-    statusBaselineDone: '混合模型 + Baseline 完成',
+    statusBaselineDone: '混合模型 + 单模型完成',
     statusJudgeDone: '全部完成',
     statusError: '出错',
     statusRunning: '进行中',
@@ -492,7 +492,7 @@ export const zh: Dict = {
   cost: {
     savedBannerTitle: '本次会话共节省',
     savedBannerSuffix: '节省',
-    baselineLabel: 'Baseline',
+    baselineLabel: '单模型',
     momLabel: '混合模型',
     kpi: {
       total: '总成本',
@@ -523,7 +523,7 @@ export const zh: Dict = {
       provider: 'Provider',
       aggregator: 'Aggregator',
       advisors: 'Advisor 列表',
-      judge: 'Judge 与 Baseline',
+      judge: 'Judge 与 单模型',
       pricing: '定价表',
     },
     language: {
@@ -548,8 +548,8 @@ export const zh: Dict = {
     },
     judge: {
       judgeModel: 'Judge 模型',
-      baselineModel: 'Baseline 模型',
-      enable: '启用 Baseline 对比',
+      baselineModel: '单模型',
+      enable: '启用单模型对比',
       enableHint: '为演示每次多调一次，代价换效果。',
     },
     pricing: {
