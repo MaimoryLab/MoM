@@ -1704,6 +1704,29 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> web/src/components/charts/ParetoChart.tsx（只保留 fable5 / gpt56Sol / mom / aggOnly；颜色映射与柱图对齐；legend 与散点尺寸放大）
 -> 004CHANGELOG.md [2026-07-16-6]
 
+## [ISS-045] Overview 得分/成本柱图纵轴不贴合真实数据 + 成本单位错标
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：两张柱图的 domain 计算都过滤掉占位 `0`（`gpt_score`/`gpt_cost` 未填时），只用非零值取 min/max，`ScoreBarChart` 得分域从而由 `[0, 90]` 收敛到 `[30, 80]`，柱体填满绘图区；YAxis 加 `allowDecimals={false}` 强制整数 tick。`CostBarChart` Y 轴与 tooltip 货币符号从 `$` 改为 `¥`（数据一直是 CNY per Q&A，跟 Pareto x 轴同口径），`overview.comboAxisCost` i18n 由 `Cost ($ / 1k token)` 改为 `Cost (CNY per Q&A)`。
+
+**现象**：
+- ScoreBarChart 里 `gpt_score` 全部占位 0，Recharts 把 auto-domain 拉到 `[0, 90]`，真数据 40-60 被压到图表上半段，视觉信息量塌陷；
+- CostBarChart Y 轴 tick 和 tooltip 都写死 `$`，但 `per_benchmark[i].*_cost` 一直是 CNY per Q&A（Pareto 图 x 轴标注一致），单位错。
+
+**后果**：展厅观众读得分图看不出模型之间的实际差距（都挤在中间那一段）；读成本图会以为是美元，跟 Pareto x 轴口径打架。
+
+**初步判断**：已确认，两处都是配置层可修复的 UI 数据。
+
+**关联**：
+-> web/src/components/charts/ScoreBarChart.tsx（`scoreDomain` 过滤占位 0；YAxis `allowDecimals={false}`）
+-> web/src/components/charts/CostBarChart.tsx（`costDomain` 过滤占位 0；`$` → `¥`）
+-> web/src/i18n/dict.ts（`overview.comboAxisCost` 英文改为 CNY per Q&A；中文原本已是 `¥`）
+-> 004CHANGELOG.md [2026-07-16-7]
+
 <!--
 新增条目模板：
 

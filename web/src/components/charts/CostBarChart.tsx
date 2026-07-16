@@ -19,9 +19,12 @@ const STATIC_PER_BENCHMARK = normalizeBenchmarkRows(benchmarks.per_benchmark);
 export function CostBarChart() {
   const { t } = useI18n();
   const { costDomain, costDecimals } = useMemo(() => {
-    const costs = STATIC_PER_BENCHMARK.flatMap((row) => [
-      row.momCost, row.aggCost, row.flagshipCost, row.gptCost,
-    ]);
+    // Filter out placeholder zeros in a not-yet-filled series so a single
+    // 0-cost bar doesn't drag the max down or force the ceiling logic to
+    // pick an inappropriate magnitude.
+    const costs = STATIC_PER_BENCHMARK
+      .flatMap((row) => [row.momCost, row.aggCost, row.flagshipCost, row.gptCost])
+      .filter((v) => v > 0);
     const maxCost = costs.length > 0 ? Math.max(...costs) : 1;
     return {
       costDomain: [0, axisMax(maxCost)] as [number, number],
@@ -45,7 +48,7 @@ export function CostBarChart() {
             domain={costDomain}
             stroke={color.axisLabel}
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
-            tickFormatter={(v: number) => `$${v.toFixed(costDecimals)}`}
+            tickFormatter={(v: number) => `¥${v.toFixed(costDecimals)}`}
             label={{ value: t.overview.comboAxisCost, angle: -90, position: 'left', fill: color.textSecondary, fontSize: font.size.xs, offset: 8 }}
           />
           <Tooltip content={<CostTooltip />} cursor={{ fill: color.gridLine, fillOpacity: 0.4 }} isAnimationActive={false} />
@@ -103,7 +106,7 @@ function CostTooltip({
             <span style={{ width: 10, height: 10, background: p.color, borderRadius: 2 }} />
             {p.name}
           </span>
-          <span style={{ fontFamily: 'ui-monospace, monospace', color: color.textPrimary }}>${p.value.toFixed(4)}</span>
+          <span style={{ fontFamily: 'ui-monospace, monospace', color: color.textPrimary }}>¥{p.value.toFixed(4)}</span>
         </div>
       ))}
     </div>

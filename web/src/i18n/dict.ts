@@ -49,7 +49,7 @@ export const en = {
     costBarTitle: 'Per-benchmark cost',
     costBarSubtitle: 'Cost per Q&A across the same benchmarks.',
     comboAxisScore: 'Score',
-    comboAxisCost: 'Cost ($ / 1k token)',
+    comboAxisCost: 'Cost (CNY per Q&A)',
     legend: {
       mom: 'MoM (ours)',
       aggregatorOnly: 'Aggregator only',
@@ -322,7 +322,7 @@ export const zh: Dict = {
       latency: '额外延迟',
       latencyNote: '单次请求可接受',
       scoreMoM: 'MoM 平均分',
-      scoreMoMHint: '3 advisor + aggregator',
+      scoreMoMHint: '3个辅助模型 + 1个主力模型',
       scoreFable5: 'Fable 5 平均分',
       scoreFable5HintFlagship: '旗舰参照',
       scoreGpt56: 'GPT 5.6 sol 平均分',

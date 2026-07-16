@@ -12,16 +12,21 @@ const STATIC_PER_BENCHMARK = normalizeBenchmarkRows(benchmarks.per_benchmark);
 
 export function ScoreBarChart() {
   const { t } = useI18n();
-  const scoreDomain = useMemo(() => {
-    const scores = STATIC_PER_BENCHMARK.flatMap((row) => [
-      row.momScore, row.aggScore, row.flagshipScore, row.gptScore,
-    ]);
-    const minScore = scores.length > 0 ? Math.min(...scores) : 0;
-    const maxScore = scores.length > 0 ? Math.max(...scores) : 100;
+  // Hug the real data range so bars fill the plot area. Placeholder zeros in a
+  // not-yet-filled series (e.g. `gpt_score` before eval-team backfill) would
+  // pull the domain min to 0 and squish the actual 40-60 band into the top
+  // half; filter them out and floor/ceil to the nearest 10 for clean ticks.
+  const scoreDomain = useMemo((): [number, number] => {
+    const scores = STATIC_PER_BENCHMARK
+      .flatMap((row) => [row.momScore, row.aggScore, row.flagshipScore, row.gptScore])
+      .filter((v) => v > 0);
+    if (scores.length === 0) return [0, 100];
+    const min = Math.min(...scores);
+    const max = Math.max(...scores);
     return [
-      Math.max(0, Math.floor(minScore / 10) * 10),
-      Math.min(100, Math.ceil(maxScore / 10) * 10),
-    ] as [number, number];
+      Math.max(0, Math.floor(min / 10) * 10),
+      Math.min(100, Math.ceil(max / 10) * 10),
+    ];
   }, []);
 
   return (
@@ -38,6 +43,7 @@ export function ScoreBarChart() {
           />
           <YAxis
             domain={scoreDomain}
+            allowDecimals={false}
             stroke={color.axisLabel}
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
             label={{ value: t.overview.comboAxisScore, angle: -90, position: 'left', fill: color.textSecondary, fontSize: font.size.xs, offset: 8 }}
