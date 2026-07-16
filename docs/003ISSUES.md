@@ -1769,6 +1769,52 @@ React 18 收到 render error → `recoverFromConcurrentError` → 从 root（App
 -> web/src/components/charts/ParetoChart.tsx（新增 `ParetoLegend` 组件；`<Legend content={<ParetoLegend />} />`）
 -> 004CHANGELOG.md [2026-07-16-9]
 
+## [ISS-049] Live 页与 Chat 页合并成单页工作流
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[信息架构]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：Chat 页整体折进 Live 页，改成两态单页：empty state 时主内容区居中显示 `Composer`（textarea+发送）+ 其下的 `PresetsList`（一行一条 preset），不渲染任何对比卡片；有 run 时（`current != null` 或 `polling`）隐藏 composer / presets，只渲染 `StatusStrip / MoM / Baseline / Judge / Cost / 跳 Pipeline`。顶部 `RunSelect`（历史下拉 + `+ 新对话` 按钮）在两态都常驻；`+ 新对话` 用 `Button variant="primary"` 强调，点它 `live.reset()` 回到 empty state。`ChatPage.tsx` 删除，`App.tsx` 去掉 chat 路由分支，`Sidebar.tsx` 从 `PageKey` 移除 chat 并把 `ORDER` 收敛到 `['overview', 'live', 'pipeline']`，`t.chat.*` 与 `t.nav.chat` 一并删除。
+
+**现象**：Chat 页只提供"提问"入口，Live 页只提供"查看结果"，用户提问后必须手动跳到 Live 才能看两侧对比，实际使用是频繁的 chat↔live 来回切换。
+
+**后果**：单条对比要跨两张页面，preset 卡片只出现在 Chat 页而不出现在真正呈现对比结果的 Live 页；两个 sidebar 入口做同一件事，用户学不清楚该点哪个。
+
+**初步判断**：已确认，`ChatPage` 和 `LivePage` 已经共用 `LiveJobProvider`（`current` state 由 Context 提供），拆分只是历史遗留（ISS-036 之前的 compose surface 位置调整），没有单独存在的必要。
+
+**关联**：
+-> web/src/pages/LivePage.tsx（重写 — 合并 preset+composer 到 Live 页）
+-> web/src/pages/live-shared.tsx（+PresetsList, +ComposerBar；旧 Composer 删；MoM/Baseline empty-state 收敛）
+-> web/src/components/primitives/MarkdownBody.tsx（footer 条件渲染由 OutputCard 移入）
+-> web/src/pages/ChatPage.tsx（**已删除**）
+-> web/src/App.tsx / web/src/components/layout/Sidebar.tsx（chat 路由/侧栏入口/PageKey 全部去除）
+-> web/src/i18n/dict.ts（`t.chat.*`、`t.nav.chat` 删除；`t.live.newRun` / `t.live.presetsHint` / `t.live.presetsEmpty` / `t.live.emptyModel` 新增）
+-> 004CHANGELOG.md [2026-07-16-10]
+
+## [ISS-050] Live 页 MoM / Baseline 回复被截断，超过 2048 token 就断在半截
+
+**状态**：[已解决]
+**优先级**：[P1 严重]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：`LIVE_MAX_TOKENS = 2048` 硬编码常量删除；`MoMConfig` 新增可选 `live: { max_tokens?: number }` 字段与 `DEFAULT_LIVE_MAX_TOKENS = 8192` 默认常量；`buildAnthropicRequest` 改成接收 `maxTokens` 参数，`runLiveTurn` 里读 `mom.live?.max_tokens ?? DEFAULT_LIVE_MAX_TOKENS` 传入。`data/mom.config.json` 显式写入 `"live": { "max_tokens": 8192 }`，让配置面可见。
+
+**现象**：Live Compare 页 MoM 卡和 Baseline 卡的回答文本经常"到句子中间就断掉了"——特别是让模型写代码 / 设计文档 / 长解释时，只出前一半。DevTools 里看 `/api/live/comparison/{gwId}` 返回，`mom.usage.output_tokens = 2048` 是天花板。
+
+**后果**：所有超过 ~1500 中文字（或 ~6000 字符英文）的对比都不完整；观众看到的两侧只是"开头"，判 judge 打分基于半截答案，Cost 卡的 output_tokens 也系统性偏低。
+
+**初步判断**：已确认，`src/live/live-runtime.ts:44` 硬编码 `LIVE_MAX_TOKENS = 2048`，通过 `buildAnthropicRequest` 塞给 `anthropicReq.max_tokens`；同一个 `anthropicReq` 复用给 MoM aggregator (`orchestrator.nonStreaming`) 和 Baseline (`runBaselineCall`)，两侧同一天花板。
+
+**关联**：
+-> src/live/live-runtime.ts:44（原硬编码位置）
+-> src/live/live-runtime.ts:72-80（`buildAnthropicRequest` 签名变化）
+-> src/types/mom.ts（`LiveSettings` 接口 + `MoMConfig.live?` + `DEFAULT_LIVE_MAX_TOKENS` 新增）
+-> data/mom.config.json（**gitignored 本地文件**）：用户需手动新增 `live.max_tokens: 8192` 才能覆盖默认
+-> 004CHANGELOG.md [2026-07-16-11]
+
 <!--
 新增条目模板：
 

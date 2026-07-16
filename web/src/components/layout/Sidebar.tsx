@@ -1,9 +1,9 @@
 import { useI18n } from '../../i18n/context';
 import { color, font, layout, shadow, space } from '../../theme';
 
-export type PageKey = 'overview' | 'live' | 'chat' | 'pipeline' | 'cost' | 'settings';
+export type PageKey = 'overview' | 'live' | 'pipeline' | 'cost' | 'settings';
 
-const ORDER: PageKey[] = ['overview', 'chat', 'live', 'pipeline'];
+const ORDER: PageKey[] = ['overview', 'live', 'pipeline'];
 
 type Props = {
   active: PageKey;

@@ -1,3 +1,50 @@
+## [2026-07-16-11] fix(live): raise live max_tokens ceiling from 2048 to 8192, make it configurable [ISS-050]
+
+### 改动
+- `src/types/mom.ts`：`MoMConfig` 新增可选 `live?: LiveSettings` 段，`LiveSettings` 目前只有 `max_tokens?: number`；同文件导出 `DEFAULT_LIVE_MAX_TOKENS = 8192`
+- `src/live/live-runtime.ts`：删除硬编码 `const LIVE_MAX_TOKENS = 2048`；`buildAnthropicRequest(prompt, model, maxTokens)` 签名多带一个 `maxTokens`；`runLiveTurn` 里 `const liveMaxTokens = mom.live?.max_tokens ?? DEFAULT_LIVE_MAX_TOKENS`，MoM aggregator 和 Baseline 共用同一 `anthropicReq`，两侧一起提升上限
+- `data/mom.config.json`（**gitignored，本地示例**）：新增 `"live": { "max_tokens": 8192 }`，与代码默认一致；用户需要在自己的 `data/mom.config.json` 里手动添加此字段才能覆盖默认，未加时走 `DEFAULT_LIVE_MAX_TOKENS`
+
+### 涉及文件
+- src/types/mom.ts：+ LiveSettings / MoMConfig.live? / DEFAULT_LIVE_MAX_TOKENS
+- src/live/live-runtime.ts：- 硬编码常量；buildAnthropicRequest 加 maxTokens 参数；runLiveTurn 从 config 读
+
+### 自检
+- `npm run typecheck`：退出码 0
+- `npm run build`：退出码 0（server tsc build）
+- `cd web && npm run build`：退出码 0，前端无变动 → 产物无体积变化
+- 待人工验证：连真 provider 送一条明显 >2048 token 的 prompt（如 "写一个 500 行的 Rust 项目结构"），确认 MoM/Baseline 两侧回答不再被硬截；`mom.usage.output_tokens` 会突破 2048 天花板；如果需要更大上限，编辑 `data/mom.config.json` 的 `live.max_tokens` 即可
+
+### 关联
+-> ISS-050
+
+## [2026-07-16-10] feat(web): fold Chat page into Live single-page workflow [ISS-049]
+
+### 改动
+- `web/src/pages/LivePage.tsx`：两态单页——`isEmpty = current == null && !polling` 时渲染 `<EmptyState>`（居中容器 `flex:1 + alignItems/justifyContent:center`，宽 720px；上方一句 `emptyResult` 引导语，中间 `Composer`，下方 `PresetsList`），有 run 时渲染 `<ResultView>`（`StatusStrip / MomColumn / BaselineColumn / JudgeCard / CostCard / 跳 Pipeline`）；两态都保留顶部 `RunSelect`（历史下拉 + `+ 新对话`），`+ 新对话` 用 `variant: 'primary'` 强调 (MoM 紫底白字)，点它 `live.reset()`
+- `web/src/pages/live-shared.tsx`：删除旧 sticky `ComposerBar`，新增普通 `Composer`（无 sticky/包裹，卡片式输入行 + Enter 发送 / Shift+Enter 换行，`primary` 发送按钮）；`RunSelect` 的 `onNew` 加可选 `variant`，默认 `primary`（原来是 `ghost`，视觉太弱）；`PresetsList` 保留一行一条；`MomColumn / BaselineColumn` empty-state 收敛——`snap==null` 时模型名走 `t.live.emptyModel`（"无"），`footer` 传 `null`；`OutputCard` footer 改成 `footer && (…)` 条件渲染
+- `web/src/pages/ChatPage.tsx`：**删除**
+- `web/src/App.tsx`：去掉 `ChatPage` import、`PAGES` 数组去 `chat`、Router 的 `page === 'chat'` 分支去掉
+- `web/src/components/layout/Sidebar.tsx`：`PageKey` union 去 `chat`；`ORDER` 收敛到 `['overview', 'live', 'pipeline']`
+- `web/src/i18n/dict.ts`：`t.chat` 整块删除，`t.nav.chat` 中英各删；`t.live` 新增 `newRun`（"新对话"/"New run"）、`presetsHint`（"选择问题快速提问"/"Pick a preset or type below"）、`presetsEmpty`（"未配置预置问题。"/"No presets configured."）、`emptyModel`（"无"/"None"）；顺手把 zh 的 `unknownModel: 'GLM 5.2'`（旧误改）还原为 `未知`
+
+### 涉及文件
+- web/src/pages/LivePage.tsx：两态渲染（EmptyState / ResultView），empty state 居中 Composer + Presets
+- web/src/pages/live-shared.tsx：Composer 由 sticky 改回内联；`+ 新对话` 走 primary；MoM/Baseline empty-state 收敛
+- web/src/pages/ChatPage.tsx：**删除**
+- web/src/App.tsx：去 chat 路由分支
+- web/src/components/layout/Sidebar.tsx：去 chat PageKey / ORDER 收敛
+- web/src/i18n/dict.ts：去 t.chat 整块 / 去 t.nav.chat / 加 t.live 的 4 个新 key / 修正 zh unknownModel
+
+### 自检
+- `cd web && npx tsc --noEmit`：退出码 0
+- `cd web && npm run build`：退出码 0，vite 产物 833.58 kB（gzip 235.60 kB），比合并前小 ~6 kB
+- 增量项：本地打开 http://localhost:5173/dashboard/#live —— sidebar 只剩 3 项（Overview / Live Compare / Pipeline）；empty state 下屏幕中央显示 `emptyResult` 引导语 + Composer + 一行一条 preset，无任何对比卡片；点 preset 或送 prompt 后立刻切成结果视图（无 composer），走完 poll 生成 MoM/Baseline/Judge/Cost/Pipeline；点顶部 `+ 新对话` (primary，紫底白字) 回到 empty state
+- 待人工验证：连真 provider 端到端跑一条 prompt，确认异步流的视图切换稳定；手机窄屏 sidebar 折叠行为未验证（无手机窄屏 UI 依赖变更）
+
+### 关联
+-> ISS-049
+
 ## [2026-07-16-9] fix(web): pareto legend uses neutral text + colored swatch [ISS-047]
 
 ### 改动

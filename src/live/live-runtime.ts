@@ -14,7 +14,7 @@ import type {
   TraceRequest,
   TraceUsage,
 } from '../types/mom.js';
-import { TRACE_TEXT_MAX_BYTES } from '../types/mom.js';
+import { DEFAULT_LIVE_MAX_TOKENS, TRACE_TEXT_MAX_BYTES } from '../types/mom.js';
 import { createOrchestrator } from '../orchestrator/orchestrator.js';
 import {
   calculateCostFromSnapshot,
@@ -41,7 +41,6 @@ export interface LiveRunInput {
 }
 
 const EMPTY_USAGE: Usage = { input_tokens: 0, output_tokens: 0 };
-const LIVE_MAX_TOKENS = 2048;
 
 function extractHost(baseUrl: string): string {
   try {
@@ -69,12 +68,12 @@ function truncateForTrace(text: string | null | undefined): string | null {
   return clipped + marker;
 }
 
-function buildAnthropicRequest(prompt: string, model: string): AnthropicMessagesRequest {
+function buildAnthropicRequest(prompt: string, model: string, maxTokens: number): AnthropicMessagesRequest {
   const messages: AnthropicMessage[] = [{ role: 'user', content: prompt }];
   return {
     model,
     messages,
-    max_tokens: LIVE_MAX_TOKENS,
+    max_tokens: maxTokens,
     stream: false,
   };
 }
@@ -206,7 +205,8 @@ export async function runLiveTurn(
   const { provider, mom, mom_config_source } = runtime;
   const providerHost = extractHost(provider.base_url);
 
-  const anthropicReq = buildAnthropicRequest(input.prompt, mom.aggregator.model);
+  const liveMaxTokens = mom.live?.max_tokens ?? DEFAULT_LIVE_MAX_TOKENS;
+  const anthropicReq = buildAnthropicRequest(input.prompt, mom.aggregator.model, liveMaxTokens);
   const orchestrator = createOrchestrator(runtime);
 
   const momStartedAt = Date.now();

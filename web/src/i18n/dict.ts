@@ -15,7 +15,6 @@ export const en = {
   nav: {
     overview: 'Overview',
     live: 'Live Compare',
-    chat: 'Chat',
     pipeline: 'Pipeline',
     cost: 'Cost',
     settings: 'Settings',
@@ -131,21 +130,10 @@ export const en = {
     transportErrorLabel: 'Network error',
     emptyResult: 'Submit a prompt or pick a run to view results.',
     unknownModel: 'unknown',
-  },
-
-  chat: {
-    title: 'Chat',
-    subtitle: '',
-    historyLabel: 'Recent',
-    historyPlaceholder: '— pick a past run —',
-    historyEmpty: 'No runs yet.',
-    newRun: 'New chat',
-    userLabel: 'You',
-    momLabel: 'MoM',
-    pending: 'MoM is thinking…',
-    empty: '',
+    newRun: 'New run',
     presetsHint: 'Pick a preset or type below',
     presetsEmpty: 'No presets configured.',
+    emptyModel: 'None',
   },
 
   pipeline: {
@@ -314,7 +302,6 @@ export const zh: Dict = {
   nav: {
     overview: '性能报告',
     live: '实时对比',
-    chat: '提问',
     pipeline: '请求流程',
     cost: '成本分析',
     settings: '设置',
@@ -424,23 +411,12 @@ export const zh: Dict = {
     statusRunning: '进行中',
     momErrorLabel: 'MoM 主链路出错',
     transportErrorLabel: '网络错误',
-    emptyResult: '发送一个 prompt 或选中一条已有记录以查看结果。',
-    unknownModel: 'GLM 5.2',
-  },
-
-  chat: {
-    title: '提问',
-    subtitle: '',
-    historyLabel: '历史',
-    historyPlaceholder: '— 选择历史记录 —',
-    historyEmpty: '还没有记录。',
+    emptyResult: '我是PPIO的混合模型网关，我可以帮你什么吗？',
+    unknownModel: '未知',
     newRun: '新对话',
-    userLabel: '你',
-    momLabel: 'MoM',
-    pending: 'MoM 正在思考…',
-    empty: '',
     presetsHint: '选择问题快速提问',
     presetsEmpty: '未配置预置问题。',
+    emptyModel: '无',
   },
 
   pipeline: {
