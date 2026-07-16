@@ -98,7 +98,8 @@ export const space = {
 } as const;
 
 export const layout = {
-  sidebarWidth: 244,      // 220 → 244 给放大字号留空间
+  sidebarWidth: 244,      // 220 → 244 给放大字号留空间(保留兼容)
+  topBarHeight: 72,       // 顶栏高度: 品牌 + tagline 双行 + 呼吸空间
   contentMaxWidth: 1520,  // 1440 → 1520
   contentPaddingX: 32,
   contentPaddingY: 32,

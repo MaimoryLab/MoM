@@ -13,24 +13,25 @@ type Props = {
 export function Sidebar({ active, onNavigate }: Props) {
   const { t, lang, setLang } = useI18n();
   return (
-    <aside
+    <header
       style={{
-        width: layout.sidebarWidth,
-        flex: `0 0 ${layout.sidebarWidth}px`,
-        borderRight: `1px solid ${color.border}`,
+        height: layout.topBarHeight,
+        flex: `0 0 ${layout.topBarHeight}px`,
+        borderBottom: `1px solid ${color.border}`,
         background: color.bgSubtle,
-        height: '100vh',
         position: 'sticky',
         top: 0,
+        zIndex: 10,
         display: 'flex',
-        flexDirection: 'column',
-        padding: `${space.lg} ${space.md}`,
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: `0 ${space.xl}`,
         gap: space.lg,
         fontFamily: font.sans,
       }}
     >
       <BrandBlock name={t.brand.name} tagline={t.brand.tagline} />
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+      <nav style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
         {ORDER.map((key) => (
           <NavItem
             key={key}
@@ -47,31 +48,30 @@ export function Sidebar({ active, onNavigate }: Props) {
         langZh={t.lang.zh}
         onLang={setLang}
       />
-    </aside>
+    </header>
   );
 }
 
 function BrandBlock({ name, tagline }: { name: string; tagline: string }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span
-          aria-hidden
-          style={{
-            width: 18,
-            height: 18,
-            borderRadius: 4,
-            background: color.mom,
-            display: 'inline-block',
-            transform: 'translateY(1px)',
-          }}
-        />
-        <span style={{ fontSize: font.size.xl, fontWeight: font.weight.semibold, color: color.textPrimary, letterSpacing: '-0.02em' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span
+        aria-hidden
+        style={{
+          width: 18,
+          height: 18,
+          borderRadius: 4,
+          background: color.mom,
+          display: 'inline-block',
+        }}
+      />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span style={{ fontSize: font.size.lg, fontWeight: font.weight.semibold, color: color.textPrimary, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
           {name}
         </span>
-      </div>
-      <div style={{ fontSize: font.size.xxs, color: color.textMuted, paddingLeft: 26, letterSpacing: '0.02em' }}>
-        {tagline}
+        <span style={{ fontSize: font.size.xxs, color: color.textMuted, letterSpacing: '0.02em', lineHeight: 1.1 }}>
+          {tagline}
+        </span>
       </div>
     </div>
   );
@@ -103,11 +103,10 @@ function FooterBlock({
     boxShadow: isActive ? shadow.card : 'none',
   });
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: space.sm, paddingLeft: 8 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: space.md }}>
       <div
         style={{
           display: 'inline-flex',
-          alignSelf: 'flex-start',
           background: color.bgSubtle,
           borderRadius: 8,
           padding: 3,
@@ -132,8 +131,8 @@ function NavItem({ active, label, onClick }: { active: boolean; label: string; o
         background: active ? color.surface : 'transparent',
         color: active ? color.textPrimary : color.textSecondary,
         borderRadius: 8,
-        padding: '12px 14px',
-        textAlign: 'left',
+        padding: '8px 16px',
+        textAlign: 'center',
         fontSize: font.size.sm,
         fontWeight: active ? font.weight.semibold : font.weight.regular,
         cursor: 'pointer',
