@@ -33,6 +33,12 @@ export const color = {
   advisorB: '#3EA69E',
   advisorC: '#B85F9E',
 
+  // ISS-039 补丁: Overview Pareto 图 7 个模型点各开一色。MoM 保留品牌蓝,其余 6 个
+  // 从 benchmarkPalette 循环取色,展厅低饱和,和 Ranking / Cost 三色语义共享
+  // (rankFlagship / advisorB 青绿 / advisorC 紫红),额外补两个:珊瑚红 + 钩金黄。
+  coralRed: '#D66B6B',
+  hookGold: '#B8A050',
+
   // semantic
   positive: '#3E9E6E',
   negative: '#D14E4E',

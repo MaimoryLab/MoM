@@ -66,10 +66,10 @@ export function ComboChart() {
           <Legend content={<TwoRowLegend />} wrapperStyle={{ fontSize: font.size.xs, paddingTop: 10 }} />
           <Bar yAxisId="cost" dataKey="momCost"      name={`${t.overview.legend.mom} · cost`}        fill={color.mom}            radius={[3,3,0,0]} barSize={12} />
           <Bar yAxisId="cost" dataKey="aggCost"      name={`${t.overview.legend.aggregatorOnly} · cost`} fill={color.aggregatorOnly} radius={[3,3,0,0]} barSize={12} />
-          <Bar yAxisId="cost" dataKey="flagshipCost" name={`${t.overview.legend.flagship} · cost`}   fill={color.flagship}       radius={[3,3,0,0]} barSize={12} />
+          <Bar yAxisId="cost" dataKey="flagshipCost" name={`${t.overview.legend.flagship} · cost`}   fill={color.rankFlagship}   radius={[3,3,0,0]} barSize={12} />
           <Line yAxisId="score" dataKey="momScore"      name={`${t.overview.legend.mom} · score`}        stroke={color.mom}            strokeWidth={2}   dot={{ r: 4, fill: color.mom }} />
           <Line yAxisId="score" dataKey="aggScore"      name={`${t.overview.legend.aggregatorOnly} · score`} stroke={color.aggregatorOnly} strokeWidth={1.5} dot={{ r: 3, fill: color.aggregatorOnly }} />
-          <Line yAxisId="score" dataKey="flagshipScore" name={`${t.overview.legend.flagship} · score`}   stroke={color.flagship}       strokeWidth={1.5} dot={{ r: 3, fill: color.flagship }} />
+          <Line yAxisId="score" dataKey="flagshipScore" name={`${t.overview.legend.flagship} · score`}   stroke={color.rankFlagship}   strokeWidth={1.5} dot={{ r: 3, fill: color.rankFlagship }} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

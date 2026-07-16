@@ -12,6 +12,17 @@ import type { ParetoPoint } from '../../lib/api';
 
 const MODEL_SHAPES = ['square', 'triangle', 'diamond', 'circle', 'wye'] as const;
 
+// ISS-039: Pareto 7 个模型点各开一色,MoM 保留品牌蓝,其余 6 个从 palette 循环取。
+// 与 Ranking / Cost 三色语义共享(rankFlagship / advisorB 青绿 / advisorC 紫红)+ 两个补色。
+const NON_MOM_PALETTE = [
+  color.aggregatorOnly, // 灰蓝 -- 内部 aggregator baseline
+  color.rankFlagship,   // 琥珀橙 -- 通常是 Fable 5 flagship
+  color.advisorB,       // 青绿
+  color.advisorC,       // 紫红
+  color.coralRed,       // 珊瑚红
+  color.hookGold,       // 钩金黄
+] as const;
+
 type ModelShape = (typeof MODEL_SHAPES)[number] | 'star';
 
 type ChartPoint = {
@@ -28,6 +39,7 @@ function toChartPoint(
   point: ParetoPoint,
   translatedLabels: Readonly<Record<string, string>>,
   index: number,
+  nonMomIndex: number,
 ): ChartPoint {
   const isMoM = point.is_mom ?? false;
 
@@ -39,7 +51,7 @@ function toChartPoint(
       translatedLabels[point.label_key] ??
       point.label_key,
     size: isMoM ? 260 : 130,
-    fill: isMoM ? color.mom : color.flagship,
+    fill: isMoM ? color.mom : NON_MOM_PALETTE[nonMomIndex % NON_MOM_PALETTE.length],
     shape: isMoM
       ? 'star'
       : MODEL_SHAPES[index % MODEL_SHAPES.length],
@@ -49,9 +61,11 @@ function toChartPoint(
 export function ParetoChart() {
   const { t } = useI18n();
   const { pareto_data: paretoData, pareto_frontier: paretoFrontier } = benchmarks;
-  const models = paretoData.map((point, index) =>
-    toChartPoint(point, t.models, index),
-  );
+  let nonMomIdx = 0;
+  const models = paretoData.map((point, index) => {
+    const isMoM = point.is_mom ?? false;
+    return toChartPoint(point, t.models, index, isMoM ? -1 : nonMomIdx++);
+  });
   const maxCost = Math.max(...models.map((model) => model.cost), 1);
   const scores = models.map((model) => model.score);
   const minScore = scores.length > 0 ? Math.min(...scores) : 0;
@@ -103,6 +117,7 @@ export function ParetoChart() {
               data={[model]}
               fill={model.fill}
               shape={model.shape}
+              legendType={model.shape}
             />
           ))}
         </ComposedChart>
