@@ -411,7 +411,7 @@ export const zh: Dict = {
     statusRunning: '进行中',
     momErrorLabel: 'MoM 主链路出错',
     transportErrorLabel: '网络错误',
-    emptyResult: '发送一个 prompt 或选中一条已有记录以查看结果。',
+    emptyResult: '我是PPIO的混合模型网关，我可以帮你什么吗？',
     unknownModel: '未知',
     newRun: '新对话',
     presetsHint: '选择问题快速提问',
