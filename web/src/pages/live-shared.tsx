@@ -133,7 +133,7 @@ export function MomColumn({ snap, typewriter, cursorOn }: { snap: ComparisonResp
         ) : snap?.mom_error ? (
           <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {snap.mom_error.message}</span>
         ) : snap ? (
-          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.pendingBaseline}</span>
+          <PendingLabel text={t.live.pendingMom} />
         ) : null
       }
     />
@@ -164,10 +164,28 @@ export function BaselineColumn({ snap, typewriter, cursorOn }: { snap: Compariso
         ) : errorMsg ? (
           <span style={{ color: color.negative, fontSize: font.size.sm }}>{t.live.errorTitle}: {errorMsg}</span>
         ) : snap ? (
-          <span style={{ color: color.textMuted, fontSize: font.size.sm }}>{t.live.pendingBaseline}</span>
+          <PendingLabel text={t.live.pendingBaseline} />
         ) : null
       }
     />
+  );
+}
+
+// Shimmering "generating…" indicator. The shine sweeps across the text so
+// the audience can tell the run is still working while waiting for the
+// first snapshot / baseline stream.
+function PendingLabel({ text }: { text: string }) {
+  return (
+    <span
+      className="shine-text"
+      style={{
+        fontSize: font.size.sm,
+        ['--shine-base' as string]: color.textMuted,
+        ['--shine-hi' as string]: color.mom,
+      }}
+    >
+      {text}
+    </span>
   );
 }
 
