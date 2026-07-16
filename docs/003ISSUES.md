@@ -1985,6 +1985,28 @@ ISS-056 把 Pipeline dropdown 换到 `listComparisons(20)` 后，凡是 `traces`
 -> web/src/pages/PipelinePage.tsx（初始加载改成 `Promise.all([listComparisons(20), listTraces({role:'aggregator'})])` 后取 gwId 交集）
 -> 004CHANGELOG.md [2026-07-16-18]
 
+## [ISS-058] Pipeline TurnSelect 采用严格交集后，最近 20 窗口不重叠时下拉整体清空
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[功能异常]
+**发现日期**：2026-07-16
+**解决日期**：2026-07-16
+**解决方案**：把 dropdown 数据源改成 traces(role='aggregator') 为主源 + comparisons 作为 prompt 增补：`recent` 类型从 `ComparisonListItem[]` 换成本地 `TurnOption { gateway_request_id, started_at, prompt, fallback_model }`；aggregator traces 的每一条都进 `recent`（保证能画流程图），prompt 从 `comparisons` 里按 gwId 查表，命中就用 `time · <clipped-prompt>`，没命中就 fallback 到 `time · <hash8> · <model>`。这样既不因老数据消失、也不因窗口不重叠让 dropdown 变空。
+
+**现象**：
+ISS-057 的严格交集实现（`comparisons ∩ aggregator-traces`）在 `listComparisons(20)` 与 `listTraces(20, role='aggregator')` 的 gwId 集合完全不重叠时（老 aggregator trace 是 Phase 3-5 test 数据、没有对应 comparison 行；新 comparison 都是 MoM 早失败没跑到 aggregator）→ 交集为空 → Pipeline 页 dropdown 一个 option 都不显示。用户反馈："Live 页历史正常，Pipeline 一个都没有；之前虽然格式错，起码有内容"。
+
+**后果**：
+Pipeline 页历史完全丢失，展厅无法从下拉找到任何旧 turn；ISS-057 是"从坏 option 里过滤掉不能画的"，走过头变成"两侧不重叠时全丢"，回归比 ISS-056 之前更差。
+
+**初步判断**：
+已确认。根因是把"过滤"和"prompt 增补"耦合到一个数据源上；aggregator traces 单独就能承担"能不能画"这个语义，comparisons 只是文案增强，两者不该做严格 join。
+
+**关联**：
+-> web/src/pages/PipelinePage.tsx（`recent` 类型改为 `TurnOption`；aggregator traces 全进，`Map<gwId, prompt>` 增补，缺 prompt 时回落 hash8 + model）
+-> 004CHANGELOG.md [2026-07-16-19]
+
 <!--
 新增条目模板：
 

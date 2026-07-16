@@ -1,3 +1,14 @@
+## [2026-07-16-19] fix(web): pipeline TurnSelect keeps aggregator traces even when comparisons window misses [ISS-058]
+
+### 改动
+- `web/src/pages/PipelinePage.tsx`：`recent` 类型从 `ComparisonListItem[]` 换成本地 `TurnOption { gateway_request_id, started_at, prompt, fallback_model }`；aggregator traces 每条都进 `recent`（担保"能画流程"），从 `comparisons` 侧构建 `Map<gwId, prompt>` 只做**文案增补**——命中显示 `time · clipped-prompt`（Live 格式），未命中 fallback 到 `time · hash8 · model`（老数据可读）。摒弃严格交集，避免两侧最近 20 窗口不重叠时下拉整体清空
+
+### 涉及文件
+- web/src/pages/PipelinePage.tsx：dropdown 主源改成 aggregator traces，comparisons 作为 prompt lookup
+
+### 关联
+-> ISS-058
+
 ## [2026-07-16-18] fix(web): pipeline TurnSelect only lists gwIds with aggregator trace [ISS-057]
 
 ### 改动
