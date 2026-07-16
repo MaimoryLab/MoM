@@ -9,7 +9,7 @@ import { useKiosk } from '../hooks/useKioskMode';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { color, font, radius, shadow, space } from '../theme';
 import { formatCost, formatLatency } from '../i18n/format';
-import { getTracesByGateway, listComparisons } from '../lib/api';
+import { getTracesByGateway, listComparisons, listTraces } from '../lib/api';
 import type { ComparisonListItem, TraceRequestFull } from '../lib/api';
 import { compressTimeline, nodeStatusAt, type NodeStatus, TIMELINE_CAP_MS } from '../lib/timing';
 
@@ -59,13 +59,24 @@ export function PipelinePage({ turnFromUrl }: Props) {
   }, [turnFromUrl]);
 
   useEffect(() => {
+    // Pipeline needs an aggregator trace to draw the flow — a comparison row
+    // alone is not enough (MoM-early-error / passthrough / legacy rows have
+    // no aggregator trace and would land on the empty state). Intersect
+    // comparisons ∩ traces(role=aggregator) so every dropdown option is one
+    // the flow view can actually render. Prompt text still comes from the
+    // comparisons side, aggregator presence from the traces side.
     let cancelled = false;
-    listComparisons(20)
-      .then((res) => {
+    Promise.all([
+      listComparisons(20),
+      listTraces({ limit: 20, role: 'aggregator' }),
+    ])
+      .then(([comps, traces]) => {
         if (cancelled) return;
-        setRecent(res.items);
-        if (!selectedGwId && res.items.length > 0) {
-          setSelectedGwId(res.items[0].gateway_request_id);
+        const aggregatorGwIds = new Set(traces.items.map((tr) => tr.gateway_request_id));
+        const filtered = comps.items.filter((c) => aggregatorGwIds.has(c.gateway_request_id));
+        setRecent(filtered);
+        if (!selectedGwId && filtered.length > 0) {
+          setSelectedGwId(filtered[0].gateway_request_id);
         }
       })
       .catch((err) => {
