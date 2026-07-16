@@ -5,9 +5,11 @@ export interface ChartBenchmarkRow {
   momScore: number;
   aggScore: number;
   flagshipScore: number;
+  gptScore: number;
   momCost: number;
   aggCost: number;
   flagshipCost: number;
+  gptCost: number;
 }
 
 export type BenchmarkRowInput = ApiBenchmarkRow | ChartBenchmarkRow;
@@ -27,9 +29,11 @@ export function normalizeBenchmarkRows(
       momScore: row.mom_score,
       aggScore: row.agg_score,
       flagshipScore: row.flagship_score,
+      gptScore: row.gpt_score,
       momCost: row.mom_cost,
       aggCost: row.agg_cost,
       flagshipCost: row.flagship_cost,
+      gptCost: row.gpt_cost,
     };
   });
 }
