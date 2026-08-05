@@ -21,12 +21,12 @@ export function CostStackedBar() {
           <YAxis
             stroke={color.axisLabel}
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
-            tickFormatter={(v: number) => `$${v.toFixed(3)}`}
+            tickFormatter={(v: number) => `¥${v.toFixed(3)}`}
             axisLine={false}
             tickLine={false}
           />
           <Tooltip
-            formatter={(value: number) => `$${value.toFixed(4)}`}
+            formatter={(value: number) => `¥${value.toFixed(4)}`}
             contentStyle={{
               background: color.surface, border: `1px solid ${color.border}`,
               borderRadius: 8, fontSize: font.size.xs, color: color.textPrimary,

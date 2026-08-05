@@ -42,7 +42,7 @@ export function CostPie() {
             ))}
           </Pie>
           <Tooltip
-            formatter={(v: number) => `$${v.toFixed(3)}`}
+            formatter={(v: number) => `¥${v.toFixed(3)}`}
             contentStyle={{
               background: color.surface, border: `1px solid ${color.border}`,
               borderRadius: 8, fontSize: font.size.xs, color: color.textPrimary,

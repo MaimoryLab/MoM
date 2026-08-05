@@ -26,7 +26,7 @@ export function CostTimeline() {
           <YAxis
             stroke={color.axisLabel}
             tick={{ fontSize: font.size.xxs, fill: color.axisLabel }}
-            tickFormatter={(v: number) => `$${v.toFixed(3)}`}
+            tickFormatter={(v: number) => `¥${v.toFixed(3)}`}
             axisLine={false}
             tickLine={false}
           />
