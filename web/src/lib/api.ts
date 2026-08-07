@@ -17,6 +17,8 @@ export type FanoutMode = 'off' | 'user_turn' | 'per_iteration';
 export type AggregationMode = 'concat' | 'judge';
 export type AuthStyle = 'bearer' | 'x-api-key';
 export type CacheTTLPreset = '5m' | '1h';
+export type ReferenceInjectionTiming = 'user_turn_only' | 'every_request';
+export type ReferenceInjectionPosition = 'user_message_tail' | 'context_tail';
 
 export interface ModelPricing {
   currency: string;
@@ -36,6 +38,10 @@ export interface MoMConfig {
   judge: { model: string; system_prompt?: string };
   cache: { ttl: CacheTTLPreset; max_entries: number };
   comparison: { enabled: boolean; baseline_model: string };
+  reference_injection: {
+    timing: ReferenceInjectionTiming;
+    position: ReferenceInjectionPosition;
+  };
   pricing_table: Record<string, ModelPricing>;
   cost_tradeoff: { enabled: boolean };
 }

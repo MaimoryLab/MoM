@@ -4,6 +4,7 @@ import type {
   ProviderConfig,
   RuntimeConfig,
 } from '../types/mom.js';
+import { DEFAULT_REFERENCE_INJECTION } from '../types/mom.js';
 import type {
   ConfigResponse,
   SaveConfigRequest,
@@ -69,6 +70,8 @@ const MOM_MODES = new Set(['off', 'always', 'auto']);
 const FANOUT_MODES = new Set(['off', 'user_turn', 'per_iteration']);
 const AGG_MODES = new Set(['concat', 'judge']);
 const TTL_PRESETS = new Set(['5m', '1h']);
+const REF_INJECTION_TIMINGS = new Set(['user_turn_only', 'every_request']);
+const REF_INJECTION_POSITIONS = new Set(['user_message_tail', 'context_tail']);
 
 export class ValidationError extends Error {}
 
@@ -127,6 +130,23 @@ export function assertMoMConfigShape(v: unknown): asserts v is MoMConfig {
     }
   }
 
+  if (!isObject(v.reference_injection))
+    throw new ValidationError('mom.reference_injection must be an object');
+  if (
+    !isString(v.reference_injection.timing) ||
+    !REF_INJECTION_TIMINGS.has(v.reference_injection.timing)
+  )
+    throw new ValidationError(
+      'mom.reference_injection.timing must be one of "user_turn_only"|"every_request"',
+    );
+  if (
+    !isString(v.reference_injection.position) ||
+    !REF_INJECTION_POSITIONS.has(v.reference_injection.position)
+  )
+    throw new ValidationError(
+      'mom.reference_injection.position must be one of "user_message_tail"|"context_tail"',
+    );
+
   if (!isObject(v.cost_tradeoff))
     throw new ValidationError('mom.cost_tradeoff must be an object');
   if (!isBoolean(v.cost_tradeoff.enabled))
@@ -161,6 +181,12 @@ export function registerConfigAPI(
     }
     let mom: MoMConfig;
     try {
+      // Backfill reference_injection so a client that omits the field (e.g. an
+      // older Dashboard build) gets the default policy instead of a 400. Only
+      // fills when absent; a present-but-malformed value still fails validation.
+      if (isObject(body.mom) && body.mom.reference_injection === undefined) {
+        body.mom.reference_injection = { ...DEFAULT_REFERENCE_INJECTION };
+      }
       assertMoMConfigShape(body.mom);
       mom = body.mom;
       assertModeRequirements(mom);

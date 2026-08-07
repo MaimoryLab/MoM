@@ -7,6 +7,28 @@ import type {
 export type MoMMode = 'off' | 'always' | 'auto';
 export type FanoutMode = 'off' | 'user_turn' | 'per_iteration';
 export type AggregationMode = 'concat' | 'judge';
+
+/**
+ * When to inject advisor references into the aggregator request.
+ * - `user_turn_only`: inject only on a fresh user turn; tool-iteration requests
+ *   skip injection (the model already internalised the references from the
+ *   turn's first request, and skipping keeps prompt-cache prefixes stable).
+ * - `every_request`: inject on every request, including each tool iteration.
+ */
+export type ReferenceInjectionTiming = 'user_turn_only' | 'every_request';
+
+/**
+ * Where to place the injected references in the message list.
+ * - `user_message_tail`: append to the last real user message's tail. Keeps the
+ *   references at a fixed prefix position within one agent loop → prompt-cache
+ *   hits persist across that loop's tool iterations. Cost: the next user turn
+ *   drops the references, invalidating the tool context that followed them.
+ * - `context_tail`: append to the very end of the message list each time. The
+ *   `user query + tool turns` prefix stays byte-stable and reusable across the
+ *   next agent loop. Cost: the references' own position shifts every iteration,
+ *   so the cache breakpoint at the references rebuilds within a loop.
+ */
+export type ReferenceInjectionPosition = 'user_message_tail' | 'context_tail';
 export type AuthStyle = 'bearer' | 'x-api-key';
 export type CacheTTLPreset = '5m' | '1h';
 
@@ -50,6 +72,16 @@ export interface ComparisonSettings {
   baseline_model: string;
 }
 
+/**
+ * Controls whether and where advisor references are injected into the
+ * aggregator request. Orthogonal knobs: `timing` answers "inject on this
+ * request?", `position` answers "inject where in the message list?".
+ */
+export interface ReferenceInjectionSettings {
+  timing: ReferenceInjectionTiming;
+  position: ReferenceInjectionPosition;
+}
+
 export interface CostTradeoffSettings {
   enabled: boolean;
 }
@@ -74,12 +106,46 @@ export interface MoMConfig {
   judge: JudgeSettings;
   cache: CacheSettings;
   comparison: ComparisonSettings;
+  reference_injection: ReferenceInjectionSettings;
   pricing_table: Record<string, ModelPricing>;
   cost_tradeoff: CostTradeoffSettings;
   live?: LiveSettings;
 }
 
 export const DEFAULT_LIVE_MAX_TOKENS = 8192;
+
+/**
+ * Default reference-injection policy. `user_turn_only` + `user_message_tail`
+ * reproduces the pre-ISS-069 hardcoded behaviour on a fresh user turn, and
+ * additionally skips injection on tool iterations (the previous behaviour
+ * always injected). Used both as the `DEFAULT_MOM_CONFIG` value and as the
+ * normalize fallback when a config file / API body omits the field.
+ */
+export const DEFAULT_REFERENCE_INJECTION: ReferenceInjectionSettings = {
+  timing: 'user_turn_only',
+  position: 'user_message_tail',
+};
+
+/**
+ * Fill a valid `ReferenceInjectionSettings` from arbitrary input. Absent or
+ * malformed fields fall back to `DEFAULT_REFERENCE_INJECTION` per-field. Used
+ * at the config-file load boundary so pre-ISS-069 config files (which omit the
+ * field) load without error and pick up the default policy.
+ */
+export function normalizeReferenceInjection(
+  v: unknown,
+): ReferenceInjectionSettings {
+  const obj = typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {};
+  const timing: ReferenceInjectionTiming =
+    obj.timing === 'every_request' || obj.timing === 'user_turn_only'
+      ? obj.timing
+      : DEFAULT_REFERENCE_INJECTION.timing;
+  const position: ReferenceInjectionPosition =
+    obj.position === 'context_tail' || obj.position === 'user_message_tail'
+      ? obj.position
+      : DEFAULT_REFERENCE_INJECTION.position;
+  return { timing, position };
+}
 
 export interface RuntimeConfig {
   provider: ProviderConfig;
@@ -348,6 +414,10 @@ export const DEFAULT_MOM_CONFIG: MoMConfig = {
   comparison: {
     enabled: false,
     baseline_model: '',
+  },
+  reference_injection: {
+    timing: 'user_turn_only',
+    position: 'user_message_tail',
   },
   pricing_table: {},
   cost_tradeoff: {

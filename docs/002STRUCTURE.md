@@ -39,7 +39,7 @@ MoM/
 │   │   ├── view-transformer.ts    # convertToAdvisorView / truncateToolResult
 │   │   └── advisor-runtime.ts     # runAdvisor（Phase 3 起在请求前过 applyAdvisorCacheControl；ISS-009 起返回值补 started_at / finished_at / selected_model / response_summary）
 │   ├── aggregator/                # Phase 2
-│   │   ├── reference-builder.ts   # buildConcatReferences / appendReferencesToLastUser
+│   │   ├── reference-builder.ts   # buildConcatReferences / applyReferenceInjection（ISS-069：timing×position 策略层）
 │   │   └── aggregator-runtime.ts  # runAggregatorNonStreaming / runAggregatorStreaming（Phase 3 起改 NodeJS.WritableStream + 可选 onEvent；ISS-009 起返回值补 started_at / finished_at / response_summary / error?）
 │   ├── cache/                     # 新增 — Phase 3
 │   │   ├── cache-key.ts           # computeFanoutCacheKey / selectSignatureMessages（三段 hash：settingsHash|slotsHash|sig，slot 保原顺序不 sort）

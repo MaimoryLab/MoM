@@ -3,7 +3,12 @@ import type {
   ContentBlock,
   TextBlock,
 } from '../types/anthropic.js';
-import type { AdvisorResult, MoMConfig } from '../types/mom.js';
+import type {
+  AdvisorResult,
+  MoMConfig,
+  ReferenceInjectionSettings,
+  ReferenceInjectionTiming,
+} from '../types/mom.js';
 import {
   AGGREGATOR_GUIDANCE,
   AGGREGATOR_REFERENCES_HEADER,
@@ -35,16 +40,35 @@ export function buildConcatReferences(
 /**
  * Compose the aggregator injection payload: guidance block + references
  * header + concatenated advisor references. Kept as a single string so
- * `appendReferencesToLastUser` stays byte-exact and the caller can log the
- * appended content verbatim via `AggregatorResult.references_appended`.
+ * placement stays byte-exact and the caller can log the appended content
+ * verbatim via `AggregatorResult.references_appended`.
  */
 function composeAggregatorPayload(references: string): string {
   return `${AGGREGATOR_GUIDANCE}\n\n${AGGREGATOR_REFERENCES_HEADER}\n${references}`;
 }
 
+function normalizeContent(content: string | ContentBlock[]): ContentBlock[] {
+  if (typeof content === 'string') {
+    return content === '' ? [] : [{ type: 'text', text: content }];
+  }
+  return content;
+}
+
+/** A "real" user message is role=user carrying no tool_result block (i.e. a
+ *  genuine user turn, not a tool-iteration result carrier). */
+function isRealUserMessage(message: AnthropicMessage): boolean {
+  if (message.role !== 'user') return false;
+  for (const b of normalizeContent(message.content)) {
+    if (b.type === 'tool_result') return false;
+  }
+  return true;
+}
+
+/** Append `suffix` to a message's last text block (cloning the block), or push
+ *  a new text block if none exists. Never mutates the input message. */
 function cloneWithAppendedText(
   message: AnthropicMessage,
-  guidance: string,
+  suffix: string,
 ): AnthropicMessage {
   const blocks: ContentBlock[] =
     typeof message.content === 'string'
@@ -61,36 +85,100 @@ function cloneWithAppendedText(
     }
   }
   if (lastTextIdx === -1) {
-    blocks.push({ type: 'text', text: guidance });
+    blocks.push({ type: 'text', text: suffix });
   } else {
     const original = blocks[lastTextIdx] as TextBlock;
-    blocks[lastTextIdx] = {
-      ...original,
-      text: `${original.text}${guidance}`,
-    };
+    blocks[lastTextIdx] = { ...original, text: `${original.text}${suffix}` };
   }
   return { role: message.role, content: blocks };
 }
 
-export function appendReferencesToLastUser(
+/** Insert the payload at `targetIdx` (append to that message), preserving the
+ *  object identity of every other message so prompt-cache prefixes stay stable.
+ *  If the target is not a user message, a fresh user message carrying the pure
+ *  payload is appended after it instead. */
+function injectAtIndex(
   messages: AnthropicMessage[],
-  references: string,
+  targetIdx: number,
+  payload: string,
 ): AnthropicMessage[] {
-  if (messages.length === 0) return messages;
-  const lastIdx = messages.length - 1;
-  const last = messages[lastIdx]!;
-  const payload = composeAggregatorPayload(references);
-  const appended = `\n\n---\n\n${payload}`;
-
-  const next = messages.slice(0, lastIdx);
-  if (last.role === 'user') {
-    next.push(cloneWithAppendedText(last, appended));
+  const target = messages[targetIdx]!;
+  const next = messages.slice();
+  if (target.role === 'user') {
+    // "---" separator only when appending into an existing user turn.
+    next[targetIdx] = cloneWithAppendedText(target, `\n\n---\n\n${payload}`);
   } else {
-    next.push(last);
-    next.push({
+    next.splice(targetIdx + 1, 0, {
       role: 'user',
       content: [{ type: 'text', text: payload }],
     });
   }
   return next;
+}
+
+/** Index of the last real user message (the genuine query), or -1. */
+function lastRealUserIndex(messages: AnthropicMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (isRealUserMessage(messages[i]!)) return i;
+  }
+  return -1;
+}
+
+export interface ReferenceInjectionInput {
+  messages: AnthropicMessage[];
+  /** Concatenated advisor references from `buildConcatReferences`. */
+  references: string;
+  /** Whether this request opens a fresh user turn (vs a tool iteration). */
+  isNewUserTurn: boolean;
+  settings: ReferenceInjectionSettings;
+}
+
+export interface ReferenceInjectionOutput {
+  /** Message list to send to the aggregator. Prefix identity preserved. */
+  messages: AnthropicMessage[];
+  /** True when references were injected on this request. */
+  injected: boolean;
+  /** Exact payload text injected; '' when `injected` is false. Fed verbatim
+   *  into `AggregatorResult.references_appended` for the trace record. */
+  payload: string;
+}
+
+function shouldInject(
+  timing: ReferenceInjectionTiming,
+  isNewUserTurn: boolean,
+): boolean {
+  return timing === 'every_request' || isNewUserTurn;
+}
+
+/**
+ * Single decision point for reference injection. `timing` gates whether this
+ * request gets references at all; `position` picks the placement. Returns the
+ * (possibly unchanged) message list plus what was injected, so callers never
+ * branch on the policy themselves.
+ */
+export function applyReferenceInjection(
+  input: ReferenceInjectionInput,
+): ReferenceInjectionOutput {
+  const { messages, references, isNewUserTurn, settings } = input;
+
+  if (messages.length === 0 || !shouldInject(settings.timing, isNewUserTurn)) {
+    return { messages, injected: false, payload: '' };
+  }
+
+  const payload = composeAggregatorPayload(references);
+  const targetIdx =
+    settings.position === 'context_tail'
+      ? messages.length - 1
+      : // user_message_tail: the genuine query; degrade to the last message
+        // when there is no real user message (first request is tool_result).
+        (() => {
+          const idx = lastRealUserIndex(messages);
+          return idx === -1 ? messages.length - 1 : idx;
+        })();
+
+  return {
+    messages: injectAtIndex(messages, targetIdx, payload),
+    injected: true,
+    payload,
+  };
 }

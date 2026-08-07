@@ -85,6 +85,10 @@ A ready-to-run fan-out example (replace `<...>` with real model names from your 
     "enabled": false,
     "baseline_model": ""
   },
+  "reference_injection": {
+    "timing": "user_turn_only",
+    "position": "user_message_tail"
+  },
   "pricing_table": {},
   "cost_tradeoff": {
     "enabled": false
@@ -95,6 +99,8 @@ A ready-to-run fan-out example (replace `<...>` with real model names from your 
 Effective values for `mom_mode` today: `always` fans out on every user turn (recommended default); `off` passes traffic through unchanged (`auto` is a declared value but currently behaves like `off`). An empty `pricing_table` makes trace `pricing` snapshots `null` — eval-side cost accounting cannot compute, but **the gateway keeps working**. Prefer running the sync step below on first boot. Field-by-field notes live in [`docs/005DEVELOPMENT.md`](docs/005DEVELOPMENT.md).
 
 `fanout_mode` controls the local advisor-result cache: `user_turn` reuses results within the same real user turn, `per_iteration` caches by the full message sequence, and `off` bypasses all cache reads and writes so every iteration calls the advisors. Restart the gateway after changing it.
+
+`reference_injection` controls how advisor references are injected into the aggregator request, along two orthogonal axes. `timing` decides *when* to inject: `user_turn_only` (default) injects only on a fresh user turn and skips tool iterations (the model has already internalised the references, so re-injecting is redundant), while `every_request` injects on every request. `position` decides *where* to place them: `user_message_tail` (default) appends to the last real user message's tail (optimises prompt-cache hits within a single agent loop), while `context_tail` appends to the very end of the message sequence (optimises prefix reuse across agent loops). The default pair is `user_turn_only + user_message_tail`.
 
 ### 3. Sync pricing on first boot (recommended)
 

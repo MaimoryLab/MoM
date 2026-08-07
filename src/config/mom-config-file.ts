@@ -1,6 +1,10 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DEFAULT_MOM_CONFIG, type MoMConfig } from '../types/mom.js';
+import {
+  DEFAULT_MOM_CONFIG,
+  normalizeReferenceInjection,
+  type MoMConfig,
+} from '../types/mom.js';
 
 export class MoMConfigFileError extends Error {}
 
@@ -22,13 +26,21 @@ export function loadMoMConfig(path: string): MoMConfig {
       `failed to read MoM config file at ${path}: ${(err as Error).message}`,
     );
   }
+  let parsed: MoMConfig;
   try {
-    return JSON.parse(raw) as MoMConfig;
+    parsed = JSON.parse(raw) as MoMConfig;
   } catch (err) {
     throw new MoMConfigFileError(
       `MoM config file at ${path} is not valid JSON: ${(err as Error).message}`,
     );
   }
+  // Backfill fields added after a config file was first written, so pre-ISS-069
+  // files (which omit reference_injection) load with the default policy rather
+  // than surfacing `undefined` into the runtime.
+  parsed.reference_injection = normalizeReferenceInjection(
+    parsed.reference_injection,
+  );
+  return parsed;
 }
 
 export function saveMoMConfig(path: string, config: MoMConfig): void {

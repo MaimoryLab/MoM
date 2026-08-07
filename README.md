@@ -63,8 +63,8 @@ cp .env.example .env
 
 ```json
 {
-  "mom_mode": "always",
-  "fanout_mode": "user_turn",
+  "mom_mode": "always",  //[always]-[off]-[auto](auto暂未支持，自动视为为off)
+  "fanout_mode": "user_turn",  // [off]-[user_turn]-[per_iteration]
   "aggregation_mode": "concat",
   "reference_max_tokens": 4096,
   "advisor": {
@@ -85,6 +85,10 @@ cp .env.example .env
     "enabled": false,
     "baseline_model": ""
   },
+  "reference_injection": {
+    "timing": "user_turn_only",     // [user_turn_only]-[every_request]
+    "position": "user_message_tail" // [user_message_tail]-[context_tail]
+  },
   "pricing_table": {},
   "cost_tradeoff": {
     "enabled": false
@@ -95,6 +99,8 @@ cp .env.example .env
 `mom_mode` 目前有效值：`always` 每个 user turn 都触发 fan-out（推荐默认）；`off` 完全透传（`auto` 已列入类型但当前实现等价于 `off`）。`pricing_table` 留空时 trace 的 `pricing` 快照为 null、eval 侧算不出成本，但**不影响功能**；建议按下一小节一次性从 provider 灌入。字段含义见 [`docs/005DEVELOPMENT.md`](docs/005DEVELOPMENT.md)。
 
 `fanout_mode` 控制本地 advisor 结果缓存：`user_turn` 在同一真实用户回合内复用，`per_iteration` 按完整消息序列缓存，`off` 完全跳过缓存读写、每次都真实调用 advisors。修改后需重启网关。
+
+`reference_injection` 控制 advisor references 拼进 aggregator 请求的策略，两个正交维度：`timing` 决定何时注入——`user_turn_only`（默认）只在新用户回合注入、工具迭代跳过（references 已被模型内化，重复注入是冗余），`every_request` 每个请求都注入；`position` 决定拼接位置——`user_message_tail`（默认）拼到最后一条真实 user 消息尾部（优化单个 agent loop 内的 prompt cache 命中），`context_tail` 拼到整个消息序列末尾（优化跨 agent loop 的前缀复用）。默认组合 `user_turn_only + user_message_tail`。
 
 ### 3. 首次同步定价（推荐）
 

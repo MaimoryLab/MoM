@@ -393,7 +393,7 @@ describe('cost accounting: passthrough path', () => {
 });
 
 describe('advisor & aggregator context scope (answering user Q)', () => {
-  it('advisor receives ALL messages (flattened); aggregator receives ALL messages (original) + references appended to last user', async () => {
+  it('advisor receives ALL messages (flattened); aggregator receives ALL messages (original) + references appended to last user [reference_injection=every_request]', async () => {
     const captured: { model: string; messages: unknown; system: unknown; last_user: string }[] = [];
     setHandler((_req, body, res) => {
       const lastMsg = body.messages[body.messages.length - 1]!;
@@ -416,10 +416,18 @@ describe('advisor & aggregator context scope (answering user Q)', () => {
       );
     });
 
-    const orch = createOrchestrator(runtime(momCfg()));
+    // This turn's tail is a tool_result (isNewUserTurn=false); force injection
+    // regardless of turn type (every_request) and place it at the very end
+    // (context_tail) so references land on the last message (index 4) while the
+    // 0..3 prefix keeps byte identity — exactly what the assertions below check.
+    const orch = createOrchestrator(
+      runtime(
+        momCfg({
+          reference_injection: { timing: 'every_request', position: 'context_tail' },
+        }),
+      ),
+    );
     const sessionId = '55555555-5555-4555-8555-555555555555';
-
-    // 构造多轮上下文:2 轮真实对话 + 1 轮 tool iteration
     const messages: AnthropicMessagesRequest['messages'] = [
       { role: 'user', content: 'question 1: what is X?' },
       { role: 'assistant', content: 'answer 1: X is foo' },

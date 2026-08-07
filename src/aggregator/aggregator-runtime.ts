@@ -15,7 +15,7 @@ import type {
 import { passthroughCall, toTraceError } from '../provider/provider-client.js';
 import { passthroughStream } from '../provider/stream-forward.js';
 import {
-  appendReferencesToLastUser,
+  applyReferenceInjection,
   buildConcatReferences,
 } from './reference-builder.js';
 
@@ -31,15 +31,23 @@ function buildAggregatorRequest(
   original: AnthropicMessagesRequest,
   results: AdvisorResult[],
   momConfig: MoMConfig,
+  isNewUserTurn: boolean,
 ): { request: AnthropicMessagesRequest; references: string } {
   const references = buildConcatReferences(results, momConfig);
-  const messages = appendReferencesToLastUser(original.messages, references);
+  const injection = applyReferenceInjection({
+    messages: original.messages,
+    references,
+    isNewUserTurn,
+    settings: momConfig.reference_injection,
+  });
   const request: AnthropicMessagesRequest = {
     ...original,
     model: momConfig.aggregator.model,
-    messages,
+    messages: injection.messages,
   };
-  return { request, references };
+  // `references_appended` on the trace must reflect what was actually injected
+  // (empty when policy skipped this request), not the raw concat.
+  return { request, references: injection.payload };
 }
 
 export async function runAggregatorNonStreaming(
@@ -47,9 +55,15 @@ export async function runAggregatorNonStreaming(
   results: AdvisorResult[],
   momConfig: MoMConfig,
   provider: ProviderConfig,
+  isNewUserTurn: boolean,
 ): Promise<AggregatorResult> {
   const startedAt = Date.now();
-  const { request, references } = buildAggregatorRequest(original, results, momConfig);
+  const { request, references } = buildAggregatorRequest(
+    original,
+    results,
+    momConfig,
+    isNewUserTurn,
+  );
   const response = await passthroughCall({ ...request, stream: false }, provider);
   const finishedAt = Date.now();
   return {
@@ -83,10 +97,16 @@ export async function runAggregatorStreaming(
   momConfig: MoMConfig,
   provider: ProviderConfig,
   output: NodeJS.WritableStream,
+  isNewUserTurn: boolean,
   options: RunAggregatorStreamingOptions = {},
 ): Promise<StreamingTimingResult> {
   const startedAt = Date.now();
-  const { request, references } = buildAggregatorRequest(original, results, momConfig);
+  const { request, references } = buildAggregatorRequest(
+    original,
+    results,
+    momConfig,
+    isNewUserTurn,
+  );
   try {
     await passthroughStream(
       { ...request, stream: true },

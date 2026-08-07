@@ -1,3 +1,31 @@
+## [2026-08-07-1] feat(aggregator): configurable reference injection (timing × position) [ISS-069]
+
+### 改动
+- 新增 `MoMConfig.reference_injection`：`timing`（`user_turn_only` 默认 / `every_request`）门控工具迭代是否注入 references；`position`（`user_message_tail` 默认 / `context_tail`）选择拼接落点。两个维度正交
+- `reference-builder.ts` 从第一性原理重构：删除硬编码的 `appendReferencesToLastUser`，抽出纯策略函数 `applyReferenceInjection({messages, references, isNewUserTurn, settings})` 作为唯一决策点，返回 `{messages, injected, payload}`；位置A拼到最后一条真实 user 消息尾部、位置B拼到消息序列末尾，两者均保持非目标消息的对象引用不变
+- `aggregator-runtime.ts`：`buildAggregatorRequest` / `runAggregatorNonStreaming` / `runAggregatorStreaming` 增 `isNewUserTurn` 参数；trace 的 `references_appended` 改为反映实际注入内容（策略跳过时为空串）
+- `orchestrator.ts`：`runFanoutStage` 返回值补 `isNewUserTurn`，透传给非流式与流式两条 aggregator 路径
+- 校验与兜底：`config-api.ts` 加 `timing`/`position` 枚举白名单校验，POST 缺字段时 backfill 默认；`mom-config-file.ts` 在加载边界用 `normalizeReferenceInjection` 兜底 pre-ISS-069 旧文件
+- 默认组合 `user_turn_only + user_message_tail`：新 user turn 行为与改动前逐字节一致，工具迭代由「原无条件注入」变为默认跳过
+- 测试：`reference-builder.test.ts` 覆盖 timing×position 四象限 + 前缀引用不变量 + 非 mutation；`dashboard-api-config.test.ts` 覆盖新字段校验与 backfill
+
+### 涉及文件
+- src/types/mom.ts：新增 ReferenceInjection 类型 / 默认常量 / normalize；MoMConfig 加字段
+- src/aggregator/reference-builder.ts：重构为 applyReferenceInjection 策略层
+- src/aggregator/aggregator-runtime.ts：透传 isNewUserTurn；references_appended 反映实际注入
+- src/orchestrator/orchestrator.ts：runFanoutStage 暴露 isNewUserTurn
+- src/dashboard-api/config-api.ts：枚举校验 + POST backfill
+- src/config/mom-config-file.ts：加载边界 normalize 兜底
+- web/src/lib/api.ts：前端 MoMConfig 镜像同步
+- data/mom.config.json：补 reference_injection 默认值
+- test/reference-builder.test.ts：策略层四象限单测
+- test/dashboard-api-config.test.ts：校验 + backfill 单测
+- test/orchestrator-cost.test.ts：受影响的 aggregator-view 用例改用 every_request + context_tail 保持原断言意图
+
+### 关联
+-> ISS-069
+-> decisions/011-reference-injection-policy.md
+
 ## [2026-07-16-24] fix(judge): bounded retry (up to 5) when judge parse or transport fails [ISS-065]
 
 ### 改动

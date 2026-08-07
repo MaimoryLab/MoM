@@ -2171,6 +2171,182 @@ Live 页 Judge 打分偶发失败，前端显示错误状态且分数为 0。根
 -> src/live/live-runtime.ts（`finalizeJudge` 上游 `runJudgeCompare` 传入 `log`）
 -> 004CHANGELOG.md [2026-07-16-24]
 
+## [ISS-066] Fanout cache 是进程内单例 Map，云端多实例/无状态部署下会失效或串号
+
+**状态**：[发现]
+**优先级**：[P1 严重]
+**类型**：[技术债]
+**发现日期**：2026-08-06
+
+**现象**：
+当前 fanout cache 的实现是一个活在 Node 进程内存里的 `Map`（`src/cache/fanout-cache.ts`），由 `createOrchestrator` 在进程启动时创建一次（`src/orchestrator/orchestrator.ts:65`），经 `orchestrator-holder.ts` 单例持有。缓存键 `computeFanoutCacheKey`（`src/cache/cache-key.ts:60-75`）由「消息签名 + advisor 配置哈希 + slots 哈希」三段组成，**完全不含 `sessionId`**——`sessionId` 只用于 trace 记录（`messages-handler.ts:38` 从 `x-session-id` 头提取后一路透传给 trace），从不参与缓存键。
+
+本地单实例、单用户、低并发场景下这套逻辑工作正常：user_turn 模式下工具循环复用同一轮 advisor reference，靠的就是「同一进程里 Map 还在 + 键截断到 user 消息后相同」。
+
+**后果**：
+迁移到云端「LLM API 前端 / visual model 功能」后，面对大量请求通常会横向扩容成多实例（多进程/多容器/serverless 冷启）。此时：
+1. **缓存命中率坍塌**：user A 第 1 轮请求打到实例 1（写入实例 1 的内存 Map），工具迭代请求被负载均衡打到实例 2 → 实例 2 内存里没有这条缓存 → miss → 重新扇出全部 advisor。user_turn 模式「工具循环复用、省扇出成本」的核心收益在多实例下大面积失效，退化成近似 per_iteration 的成本。
+2. **serverless/无状态更彻底失效**：若按无状态函数部署（每请求可能新进程），进程内 Map 生命周期可能短于一个 agent loop，缓存等于没有。
+3. **潜在串号风险（当前逻辑下较低但需警惕）**：缓存键不含 session/user 维度，靠「消息内容 + 配置」哈希做隔离。理论上两个不同用户若发送字节完全相同的消息前缀（同 system_prompt、同 slots、同 user 文本），会命中同一条缓存 advisor reference。本地单用户无此问题；云端多租户下，虽然 advisor reference 是对「相同输入」的响应、内容本身不含用户私有数据泄漏（advisor 只看到被展开的对话），但仍属于跨租户共享缓存，需在设计上显式确认是否可接受。
+
+**初步判断**：
+已确认为架构约束，非 bug。根因：MVP 阶段按「本地单进程」假设设计缓存层，`FanoutCache` 接口（`get/set/delete/size/clear`）本身是同步的，且实现直接耦合进程内 `Map`。
+
+**可能的解决方案（迁移云端时择一或组合）**：
+- **方案 A：抽象缓存后端为异步接口 + 外部共享存储。** 把 `FanoutCache` 接口改成返回 Promise，实现从进程内 Map 换成 Redis / Memcached 等集中式缓存。TTL 直接用 Redis 原生 `EX`，LRU 交给 Redis 的 `maxmemory-policy allkeys-lru`。改动会把 `fanoutAdvisorsWithCache` 及其调用链染成 async（目前 `fanout.ts` 已经是 async，代价可控）。缓存键可考虑追加租户/user 维度前缀做硬隔离。
+- **方案 B：sticky session（会话亲和）路由。** 负载均衡按 `x-session-id` 做一致性哈希，同一 session 的所有请求（含工具迭代）固定打到同一实例，从而复用该实例的进程内 Map。改动最小（不动缓存代码，只改网关/LB 配置），但对 serverless 冷启无效，且实例扩缩容会打破亲和。
+- **方案 C：显式接受缓存为「尽力而为的进程本地优化」。** 云端保留进程内 Map 但不指望跨实例命中，把 user_turn 的收益定位成「同实例内偶然命中」。最简单，但等于放弃 user_turn 在云端的主要价值，需产品侧确认可接受。
+- **推荐**：方案 A 为主（云端唯一能保证跨实例一致的路径），可叠加 B 降低 Redis 压力。缓存键是否引入 session/tenant 维度，需结合 ISS 里跨租户共享的取舍一起拍板。
+
+**关联**：
+-> src/cache/fanout-cache.ts（进程内 Map 实现，需抽象为可插拔后端）
+-> src/cache/cache-key.ts（缓存键不含 session/tenant 维度）
+-> src/orchestrator/orchestrator.ts:65（缓存随 orchestrator 单例创建）
+-> src/orchestrator/orchestrator-holder.ts（单例持有）
+-> src/gateway/messages-handler.ts:38（sessionId 提取，当前仅用于 trace）
+
+## [ISS-067] Advisor 的 tool schema 剥离依赖 view-transformer 隐式丢弃，云端多 agent 来源下无法判定该剥什么、chat 请求不该剥
+
+**状态**：[发现]
+**优先级**：[P2 一般]
+**类型**：[技术债]
+**发现日期**：2026-08-06
+
+**现象**：
+当前 advisor 请求的构造（`src/advisor/advisor-runtime.ts:48-54`）是**从零新建**一个 request，只带 `model / messages / system / max_tokens / stream`，**根本不透传 `tools` / `tool_choice` 字段**——所以 advisor 侧的 tool schema「剥离」不是一个显式动作，而是「新建请求时压根不带」的隐式结果。同时 `system` 字段被整体替换成 `ADVISOR_SYSTEM_PROMPT`（`advisor-runtime.ts:46`），客户端原始 system prompt（含各 agent 注入的工具使用说明）被丢弃。消息体里的 tool 痕迹则由 `convertToAdvisorView`（`src/advisor/view-transformer.ts:72-86`）拍平成纯文本：`tool_use` → `[called tool: name(args)]`，`tool_result` → `[tool result: ...]`。
+
+这套「隐式丢弃 tools + 换掉 system + 拍平消息」在本地面向单一 Claude Code 客户端时工作正常。但它隐含了一个前提：**advisor 看到的应当是一个「没有工具能力、纯文本推理」的视图**。
+
+**问题在云端浮现**：作为通用 LLM API 前端后，请求来源不再只有 Claude Code，可能是 Codex、其它 Claude 客户端、或纯 chat 请求。这带来两个此前不存在的判定难题：
+1. **无法区分请求语义**：aggregator 侧是 `{...original}` 全量透传（含 `tools` / `system`，见 `aggregator-runtime.ts:37-42`），advisor 侧是全新建。当前 advisor 无条件走「剥离」路径。但纯 chat 请求（无 tools、system 就是用户的角色设定而非工具说明）根本不该被「剥离 + 换 system」——把用户精心设的 system persona 换成 advisor judgement prompt 会直接改变回答风格。
+2. **不同 agent 的 tool schema 组织方式可能不同**：Claude Code、Codex、Claude 桌面端注入工具说明的位置和结构未必一致（有的在 `tools` 字段、有的可能在 system 文本里描述、有的在 message 里）。当前只处理了 `tools` 字段（新建时不带）+ message 里的 `tool_use`/`tool_result` 块（view-transformer 拍平），**没有处理「system 文本里内嵌的工具说明」这一情况**。若某来源把工具清单写在 system 文本里，advisor 侧换掉整个 system 恰好把它一起丢了（这次侥幸正确），但若某来源的 system 里既有工具说明又有必须保留的任务上下文，一刀切换掉就会误伤。
+
+**后果**：
+1. 云端纯 chat 请求被误当 agent 请求处理，system persona 被 advisor prompt 覆盖，回答走样
+2. 不同 agent 来源的 tool schema 若不在 `tools` 字段而在 system/message 文本里，剥离不干净或误伤有效上下文
+3. 「剥离」逻辑分散在两处（新建请求时不带 tools + view-transformer 拍平消息 + 换 system），无单一、可按来源分派的策略层，扩展到多来源时难以维护
+
+**初步判断**：
+已确认为架构缺口。根因：MVP 假设唯一客户端是 Claude Code，advisor 视图转换是「一种」硬编码策略，没有「请求分类 → 选择对应剥离策略」的分派层。
+
+**可能的解决方案**：
+- **方案 A：请求分类器 + 按来源的剥离策略表。** 在 orchestrator 入口加一个 classifier，依据可观测特征判定来源与语义：是否存在 `tools` 字段、`tools` 是否非空、messages 里是否出现过 `tool_use`/`tool_result` 块、system 文本是否命中已知 agent 的指纹（如 Claude Code 的特定前缀）。据此分派到不同的 advisor 视图策略（Claude Code 策略 / Codex 策略 / 通用 chat 策略）。
+- **方案 B：用「是否 agent 请求」的启发式做二分，chat 请求走轻剥离。** 判据示例：`tools` 字段缺失或为空 **且** 全部 messages 无 tool_use/tool_result 块 → 判为 chat 请求 → advisor 侧保留原 system、不做工具拍平（因为本就没有工具上下文）；否则判为 agent 请求 → 走当前剥离路径。这直接回答「chat 请求如何判定不剥离」：**以 tools 字段 + 消息里 tool block 的存在性作为信号**。实现成本低，覆盖绝大多数场景。
+- **方案 C：把剥离策略做成配置驱动。** config 里声明各 `client_model` 前缀 / header 特征 → 剥离策略映射，网关按请求特征查表。灵活但需要维护来源指纹库。
+- **推荐**：方案 B 打底（tools + tool block 存在性判 chat/agent，解决「chat 不剥离」的核心诉求），需要精细区分多 agent 时叠加方案 A 的来源指纹。关于「不同 agent 的 tool schema 组成是否一致」——需实测采样 Claude Code / Codex / Claude 各自的真实请求体（`tools` 结构、system 是否内嵌工具说明、message 结构）后才能定论，先在本 issue 标记为待调研项。
+
+**待调研（迁移前必做）**：
+-> 采样 Claude Code / Codex / 其它 Claude 客户端的真实 `/v1/messages` 请求体，确认三者 tool schema 的承载位置（`tools` 字段 vs system 文本 vs message）是否一致，据此定剥离策略的粒度
+
+**关联**：
+-> src/advisor/advisor-runtime.ts:46-54（新建请求不带 tools + 换 system，隐式剥离）
+-> src/advisor/view-transformer.ts:72-86（消息里 tool_use/tool_result 拍平为文本）
+-> src/aggregator/aggregator-runtime.ts:37-42（aggregator 全量透传 tools/system，与 advisor 不对称）
+-> src/types/anthropic.ts:60-73（AnthropicMessagesRequest 的 tools / tool_choice / system 字段）
+
+## [ISS-068] Reference 拼接位置按 Claude Code 上下文结构硬编码，云端无法判定请求来自哪个引擎
+
+**状态**：[发现]
+**优先级**：[P2 一般]
+**类型**：[技术债]
+**发现日期**：2026-08-06
+
+**现象**：
+当前把 advisor references 注入 aggregator 请求的逻辑（`src/aggregator/reference-builder.ts:75-96` 的 `appendReferencesToLastUser`）是**追加到最后一条消息**：若最后一条是 user 消息，就把 payload 拼到它最后一个 text 块尾部；若不是（比如最后一条是 assistant），就新建一条 user 消息装 payload。这个「拼到最后一条 user 尾部」的位置选择，是按 Claude Code 的上下文结构 + Anthropic prompt caching 前缀不变量设计的（保留前缀 message 引用不变，见 ISS-031 与 `docs/001ARCHITECTURE.md` 的「Aggregator 字节级透传原则」约定条目）。
+
+云端作为通用前端后，不同引擎（Claude Code / Codex / 其它 Claude 客户端 / 纯 chat）的上下文组织结构不同：最后一条消息是 user 还是 assistant、user 消息里是 string 还是 content blocks、是否有 tool_result 尾随、prompt cache 断点打在哪里，都可能不一样。**「拼到最后一条 user 尾部」这个位置对 Claude Code 是最优的，对其它引擎未必**——可能破坏对方的 cache 前缀、可能拼在语义上错误的位置、可能让 aggregator 误解 references 的归属。
+
+而要为不同引擎选对拼接位置，前提是**先判定请求来自哪个引擎**——这在云端无状态环境里本身就是个麻烦问题（与 ISS-067 的来源判定同源）。
+
+**后果**：
+1. 非 Claude Code 来源的请求，references 拼接位置可能破坏对方 prompt cache 前缀，成本/延迟劣化
+2. 拼接位置在语义上不契合对方上下文结构时，aggregator 对 references 的理解质量下降
+3. reference 注入逻辑与「Claude Code 上下文假设」强耦合，无来源分派层，多引擎下不可维护
+
+**初步判断**：
+已确认为架构缺口，与 ISS-066（无状态）、ISS-067（来源判定）同根：MVP 假设唯一来源是 Claude Code，注入策略是单一硬编码，缺「请求来源判定 → 选注入策略」的分派层。
+
+**可能的解决方案**：
+- **方案 A：来源判定 + 按引擎的注入策略表。** 复用 ISS-067 的 classifier 结果，为每个已知引擎配一套注入策略（位置 + 是否保前缀 + payload 格式）。判定不出来源时回退到一个「通用安全策略」。
+- **方案 B：通用安全注入位置。** 找一个对所有引擎都不破坏语义、代价可接受的位置（例如始终新建一条独立 user 消息承载 references，而非拼进对方现有消息）。牺牲一点 Claude Code 的 prompt cache 前缀命中，换取跨引擎的鲁棒性与实现简单。
+- **方案 C：与 ISS-069 合并考虑。** 注入位置的选择与「user_turn 下 references 加不加、加在哪」（ISS-069）本质是同一组配置维度，建议一并做成 config 驱动。
+- **推荐**：短期方案 B（通用安全位置）保证多引擎正确性；长期若要为 Claude Code 保 cache 收益，再叠加方案 A 的来源分派。来源判定的可行性与 ISS-067 待调研项绑定。
+
+**关联**：
+-> src/aggregator/reference-builder.ts:75-96（appendReferencesToLastUser 拼到最后一条 user 尾部）
+-> src/aggregator/reference-builder.ts:41-43（composeAggregatorPayload payload 组装）
+-> docs/001ARCHITECTURE.md「Aggregator 字节级透传原则」（prompt cache 前缀不变量）
+-> ISS-067（请求来源判定，同源）
+-> ISS-069（references 加不加 / 加在哪，同一组配置维度）
+
+## [ISS-069] user_turn 下 references 的注入策略（加不加、加在哪）应做成 config 可配置项
+
+**状态**：[已解决]
+**优先级**：[P2 一般]
+**类型**：[体验]
+**发现日期**：2026-08-06
+**解决日期**：2026-08-07
+**解决方案**：`MoMConfig` 新增 `reference_injection` 字段，两个正交枚举维度——`timing`（`user_turn_only` 默认 / `every_request`）门控工具迭代是否注入，`position`（`user_message_tail` 默认 / `context_tail`）选择拼接落点。抽出纯策略函数 `applyReferenceInjection`（`src/aggregator/reference-builder.ts`）作为唯一决策点，编排层透传已有的 `isNewUserTurn`。默认组合 `user_turn_only + user_message_tail`：新 user turn 行为与改动前逐字节一致，工具迭代默认跳过注入。旧配置文件缺字段时由 `normalizeReferenceInjection` 在加载边界兜底填默认；POST /api/config 缺字段时 backfill 默认。详见 decisions/011。
+
+**现象**：
+当前 aggregator 无条件把 references 拼到最后一条 user 消息尾部（`src/aggregator/reference-builder.ts:75-96`），且 mom_mode=always 下**每一个请求**（含工具迭代）都会执行 aggregator 注入——注入行为无任何开关，位置也写死。在 user_turn 模式下，一次 user query 的 agent loop 里有多个上游请求，是否每个都注入 references、注入到哪，会显著影响 prompt cache 命中与上下文结构，当前无配置手段调节。
+
+**这是一个策略选择问题，需要暴露成配置让使用者按场景取舍**，涉及两层决策：
+
+**决策一：user turn 后的工具迭代请求，references 加还是不加？**
+- 选项「不加」的论据：首个 user query 已注入过 references，大模型的后续思考已经把 references 的内容「消化」进了它的回复轨迹，工具迭代阶段的上下文里已经留有这份影响的印记。再重复注入是对已内化信息的冗余强化，既费 token 又可能干扰。
+- 选项「加」的论据：某些场景希望每一步工具决策都持续被 advisor 意见约束，不希望影响随对话变长而稀释。
+
+**决策二：若决定要加，加在什么位置？**（两种位置各有 prompt cache 代价）
+- **位置 A：拼在 user query（user message）尾部。** 单个 agent loop 内的上下文结构是 `user query + references | tool_use_1 | tool_result_1 | tool_use_2 ...`，references 在前缀里位置固定，工具轮次不断追加在后 → **单个 loop 内缓存前缀稳定、可持续命中**。缺点：进入下一个 user query（第二个 agent loop）时 references 会被移除/重放，导致第一个 loop 里 references 之后的 tool 上下文前缀全部变化、缓存失效需重建。
+- **位置 B：拼在 tool 序列的最末尾。** 上下文结构是 `user query | tool_use_1 | tool_result_1 | ... | references`，每次工具迭代都把 references 追加到当前最末 → **单个 loop 内 references 位置每轮变化，造成 loop 内 references 处的缓存反复重建**。优点：references 之前的 `user query + 各轮 tool` 前缀保持稳定，跨到第二个 agent loop 时这部分 tool 上下文无需重建、可直接复用。
+
+两个位置本质是「优化单 loop 内命中」vs「优化跨 loop 复用」的权衡，最优选择依赖真实 workload 的 loop 长度分布，因此**不应硬编码，应做成 config 配置项**。
+
+**后果**：
+不可配置时，注入策略对所有场景一刀切，无法针对不同 workload（长 agent loop vs 多轮短对话）优化 token 成本与 cache 命中率。
+
+**初步判断**：
+已确认为可配置化需求（非 bug）。当前实现只有位置 A 的一种变体且无「加/不加」开关。
+
+**解决方案（本 issue 明确采用 config 驱动）**：
+在 `data/mom.config.json` 新增 references 注入策略配置，建议形如：
+
+最终落地的字段形状（`timing` 取代讨论期的 `on_tool_iteration`，与 `position` 对称成两个正交枚举）：
+
+```jsonc
+"reference_injection": {
+  // 何时注入：user_turn_only=仅新 user turn（工具迭代跳过，默认）；every_request=每个请求都注入
+  "timing": "user_turn_only",
+  // 注入位置：user_message_tail=最后一条真实 user 消息尾部（位置 A，优化单 loop 命中，默认）；
+  //           context_tail=整个消息序列末尾（位置 B，优化跨 loop 复用）
+  "position": "user_message_tail"
+}
+```
+
+实际改动：
+- `src/types/mom.ts`：新增 `ReferenceInjectionTiming` / `ReferenceInjectionPosition` / `ReferenceInjectionSettings`；`MoMConfig` 加 `reference_injection`；`DEFAULT_REFERENCE_INJECTION` + `normalizeReferenceInjection` 兜底
+- `src/aggregator/reference-builder.ts`：`appendReferencesToLastUser` 重构为纯策略函数 `applyReferenceInjection`，`timing` 门控注入、`position` 分派落点，返回 `{messages, injected, payload}`
+- `src/aggregator/aggregator-runtime.ts`：`buildAggregatorRequest` / `runAggregator*` 增 `isNewUserTurn` 参数；`references_appended` 反映实际注入（跳过时为 ''）
+- `src/orchestrator/orchestrator.ts`：`runFanoutStage` 返回 `isNewUserTurn` 并透传给两条 aggregator 路径
+- `src/dashboard-api/config-api.ts`：新增字段枚举校验；POST 缺字段 backfill 默认
+- `src/config/mom-config-file.ts`：加载边界 `normalizeReferenceInjection` 兜底旧文件
+- `web/src/lib/api.ts`：前端 MoMConfig 镜像同步新字段
+- `data/mom.config.json`：补 `reference_injection` 默认值
+
+**关联**：
+-> src/aggregator/reference-builder.ts（`applyReferenceInjection` 纯策略层）
+-> src/aggregator/aggregator-runtime.ts（透传 isNewUserTurn）
+-> src/orchestrator/orchestrator.ts（runFanoutStage 暴露 isNewUserTurn）
+-> src/types/mom.ts（reference_injection 类型 + 默认 + normalize）
+-> src/dashboard-api/config-api.ts（枚举校验 + backfill）
+-> src/config/mom-config-file.ts（加载边界兜底）
+-> test/reference-builder.test.ts（timing×position 四象限）
+-> test/dashboard-api-config.test.ts（校验 + backfill）
+-> ISS-068（注入位置的来源分派，同一组配置维度）
+-> decisions/011-reference-injection-policy.md
+-> 004CHANGELOG.md [2026-08-07-1]
+
 <!--
 新增条目模板：
 
