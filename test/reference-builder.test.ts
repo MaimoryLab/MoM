@@ -230,3 +230,109 @@ describe('applyReferenceInjection — non-mutation', () => {
     assert.equal((m1.content as Array<{ text: string }>)[0]!.text, 'orig');
   });
 });
+
+describe('applyReferenceInjection — user_message_tail degradation (no real user msg)', () => {
+  it('falls back to the last message when the first request is a tool_result', () => {
+    // A conversation whose only user message carries a tool_result (no genuine
+    // query). user_message_tail has no real user target, so it degrades to the
+    // last message. Since that message is role=user, the payload appends in place.
+    const messages: AnthropicMessage[] = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'x', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'r' }] },
+    ];
+    const out = applyReferenceInjection({
+      messages,
+      references: 'REF',
+      isNewUserTurn: false,
+      settings: EVERY_USER_TAIL,
+    });
+    assert.equal(out.injected, true);
+    assert.equal(out.messages.length, 2);
+    // degraded target is index 1 (last message, a user tool_result carrier)
+    assert.match(lastText(out.messages[1]!), GUIDANCE_RE);
+    // index 0 (assistant) keeps identity
+    assert.strictEqual(out.messages[0], messages[0]);
+  });
+
+  it('synthesizes a trailing user message when the degraded tail is assistant', () => {
+    // No real user message AND the last message is an assistant turn → the
+    // payload cannot append onto a user message, so a fresh user message is
+    // pushed carrying the pure payload.
+    const messages: AnthropicMessage[] = [
+      { role: 'assistant', content: 'partial thought' },
+    ];
+    const out = applyReferenceInjection({
+      messages,
+      references: 'REF',
+      isNewUserTurn: false,
+      settings: EVERY_USER_TAIL,
+    });
+    assert.equal(out.injected, true);
+    assert.equal(out.messages.length, 2);
+    assert.equal(out.messages[1]!.role, 'user');
+    assert.match(lastText(out.messages[1]!), /^You have been provided with a set of responses/);
+  });
+});
+
+describe('applyReferenceInjection — empty references still carries scaffolding', () => {
+  it('injects guidance + header even when the references string is empty', () => {
+    const messages: AnthropicMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'q' }] },
+    ];
+    const out = applyReferenceInjection({
+      messages,
+      references: '',
+      isNewUserTurn: true,
+      settings: USER_TAIL,
+    });
+    assert.equal(out.injected, true);
+    assert.match(out.payload, GUIDANCE_RE);
+    assert.match(out.payload, HEADER_RE);
+  });
+});
+
+describe('applyReferenceInjection — append onto empty-string content', () => {
+  it('pushes a fresh text block when the user message content is ""', () => {
+    // content === '' normalizes to zero blocks; cloneWithAppendedText then has
+    // no text block to append to, so it pushes a new one carrying the payload
+    // WITHOUT the leading query text (but with the "---" separator prefix).
+    const messages: AnthropicMessage[] = [{ role: 'user', content: '' }];
+    const out = applyReferenceInjection({
+      messages,
+      references: 'REF',
+      isNewUserTurn: true,
+      settings: USER_TAIL,
+    });
+    assert.equal(out.injected, true);
+    const blocks = out.messages[0]!.content as Array<{ type: string; text?: string }>;
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0]!.type, 'text');
+    assert.match(blocks[0]!.text!, /^\n\n---\n\n/);
+    assert.match(blocks[0]!.text!, GUIDANCE_RE);
+  });
+});
+
+describe('buildConcatReferences — token budget boundaries', () => {
+  it('reference_max_tokens=0 truncates all body text to the marker', () => {
+    const out = buildConcatReferences([ok('modelA', 'some analysis')], {
+      ...DEFAULT_MOM_CONFIG,
+      reference_max_tokens: 0,
+    });
+    // label kept, body replaced by just the truncation marker (0-char budget)
+    assert.match(out, /\[Reference 1 — modelA\]/);
+    assert.match(out, /\[\.\.\.reference truncated\.\.\.\]/);
+  });
+
+  it('negative reference_max_tokens clamps to a 0-char budget (no crash)', () => {
+    const out = buildConcatReferences([ok('modelA', 'body')], {
+      ...DEFAULT_MOM_CONFIG,
+      reference_max_tokens: -100,
+    });
+    assert.match(out, /\[\.\.\.reference truncated\.\.\.\]/);
+  });
+
+  it('empty advisor list yields an empty concat string', () => {
+    const out = buildConcatReferences([], DEFAULT_MOM_CONFIG);
+    assert.equal(out, '');
+  });
+});

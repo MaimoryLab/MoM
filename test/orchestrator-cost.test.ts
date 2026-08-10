@@ -26,6 +26,7 @@ import {
   getRecentTraceRequests,
   getTraceRequestsBySessionId,
 } from '../src/storage/traces.js';
+import { calculateCostFromSnapshot } from '../src/cost/pricing.js';
 
 // --------------- mock provider --------------- //
 
@@ -204,16 +205,20 @@ describe('cost accounting: MoM always non-streaming', () => {
       const expected =
         (50 * p.input + 30 * p.output + 40 * p.cache_write + 10 * p.cache_read) /
         1_000_000;
+      const actual = calculateCostFromSnapshot(a.usage, a.pricing);
       assert.ok(
-        Math.abs(a.cost_usd - expected) < 1e-12,
-        `advisor ${a.selected_model} cost mismatch: got ${a.cost_usd}, want ${expected}`,
+        Math.abs(actual - expected) < 1e-12,
+        `advisor ${a.selected_model} cost mismatch: got ${actual}, want ${expected}`,
       );
     }
 
     // 3) aggregator cost = 400*0.5 + 80*2 + 100*0.625 + 200*0.05 / 1M
     const aggExpected =
       (400 * 0.5 + 80 * 2 + 100 * 0.625 + 200 * 0.05) / 1_000_000;
-    assert.ok(Math.abs(agg.cost_usd - aggExpected) < 1e-12);
+    assert.ok(
+      Math.abs(calculateCostFromSnapshot(agg.usage, agg.pricing) - aggExpected) <
+        1e-12,
+    );
     assert.equal(agg.usage.cache_creation_tokens, 100);
     assert.equal(agg.usage.cache_read_tokens, 200);
 
@@ -301,7 +306,7 @@ describe('cost accounting: MoM fanout cache hit', () => {
       assert.equal(a.usage.output_tokens, 0);
       assert.equal(a.usage.cache_creation_tokens, 0);
       assert.equal(a.usage.cache_read_tokens, 0);
-      assert.equal(a.cost_usd, 0);
+      assert.equal(calculateCostFromSnapshot(a.usage, a.pricing), 0);
       assert.equal(a.trigger_reason, 'skipped_tool_iteration');
       // pricing 快照仍保留,便于反演单价
       assert.ok(a.pricing, `cache_hit advisor should still preserve pricing snapshot; got null for ${a.selected_model}`);
@@ -353,7 +358,7 @@ describe('cost accounting: passthrough path', () => {
     assert.equal(t.usage.cache_read_tokens, 44);
     // pricing 缺失 → cost=0
     assert.equal(t.pricing, null);
-    assert.equal(t.cost_usd, 0);
+    assert.equal(calculateCostFromSnapshot(t.usage, t.pricing), 0);
   });
 
   it('passthrough hits pricing when client_model is directly in table', async () => {
@@ -388,7 +393,9 @@ describe('cost accounting: passthrough path', () => {
     const t = getTraceRequestsBySessionId(sessionId)[0]!;
     // (1000*1 + 500*5 + 200*1.25 + 100*0.1) / 1M
     const expected = (1000 * 1 + 500 * 5 + 200 * 1.25 + 100 * 0.1) / 1_000_000;
-    assert.ok(Math.abs(t.cost_usd - expected) < 1e-12);
+    assert.ok(
+      Math.abs(calculateCostFromSnapshot(t.usage, t.pricing) - expected) < 1e-12,
+    );
   });
 });
 
@@ -574,7 +581,7 @@ describe('multi-session isolation', () => {
     for (const a of advA) assert.equal(a.cache_hit, false);
     for (const b of advB) {
       assert.equal(b.cache_hit, true, 'session B advisors should hit fanout cache (same key)');
-      assert.equal(b.cost_usd, 0);
+      assert.equal(calculateCostFromSnapshot(b.usage, b.pricing), 0);
     }
   });
 });

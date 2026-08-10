@@ -29,6 +29,7 @@ import {
 } from '../src/storage/traces.js';
 import { computeFanoutCacheKey } from '../src/cache/cache-key.js';
 import { createFanoutCache } from '../src/cache/fanout-cache.js';
+import { calculateCostFromSnapshot } from '../src/cost/pricing.js';
 
 // --- shared mock provider ---
 interface Handler {
@@ -237,7 +238,9 @@ describe('mom_off streaming: SSE usage extraction', () => {
     assert.equal(t.usage.cache_read_tokens, 50);
     // cost = (500*1 + 250*5 + 100*1.25 + 50*0.1) / 1M = 0.001880
     const expected = (500 * 1 + 250 * 5 + 100 * 1.25 + 50 * 0.1) / 1_000_000;
-    assert.ok(Math.abs(t.cost_usd - expected) < 1e-12);
+    assert.ok(
+      Math.abs(calculateCostFromSnapshot(t.usage, t.pricing) - expected) < 1e-12,
+    );
   });
 });
 
@@ -352,7 +355,11 @@ describe('usage clamping: negative / NaN / undefined values', () => {
       assert.equal(t.usage.output_tokens, 0);
       assert.equal(t.usage.cache_creation_tokens, 0);
       assert.equal(t.usage.cache_read_tokens, 0);
-      assert.equal(t.cost_usd, 0, 'zero usage → zero cost even with pricing present');
+      assert.equal(
+        calculateCostFromSnapshot(t.usage, t.pricing),
+        0,
+        'zero usage → zero cost even with pricing present',
+      );
     }
   });
 });
