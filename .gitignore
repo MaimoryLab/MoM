@@ -13,6 +13,8 @@ data/*
 .DS_Store
 .env
 .env.local
+.env.sandbox
+.env.*.local
 .vscode/
 .idea/
 .claude/
