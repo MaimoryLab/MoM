@@ -146,12 +146,18 @@ info "running claude (session ${SESSION_ID}) — real provider calls, consumes t
 # Point ONLY this child process at the gateway; inject the session id header.
 PROVIDER_KEY="$(node --env-file=.env -e 'process.stdout.write(process.env.PROVIDER_API_KEY ?? "")')"
 
+# Route ONLY this child at the gateway. Note: do NOT set CLAUDE_CODE_USE_GATEWAY
+# here — that flag sends Claude Code down a different auth/routing path that
+# bypasses ANTHROPIC_BASE_URL, so requests never reach the local gateway. Plain
+# ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN is what actually routes here.
+# --model must be a name the provider recognises (an advisor/aggregator slot).
+AGG_MODEL="$(node -e 'const fs=require("fs");process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).aggregator.model)' "${SMOKE_CONFIG}")"
 set +e
 ANTHROPIC_BASE_URL="http://127.0.0.1:${PORT}" \
 ANTHROPIC_AUTH_TOKEN="${PROVIDER_KEY}" \
 ANTHROPIC_CUSTOM_HEADERS="X-Session-ID: ${SESSION_ID}" \
-CLAUDE_CODE_USE_GATEWAY=1 \
   claude -p "Read package.json in the current directory and tell me the value of the \"name\" field. Use your file tools." \
+    --model "${AGG_MODEL}" \
     --permission-mode acceptEdits \
     --add-dir "${REPO_ROOT}" \
     >"${CLAUDE_LOG}" 2>&1
@@ -182,7 +188,13 @@ AGG="$(jq '[.requests[] | select(.role=="aggregator")] | length' <<<"${TRACES}")
 PASS_ROWS="$(jq '[.requests[] | select(.role=="passthrough")] | length' <<<"${TRACES}")"
 [[ "${ADV}" -ge 1 ]] && pass "mom_mode=always: ${ADV} advisor rows" || fail "expected advisor rows, got ${ADV}"
 [[ "${AGG}" -ge 1 ]] && pass "mom_mode=always: ${AGG} aggregator rows" || fail "expected aggregator rows, got ${AGG}"
-[[ "${PASS_ROWS}" -eq 0 ]] && pass "no passthrough rows (MoM engaged)" || fail "unexpected passthrough rows: ${PASS_ROWS}"
+# Only meaningful once we actually captured traces — 0 passthrough on 0 rows
+# would be a false positive.
+if [[ "${COUNT}" -gt 0 && "${PASS_ROWS}" -eq 0 ]]; then
+  pass "no passthrough rows (MoM engaged)"
+else
+  fail "expected 0 passthrough rows on a populated session, got ${PASS_ROWS} (count=${COUNT})"
+fi
 
 # 2) fanout_mode → inspect advisor trigger_reason distribution.
 info "advisor trigger_reason distribution:"
