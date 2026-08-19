@@ -118,7 +118,7 @@ async function orchestrateNonStreaming(
       log,
     );
   }
-  const { advisorResults, triggerReason } = await runFanoutStage(
+  const { advisorResults, triggerReason, isNewUserTurn } = await runFanoutStage(
     body,
     provider,
     mom,
@@ -144,6 +144,7 @@ async function orchestrateNonStreaming(
       advisorResults,
       mom,
       provider,
+      isNewUserTurn,
     );
   } catch (err) {
     const finishedAt = Date.now();
@@ -221,7 +222,7 @@ async function orchestrateStreaming(
     );
     return;
   }
-  const { advisorResults, triggerReason } = await runFanoutStage(
+  const { advisorResults, triggerReason, isNewUserTurn } = await runFanoutStage(
     body,
     provider,
     mom,
@@ -246,6 +247,7 @@ async function orchestrateStreaming(
     mom,
     provider,
     output,
+    isNewUserTurn,
     { onEvent: collected.onEvent, log },
   );
   const response = collected.build();
@@ -387,6 +389,7 @@ interface FanoutStageOutput {
   advisorResults: AdvisorResult[];
   triggerReason: TriggerReason;
   cacheHit: boolean;
+  isNewUserTurn: boolean;
 }
 
 async function runFanoutStage(
@@ -435,7 +438,7 @@ async function runFanoutStage(
         ? 'fanout cache hit'
         : 'fanout complete',
   );
-  return { advisorResults, triggerReason, cacheHit: cache_hit };
+  return { advisorResults, triggerReason, cacheHit: cache_hit, isNewUserTurn: isNewTurn };
 }
 
 // ---------------------- trace persistence ----------------------

@@ -376,7 +376,7 @@ export const zh: Dict = {
       'Medicine': '医学',
       'Needle in a Haystack': '长上下文检索',
       'Personalized Assistant': '个人助手',
-      'Shopping/Product Comparison': '购物 / 商品对比',
+      'Shopping/Product Comparison': '商品对比',
       'Technology': '科技',
       'UX Design': '交互设计',
     },

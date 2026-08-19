@@ -98,6 +98,26 @@ describe('assertMoMConfigShape', () => {
     };
     assert.throws(() => assertMoMConfigShape(cfg), ValidationError);
   });
+  it('rejects missing reference_injection', () => {
+    const cfg: any = baseMoM();
+    delete cfg.reference_injection;
+    assert.throws(() => assertMoMConfigShape(cfg), ValidationError);
+  });
+  it('rejects unknown reference_injection.timing', () => {
+    const cfg: any = baseMoM();
+    cfg.reference_injection.timing = 'sometimes';
+    assert.throws(() => assertMoMConfigShape(cfg), ValidationError);
+  });
+  it('rejects unknown reference_injection.position', () => {
+    const cfg: any = baseMoM();
+    cfg.reference_injection.position = 'middle';
+    assert.throws(() => assertMoMConfigShape(cfg), ValidationError);
+  });
+  it('accepts every_request + context_tail', () => {
+    const cfg: any = baseMoM();
+    cfg.reference_injection = { timing: 'every_request', position: 'context_tail' };
+    assertMoMConfigShape(cfg);
+  });
 });
 
 describe('GET /api/config', () => {
@@ -211,6 +231,33 @@ describe('POST /api/config', () => {
       assert.equal(res.statusCode, 400);
       const body = res.json() as any;
       assert.equal(body.error.type, 'invalid_request_error');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('200 backfills default reference_injection when omitted (older client)', async () => {
+    app = await buildApp();
+    try {
+      const desired: any = validAlwaysMoM();
+      delete desired.reference_injection;
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/config',
+        payload: { mom: desired },
+        headers: { 'content-type': 'application/json' },
+      });
+      assert.equal(res.statusCode, 200);
+      const body = res.json() as any;
+      assert.deepEqual(body.mom.reference_injection, {
+        timing: 'user_turn_only',
+        position: 'user_message_tail',
+      });
+      const persisted = JSON.parse(readFileSync(momConfigPath, 'utf8'));
+      assert.deepEqual(persisted.reference_injection, {
+        timing: 'user_turn_only',
+        position: 'user_message_tail',
+      });
     } finally {
       await app.close();
     }

@@ -169,8 +169,8 @@ Claude Code POST /v1/messages（可带 X-Session-ID header）
                  cache.set(key, advisorResults)
       → computeTriggerReason(fanout_mode, isNewTurn, cacheHit) → TriggerReason（6 种标签之一）
       → persistAdvisorTraces 落 N 条 role='advisor' TraceRequest（每个 slot 一条；status=success/error/cache_hit；pricing 快照）
-  → runAggregatorNonStreaming(body, advisorResults, mom, provider)
-      → buildConcatReferences → appendReferencesToLastUser（仅改最后一条 message，前缀引用不变）
+  → runAggregatorNonStreaming(body, advisorResults, mom, provider, isNewUserTurn)
+      → buildConcatReferences → applyReferenceInjection（timing 门控是否注入、position 选落点，非目标 message 引用不变）
       → passthroughCall(aggregator request, provider)
   → persistAggregatorTrace 落 1 条 role='aggregator' TraceRequest（同 gateway_request_id 共享 session_id）
   → 若 aggregator 抛错：在 orchestrator catch 中先落一条 status='error' 的 aggregator TraceRequest 再重抛，保证 N 条 advisor + 1 条 aggregator 记录完整
@@ -184,8 +184,8 @@ Claude Code POST /v1/messages {stream:true}（可带 X-Session-ID header）
   → messages-handler.handleStreaming()：设置 SSE header + reply.hijack()
   → orchestrator.streaming(body, sessionId, reply.raw, log)
       → 同链路 D 的 fanout stage（触发标签 + cache 查询 + 补跑）+ persistAdvisorTraces
-      → runAggregatorStreaming(body, advisorResults, mom, provider, output, {onEvent, log})
-          → 构造 aggregator request（stream=true）
+      → runAggregatorStreaming(body, advisorResults, mom, provider, output, isNewUserTurn, {onEvent, log})
+          → 构造 aggregator request（stream=true；applyReferenceInjection 按 timing/position 注入）
           → passthroughStream(req, output, provider, {onEvent, log})
              主链路：res.body.on('data') 手动 write 到 output（字节级转发）
              旁路（onEvent 非空时）：同一 data 喂给 SSE 增量分帧器 → JSON.parse → StreamCollector
@@ -274,7 +274,8 @@ GET /api/presets                                → 读 data/presets.json → Pr
 - **环境变量默认值**：`MOM_PORT=3000` / `MOM_DB_PATH=mom.db` / `MOM_CONFIG_PATH=data/mom.config.json`
 - **Streaming 错误**：网关向客户端已开始 SSE 写入后，错误统一编码为 `event: error` 帧再 `end()`，不改协议
 - **定价表**：不硬编码，作为 `MoMConfig.pricing_table` 存于 `data/mom.config.json`，Dashboard 可编辑（Phase 4 起）
-- **Aggregator 字节级透传原则**（Phase 2 起）：`appendReferencesToLastUser` 只克隆最后一条 user message，前缀所有 message 保持原对象引用不变，保证 Claude Code 侧 cache_control 前缀命中；请求 `system` 字段亦字节级透传 Claude Code 原始 system 不动。Aggregator 侧的使用说明（`AGGREGATOR_GUIDANCE` + `AGGREGATOR_REFERENCES_HEADER`，ISS-031）走**最后一条 user 尾部注入**这一条路径，与 references 拼在同一个 text block 里，不进 `system`
+- **Aggregator 字节级透传原则**（Phase 2 起）：`applyReferenceInjection` 只克隆注入目标那一条 message，其余 message 保持原对象引用不变，保证 Claude Code 侧 cache_control 前缀命中；请求 `system` 字段亦字节级透传 Claude Code 原始 system 不动。Aggregator 侧的使用说明（`AGGREGATOR_GUIDANCE` + `AGGREGATOR_REFERENCES_HEADER`，ISS-031）与 references 拼在同一个 text block 里，不进 `system`
+- **Reference 注入策略**（ISS-069 起）：`applyReferenceInjection` 是注入唯一决策点，由 `MoMConfig.reference_injection` 两个正交维度驱动——`timing`（`user_turn_only` 仅新 user turn 注入、工具迭代跳过；`every_request` 每个请求都注入）门控是否注入；`position`（`user_message_tail` 拼到最后一条真实 user 消息尾部；`context_tail` 拼到消息序列末尾）选落点。默认 `user_turn_only + user_message_tail`。跳过注入时 `references_appended` 为空串。缺字段由 `normalizeReferenceInjection` 在配置加载边界兜底默认
 - **Advisor 失败容忍**（Phase 2 起）：单个 advisor 失败以 `[Reference N — slot failed: reason]` 占位符继续拼接，aggregator 请求不中断；aggregator 自身失败按 handler 层的 ProviderError 走原样透出
 - **Trace 快照范围**（Phase 2 起）：`TraceRequest.settings_snapshot: MoMConfig`——不快照 `provider.api_key` / `base_url` / `auth_style`（避免秘钥旅行到 SQLite）
 - **AdvisorResult 语义**（Phase 2 起）：`usage` 是本次真实调用产生的 token 数；命中缓存时 `usage` 全部为 0、`cache_hit = true`、`latency_ms ≈ 0`
